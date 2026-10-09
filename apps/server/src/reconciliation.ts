@@ -4,6 +4,7 @@ import type { CommandReceipt, ControlStore } from './store';
 /** Resolve receipt writes interrupted by a crash without replaying the command. */
 export function reconcileCommandReceipts(store: ControlStore, checkpoint: FleetCheckpoint | undefined): CommandReceipt[] {
   const awaiting = new Set<string>(checkpoint?.pendingRuleCommands.map(command => command.commandId));
+  for (const command of checkpoint?.pendingCommands ?? []) awaiting.add(command.commandId);
   for (const agent of checkpoint?.agents ?? []) for (const commandId of agent.pendingCommandIds) awaiting.add(commandId);
   const updates: CommandReceipt[] = [];
   for (const receipt of store.pendingCommands()) {

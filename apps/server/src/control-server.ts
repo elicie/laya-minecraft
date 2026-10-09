@@ -22,10 +22,10 @@ export interface FleetControlPort {
   updateGoal(goalId: string, patch: GoalPatch, commandId?: string): unknown;
   cancelGoal(goalId: string, commandId?: string): unknown;
   updateRules(patch: RulesPatch, mode?: ExecutionMode, commandId?: string): unknown;
-  updateAgent(botId: string, patch: BotPatch, mode?: ExecutionMode, commandId?: string): unknown;
+  updateAgent(botId: string, patch: BotPatch, mode?: ExecutionMode, commandId?: string): Agent;
   removeAgent(botId: string, commandId?: string): unknown;
   pauseAgent(botId: string, commandId?: string): unknown;
-  resumeAgent(botId: string, commandId?: string): unknown;
+  resumeAgent(botId: string, commandId?: string): Agent;
   requestViewer(botId: string, enabled: boolean, port?: number, commandId?: string): unknown;
 }
 export interface ControlServerOptions {
@@ -101,6 +101,9 @@ export function createControlServer(options: ControlServerOptions) {
     viewerPorts.set(botId, candidate);
     return candidate;
   }
+  async function startEnabledAgent(agent: Agent): Promise<void> {
+    if (agent.config.enabled && (!agent.session || agent.session.state === 'stopped')) await options.startBot?.(agent);
+  }
 
   async function mutate(req: IncomingMessage, type: string, value: unknown, apply: (commandId: string) => unknown | Promise<unknown>): Promise<CommandReceipt> {
     const header = req.headers['idempotency-key'];
@@ -174,7 +177,7 @@ export function createControlServer(options: ControlServerOptions) {
         const input = BotInputSchema.parse({ ...raw, connection: { host: '127.0.0.1', port: 25566, auth: 'offline', ...connection } });
         receipt = await mutate(req, 'bot.add', input, async commandId => {
           const agent = core.addAgent(input, commandId);
-          if (agent.config.enabled) await options.startBot?.(agent);
+          await startEnabledAgent(agent);
         });
       } else if (req.method === 'POST' && path === '/api/v1/goals') {
         const input = GoalInputSchema.parse(value);
@@ -191,7 +194,10 @@ export function createControlServer(options: ControlServerOptions) {
           const action = botPath[2];
           if (req.method === 'PATCH' && !action) {
             const input = botPatchRequest.parse(value);
-            receipt = await mutate(req, 'bot.update', { botId, ...input }, id => core.updateAgent(botId, input.patch, input.mode, id));
+            receipt = await mutate(req, 'bot.update', { botId, ...input }, async id => {
+              const agent = core.updateAgent(botId, input.patch, input.mode, id);
+              await startEnabledAgent(agent);
+            });
           } else if (action === 'viewer' && (req.method === 'POST' || req.method === 'DELETE')) {
             emptyRequest.parse(value);
             const enabled = req.method === 'POST';
@@ -199,10 +205,12 @@ export function createControlServer(options: ControlServerOptions) {
             receipt = await mutate(req, enabled ? 'viewer.start' : 'viewer.stop', { botId, enabled }, id => core.requestViewer(botId, enabled, port, id));
           } else if (req.method === 'POST' && action && ['remove', 'pause', 'resume'].includes(action)) {
             emptyRequest.parse(value);
-            receipt = await mutate(req, `bot.${action}`, { botId }, id => {
+            receipt = await mutate(req, `bot.${action}`, { botId }, async id => {
               if (action === 'remove') return core.removeAgent(botId, id);
               if (action === 'pause') return core.pauseAgent(botId, id);
-              return core.resumeAgent(botId, id);
+              const agent = core.resumeAgent(botId, id);
+              await startEnabledAgent(agent);
+              return agent;
             });
           } else throw new HttpError(404, 'NOT_FOUND', '요청한 봇 기능을 찾을 수 없습니다.');
         } else if (goalPath) {

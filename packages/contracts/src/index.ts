@@ -21,9 +21,9 @@ export type ActionKind = z.infer<typeof ActionKindSchema>;
 export const ACTION_KINDS = ActionKindSchema.options;
 export const ExecutionModeSchema = z.enum(['queued', 'immediate']);
 export type ExecutionMode = z.infer<typeof ExecutionModeSchema>;
-export const ConnectionSchema = z.object({ host: z.string().min(1).max(255).default('127.0.0.1'), port: z.number().int().min(1).max(65535).default(25565), version: z.string().min(1).optional(), auth: z.enum(['offline', 'microsoft']).default('offline') }).strict();
+export const ConnectionSchema = z.object({ host: z.string().min(1).max(255).default('127.0.0.1'), port: z.number().int().min(1).max(65535).default(25566), version: z.string().min(1).optional(), auth: z.enum(['offline', 'microsoft']).default('offline') }).strict();
 export type Connection = z.infer<typeof ConnectionSchema>;
-export const BotInputSchema = z.object({ id: IdSchema.optional(), name: z.string().regex(/^[A-Za-z0-9_]{3,16}$/, 'Minecraft name must be 3–16 letters, digits or underscores'), role: z.string().min(1).max(40).default('general'), enabled: z.boolean().default(true), allowedActions: z.array(ActionKindSchema).max(32).default([...ACTION_KINDS]), connection: ConnectionSchema.default({ host: '127.0.0.1', port: 25565, auth: 'offline' }) }).strict();
+export const BotInputSchema = z.object({ id: IdSchema.optional(), name: z.string().regex(/^[A-Za-z0-9_]{3,16}$/, 'Minecraft name must be 3–16 letters, digits or underscores'), role: z.string().min(1).max(40).default('general'), enabled: z.boolean().default(true), allowedActions: z.array(ActionKindSchema).max(32).default([...ACTION_KINDS]), connection: ConnectionSchema.default({ host: '127.0.0.1', port: 25566, auth: 'offline' }) }).strict();
 export type BotInput = z.input<typeof BotInputSchema>;
 export type BotConfig = Omit<z.output<typeof BotInputSchema>, 'id'>;
 export const BotPatchSchema = z.object({ name: BotInputSchema.shape.name.optional(), role: z.string().min(1).max(40).optional(), enabled: z.boolean().optional(), allowedActions: z.array(ActionKindSchema).max(32).optional(), connection: ConnectionSchema.optional() }).strict();
@@ -31,7 +31,7 @@ export type BotPatch = z.infer<typeof BotPatchSchema>;
 
 export const RulesSchema = z.object({
   version: z.number().int().positive().default(1),
-  world: z.string().min(1).default('127.0.0.1:25565'), dimension: z.string().min(1).default('overworld'),
+  world: z.string().min(1).default('127.0.0.1:25566'), dimension: z.string().min(1).default('overworld'),
   center: PositionSchema.nullable().default(null), radius: z.number().min(1).max(10000).default(64),
   warehouse: ContainerRefSchema.nullable().default(null),
   maxRetries: z.number().int().min(0).max(5).default(5),
@@ -147,10 +147,10 @@ export const WorkerMessageSchema = z.discriminatedUnion('type', [
 ]);
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 
-export type GoalState = 'queued' | 'active' | 'condition-wait' | 'maintaining' | 'completed' | 'cancelled' | 'held';
+export type GoalState = 'queued' | 'active' | 'condition-wait' | 'maintaining' | 'completed' | 'cancelling' | 'cancelled' | 'held';
 export interface Goal { id: string; input: GoalDefinition; title: string; state: GoalState; targetQuantity?: number; taskIds: string[]; createdAt: number; updatedAt: number; reason?: string; progress: { current: number; target?: number }; generation: number; }
 export type TaskState = 'waiting' | 'assigned' | 'accepted' | 'running' | 'verifying' | 'completed' | 'condition-wait' | 'interrupted' | 'retry-wait' | 'cancelling' | 'cancelled' | 'held';
-export interface Task extends TaskSpec { state: TaskState; attemptId?: string; retryCount: number; resumeCount: number; checkpoint: JsonObject; progress: number; reason?: string; createdAt: number; updatedAt: number; retryAt?: number; blockedByGoalId?: string; }
+export interface Task extends TaskSpec { generation: number; state: TaskState; attemptId?: string; retryCount: number; resumeCount: number; checkpoint: JsonObject; progress: number; reason?: string; createdAt: number; updatedAt: number; retryAt?: number; blockedByGoalId?: string; }
 export interface TaskAttempt { id: string; taskId: string; botId: string; sessionId: string; controllerEpoch: string; reason: 'initial' | 'retry' | 'resume'; state: 'assigned' | 'accepted' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'interrupted' | 'failed' | 'uncertain'; startedAt?: number; assignedAt: number; finishedAt?: number; result?: ResultPayload; }
 export interface Reservation { key: string; taskId: string; attemptId: string; botId: string; sessionId: string; acquiredAt: number; }
 export interface AgentSession { id: string; state: 'starting' | 'ready' | 'abnormal' | 'stopped'; lastReportAt: number; report?: BotReport; activeAttemptId?: string; rulesVersion: number; pendingRulesVersion?: number; }
@@ -158,7 +158,8 @@ export interface Agent { id: string; config: BotConfig; desiredConfig?: BotConfi
 export interface CoreEvent { id: string; time: number; revision: number; type: string; commandId?: string; botId?: string; goalId?: string; taskId?: string; attemptId?: string; message: string; data?: JsonObject; }
 export interface FleetSnapshot { schemaVersion: 1; controllerEpoch: string; revision: number; updatedAt: number; rules: Rules; agents: Agent[]; goals: Goal[]; tasks: Task[]; attempts: TaskAttempt[]; reservations: Reservation[]; observations: Observation[]; events: CoreEvent[]; }
 export interface PendingRuleCommand { commandId: string; version: number; awaitingBotIds: string[]; }
-export interface FleetCheckpoint extends FleetSnapshot { processedMessageIds: string[]; pendingRuleCommands: PendingRuleCommand[]; }
+export interface PendingCoreCommand { commandId: string; type: 'agent-update' | 'pause' | 'resume' | 'remove' | 'viewer-start' | 'viewer-stop' | 'goal-cancel' | 'goal-update'; targetId: string; }
+export interface FleetCheckpoint extends FleetSnapshot { processedMessageIds: string[]; pendingRuleCommands: PendingRuleCommand[]; pendingCommands: PendingCoreCommand[]; stoppedSessionIds: string[]; }
 export const CommandReceiptSchema = z.object({ id: IdSchema, type: z.string(), state: z.enum(['accepted', 'applying', 'applied', 'failed']), createdAt: time, updatedAt: time, result: JsonValueSchema.optional(), error: z.string().optional() }).strict();
 export type CommandReceipt = z.infer<typeof CommandReceiptSchema>;
 export interface ApiError { error: { code: string; message: string; details?: JsonValue }; }

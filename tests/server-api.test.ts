@@ -29,7 +29,7 @@ function fixture(options: Partial<ControlServerOptions> = {}) {
   }
   const core: FleetControlPort = {
     getSnapshot: () => structuredClone(snapshot),
-    checkpoint: () => ({ ...structuredClone(snapshot), processedMessageIds: [], pendingRuleCommands: [] }),
+    checkpoint: () => ({ ...structuredClone(snapshot), processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [] }),
     addAgent(input, commandId) {
       const parsed = BotInputSchema.parse(input);
       const { id = randomUUID(), ...config } = parsed;
@@ -44,12 +44,12 @@ function fixture(options: Partial<ControlServerOptions> = {}) {
     },
     updateGoal() {}, cancelGoal() {},
     updateRules(patch, _mode, commandId) { Object.assign(snapshot.rules, patch); emit('rules.requested', commandId); },
-    updateAgent() {},
+    updateAgent(id) { return snapshot.agents.find(agent => agent.id === id)!; },
     removeAgent(id, commandId) {
       const agent = snapshot.agents.find(agent => agent.id === id);
       assert.ok(agent); agent.status = 'removed'; emit('command.applied', commandId);
     },
-    pauseAgent() {}, resumeAgent() {},
+    pauseAgent() {}, resumeAgent(id) { return snapshot.agents.find(agent => agent.id === id)!; },
     requestViewer(botId, enabled, port, commandId) {
       const agent = snapshot.agents.find(agent => agent.id === botId)!;
       agent.viewer = { state: enabled ? 'starting' : 'stopping', port, prefix: `/viewer/${botId}` };
