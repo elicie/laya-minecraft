@@ -390,7 +390,9 @@ export function App() {
                       goal.progress.target,
                     );
                     const tasks = snapshot!.tasks.filter(
-                      (task) => task.goalId === goal.id,
+                      (task) =>
+                        task.goalId === goal.id &&
+                        task.generation === goal.generation,
                     );
                     return (
                       <article className="goal-row" key={goal.id}>

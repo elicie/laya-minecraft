@@ -3,34 +3,15 @@ import type {
   CommandReceipt,
   FleetSnapshot,
 } from "../../../../packages/contracts/src";
-import { CommandReceiptSchema } from "../../../../packages/contracts/src";
+import {
+  CommandReceiptSchema,
+  FleetSnapshotSchema,
+} from "../../../../packages/contracts/src";
 import { API, errorMessage, request } from "../lib/api";
 import { mergeReceipt } from "../lib/display";
 
 export type ConnectionState =
   "connecting" | "live" | "reconnecting" | "offline";
-
-export function isSnapshot(value: unknown): value is FleetSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<FleetSnapshot>;
-  return (
-    state.schemaVersion === 1 &&
-    typeof state.controllerEpoch === "string" &&
-    typeof state.revision === "number" &&
-    Number.isFinite(state.revision) &&
-    !!state.rules &&
-    typeof state.rules.version === "number" &&
-    [
-      "agents",
-      "goals",
-      "tasks",
-      "attempts",
-      "observations",
-      "reservations",
-      "events",
-    ].every((key) => Array.isArray((value as Record<string, unknown>)[key]))
-  );
-}
 
 export function useFleet() {
   const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null);
@@ -44,14 +25,16 @@ export function useFleet() {
   const streamConnected = useRef(false);
 
   const receiveSnapshot = useCallback((value: unknown) => {
-    if (!isSnapshot(value)) throw new Error("현황 응답을 확인할 수 없습니다.");
+    const parsed = FleetSnapshotSchema.safeParse(value);
+    if (!parsed.success) throw new Error("현황 응답을 확인할 수 없습니다.");
+    const state: FleetSnapshot = parsed.data;
     setSnapshot((previous) =>
       previous &&
-      (previous.updatedAt > value.updatedAt ||
-        (previous.controllerEpoch === value.controllerEpoch &&
-          previous.revision > value.revision))
+      (previous.updatedAt > state.updatedAt ||
+        (previous.controllerEpoch === state.controllerEpoch &&
+          previous.revision > state.revision))
         ? previous
-        : value,
+        : state,
     );
     lastSnapshotAt.current = Date.now();
     setConnection(streamConnected.current ? "live" : "connecting");

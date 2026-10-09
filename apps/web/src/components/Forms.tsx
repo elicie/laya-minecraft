@@ -3,6 +3,7 @@ import {
   ACTION_KINDS,
   BotInputSchema,
   GoalInputSchema,
+  sameContainer,
   type Agent,
   type BotInput,
   type ContainerRef,
@@ -12,6 +13,7 @@ import {
   type Interpretation,
   type RulesPatch,
 } from "../../../../packages/contracts/src";
+import { BLUEPRINTS } from "../../../../packages/contracts/src/blueprints";
 import { errorMessage, post } from "../lib/api";
 import { actionLabels, label, roleLabels } from "../lib/display";
 import { Dialog } from "./Dialog";
@@ -26,6 +28,12 @@ const roles = [
   "rancher",
   "explorer",
 ];
+const crops: Record<string, string> = {
+  wheat: "밀",
+  carrot: "당근",
+  potato: "감자",
+  beetroot: "비트",
+};
 
 function ModeChoice({
   value,
@@ -288,6 +296,17 @@ export function GoalForm({
         delete parsed.params.design;
         delete parsed.params.position;
       }
+      if (parsed.kind === "farm") {
+        const name = String(parsed.params.crop ?? "wheat");
+        parsed.params.crop =
+          (
+            {
+              carrots: "carrot",
+              potatoes: "potato",
+              beetroots: "beetroot",
+            } as Record<string, string>
+          )[name] ?? name;
+      }
       setPreview(result);
       const continuous = ["guard", "follow", "survive"].includes(parsed.kind);
       setGoal({
@@ -299,7 +318,8 @@ export function GoalForm({
       });
       setCustomDestination(
         !!parsed.destination &&
-          parsed.destination.id !== snapshot.rules.warehouse?.id,
+          (!snapshot.rules.warehouse ||
+            !sameContainer(parsed.destination, snapshot.rules.warehouse)),
       );
       if (parsed.destination) setDestination(parsed.destination);
     } catch (value) {
@@ -357,6 +377,8 @@ export function GoalForm({
         delete params.design;
         delete params.position;
       }
+      if (previous.kind === "farm" && ["origin", "plots"].includes(key))
+        delete params.positions;
       return { ...previous, params };
     });
   }
@@ -364,6 +386,15 @@ export function GoalForm({
     { x: number; y: number; z: number } | undefined;
   const position = goal?.params.position as
     { x: number; y: number; z: number } | undefined;
+  const farmOrigin =
+    origin ??
+    (snapshot.rules.center
+      ? {
+          x: Math.floor(snapshot.rules.center.x),
+          y: Math.floor(snapshot.rules.center.y) - 1,
+          z: Math.floor(snapshot.rules.center.z),
+        }
+      : undefined);
   const resourceNames = goal?.params.resourceNames;
   const quantityTask =
     !!goal &&
@@ -372,7 +403,8 @@ export function GoalForm({
   const destinationTask =
     !!goal &&
     (["collect", "store", "take"].includes(goal.kind) ||
-      (goal.kind === "hunt" && !!goal.item));
+      (goal.kind === "hunt" && !!goal.item) ||
+      (goal.kind === "farm" && goal.params.mode === "harvest"));
   return (
     <Dialog title="목표 등록" onClose={onClose}>
       <form onSubmit={(event) => void interpret(event)}>
@@ -540,8 +572,11 @@ export function GoalForm({
                     value={String(goal.params.blueprint ?? "cabin")}
                     onChange={(event) => param("blueprint", event.target.value)}
                   >
-                    <option value="cabin">작은 집</option>
-                    <option value="warehouse">창고</option>
+                    {Object.entries(BLUEPRINTS).map(([id, design]) => (
+                      <option key={id} value={id}>
+                        {design.title}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <fieldset>
@@ -577,10 +612,21 @@ export function GoalForm({
                 <div className="form-row">
                   <label>
                     작물
-                    <input
+                    <select
                       value={String(goal.params.crop ?? "wheat")}
                       onChange={(event) => param("crop", event.target.value)}
-                    />
+                    >
+                      {[
+                        ...new Set([
+                          ...Object.keys(crops),
+                          String(goal.params.crop ?? "wheat"),
+                        ]),
+                      ].map((name) => (
+                        <option key={name} value={name}>
+                          {crops[name] ?? name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     작업
@@ -598,12 +644,42 @@ export function GoalForm({
                   <input
                     type="number"
                     min={1}
+                    max={
+                      Array.isArray(goal.params.positions)
+                        ? Math.max(8, goal.params.positions.length)
+                        : 8
+                    }
                     value={Number(goal.params.plots ?? 8)}
                     onChange={(event) =>
                       param("plots", Number(event.target.value))
                     }
                   />
+                  <small>
+                    기본 밭은 가운데 급수 블록을 두고 주변 최대 8칸을
+                    경작합니다.
+                  </small>
                 </label>
+                <fieldset>
+                  <legend>밭 중심 (급수 블록) 좌표</legend>
+                  <div className="form-row three">
+                    {(["x", "y", "z"] as const).map((axis) => (
+                      <label key={axis}>
+                        {axis.toUpperCase()}
+                        <input
+                          type="number"
+                          value={farmOrigin?.[axis] ?? ""}
+                          onChange={(event) =>
+                            param("origin", {
+                              ...(farmOrigin ?? { x: 0, y: 63, z: 0 }),
+                              [axis]: Number(event.target.value),
+                            })
+                          }
+                          required
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 {goal.params.mode === "harvest" && (
                   <label>
                     수확 수량
@@ -753,11 +829,16 @@ export function GoalForm({
                   <small>
                     {goal.kind === "collect"
                       ? "지정 창고에 목표 수량이 들어온 것을 확인하면 완료합니다."
-                      : "작업과 목적지 조건을 실제 관측으로 확인합니다."}
+                      : goal.kind === "farm"
+                        ? "수확한 물품이 지정 창고에 입고된 것을 확인하면 완료합니다."
+                        : "작업과 목적지 조건을 실제 관측으로 확인합니다."}
                   </small>
                 </label>
                 {customDestination && (
                   <>
+                    <p className="dialog-description">
+                      {destination.world} · {destination.dimension}
+                    </p>
                     <label>
                       창고 이름
                       <input

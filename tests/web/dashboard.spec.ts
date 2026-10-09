@@ -431,3 +431,96 @@ test("an idle stream with zero bots stays connected without new snapshots", asyn
   await page.clock.fastForward(11_000);
   await expect(page.getByRole("status")).toContainText("중앙 시스템 연결됨");
 });
+
+test("construction and harvest previews keep the edited plan and full destination", async ({
+  page,
+}) => {
+  const state = snapshot();
+  const submitted: GoalDefinition[] = [];
+  let interpretations = 0;
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
+    if (path.endsWith("/goals/interpret")) {
+      interpretations++;
+      const goal =
+        interpretations === 1
+          ? GoalInputSchema.parse({
+              kind: "build",
+              params: {
+                design: "castle",
+                origin: { x: 10, y: 64, z: 10 },
+                requiredBlocks: [
+                  { name: "cobblestone", position: { x: 10, y: 64, z: 10 } },
+                ],
+              },
+            })
+          : GoalInputSchema.parse({
+              kind: "farm",
+              quantity: 4,
+              params: {
+                mode: "harvest",
+                crop: "wheat",
+                origin: { x: 7, y: 63, z: 10 },
+              },
+              destination: {
+                ...state.rules.warehouse!,
+                position: { x: 20, y: 64, z: 20 },
+              },
+            });
+      return route.fulfill({ json: { source: "code", warnings: [], goal } });
+    }
+    if (path.endsWith("/goals"))
+      submitted.push(route.request().postDataJSON() as GoalDefinition);
+    return route.fulfill({
+      json: {
+        id: `form-command-${submitted.length}`,
+        type: "goal.create",
+        state: "applied",
+        createdAt: 10,
+        updatedAt: 12,
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("status")).toContainText("중앙 시스템 연결됨");
+  await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
+  await page.getByLabel("무엇을 할까요?").fill("성 지어 줘");
+  await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: /^건물 설계/ })).toHaveValue(
+    "castle",
+  );
+  await page
+    .getByRole("combobox", { name: /^건물 설계/ })
+    .selectOption("cabin");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "목표 등록", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted[0]!.params.blueprint).toBe("cabin");
+  expect(submitted[0]!.params.design).toBeUndefined();
+  expect(submitted[0]!.params.requiredBlocks).toBeUndefined();
+
+  await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
+  await page.getByLabel("무엇을 할까요?").fill("밀 4개 수확해 줘");
+  await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: /^물품 목적지/ }),
+  ).toHaveValue("custom");
+  await page.getByLabel("작물", { exact: false }).selectOption("carrot");
+  await page
+    .getByRole("group", { name: "밭 중심 (급수 블록) 좌표", exact: true })
+    .getByLabel("X", { exact: true })
+    .fill("9");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "목표 등록", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted[1]!.params.crop).toBe("carrot");
+  expect(submitted[1]!.params.origin).toEqual({ x: 9, y: 63, z: 10 });
+  expect(submitted[1]!.quantity).toBe(4);
+  expect(submitted[1]!.destination?.position).toEqual({ x: 20, y: 64, z: 20 });
+});
