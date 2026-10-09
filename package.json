@@ -1,0 +1,49 @@
+{
+  "name": "laya-minecraft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "TypeScript Minecraft bot and React control room for Laya",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "node --env-file-if-exists=.env --import tsx apps/server/src/main.ts",
+    "dev:web": "vite --config apps/web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "check": "npm run typecheck",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:web": "vite build --config apps/web/vite.config.ts",
+    "build": "npm run typecheck && npm run build:server && npm run build:web",
+    "start": "node --env-file-if-exists=.env dist/apps/server/src/main.js",
+    "test": "node --import tsx scripts/test.ts",
+    "test:integrity": "node --import tsx --test tests/library-integrity.test.ts",
+    "test:live": "node --import tsx scripts/test.ts --live",
+    "preview": "vite preview --config apps/web/vite.config.ts --host 127.0.0.1"
+  },
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "prismarine-viewer": "^1.33.0",
+    "vec3": "^0.2.0",
+    "minecraft-data": "3.117.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "lucide-react": "^0.468.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.0.0",
+    "tsx": "^4.20.0",
+    "concurrently": "^9.0.0",
+    "prettier": "^3.6.0",
+    "@playwright/test": "^1.56.0"
+  }
+}
