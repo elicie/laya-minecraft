@@ -3,7 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { FleetController } from '../packages/core/src';
 import { verifyCompletion } from '../packages/core/src/verification';
-import { type CentralMessage, type ContainerRef, type ObservationInput, type WorkerMessage } from '../packages/contracts/src';
+import { FleetCheckpointSchema, FleetSnapshotSchema, type CentralMessage, type ContainerRef, type ObservationInput } from '../packages/contracts/src';
 
 const world = '127.0.0.1:25566', dimension = 'overworld';
 const warehouse: ContainerRef = { id: 'warehouse', position: { x: 3, y: 64, z: 3 }, world, dimension };
@@ -188,4 +188,159 @@ test('Laya choices are bounded to current eligible tasks and never override prio
   assert.equal(f.assignments().length, 1);
   assert.notEqual(f.assignments()[0].payload.task.goalId, a.id);
   assert.ok(f.core.getSnapshot().events.some(e => e.type === 'scheduler.decision' && e.data?.source === 'code'));
+});
+
+test('immediate switch preserves old progress and resumes after the new goal finishes', () => {
+  const f = fixture(); const old = f.core.createGoal({ kind: 'home', params: { position: { x: 20, y: 64, z: 0 } } }); const active = f.latest();
+  const urgent = f.core.createGoal({ kind: 'home', params: { position: { x: 5, y: 64, z: 0 } }, preferredBotId: 'bot-0', executionMode: 'immediate' });
+  assert.equal(f.assignments().length, 1);
+  f.receive('bot-0', 'task.cancelled', { safeStopped: true, checkpoint: { pathStep: 4 }, observations: [] }, active);
+  const switched = f.latest(); assert.equal(switched.payload.task.goalId, urgent.id);
+  f.result(switched, { outcome: 'completed', observations: [f.obs('position', { position: { x: 5, y: 64, z: 0 } })] });
+  const resumed = f.latest(); assert.equal(resumed.payload.task.goalId, old.id); assert.equal(resumed.payload.checkpoint.pathStep, 4); assert.notEqual(resumed.attemptId, active.attemptId);
+});
+
+test('preferred incapable bots fall back; the primary role is chosen before permitted helpers', () => {
+  const f = fixture(2); f.status('bot-0', [], 'idle', ['collect']);
+  const goal = f.core.createGoal({ kind: 'home', preferredBotId: 'bot-0', params: { position: { x: 5, y: 64, z: 0 } } });
+  assert.equal(f.latest('bot-1').payload.task.goalId, goal.id);
+  const g = fixture(0);
+  g.core.addAgent({ id: 'bot-0', name: 'Helper01', role: 'general' }); g.core.startSession('bot-0', 'session-0'); g.ready('bot-0');
+  g.core.addAgent({ id: 'bot-1', name: 'Guard01', role: 'guard' }); g.core.startSession('bot-1', 'session-1'); g.ready('bot-1');
+  g.core.createGoal({ kind: 'fight', quantity: 1, params: { targetName: 'zombie' } });
+  assert.equal(g.assignments()[0].botId, 'bot-1');
+});
+
+test('goal cancellation and pause complete only after actual safe stop and applied settings', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'home', params: { position: { x: 8, y: 64, z: 0 } } }); const active = f.latest();
+  f.core.cancelGoal(goal.id, 'cancel-goal');
+  assert.equal(f.core.getSnapshot().goals[0].state, 'cancelling'); assert.equal(f.events.some(e => e.commandId === 'cancel-goal' && e.type === 'command.applied'), false);
+  f.receive('bot-0', 'task.cancelled', { safeStopped: true, observations: [], checkpoint: {} }, active);
+  assert.equal(f.core.getSnapshot().goals[0].state, 'cancelled'); assert.ok(f.events.some(e => e.commandId === 'cancel-goal' && e.type === 'command.applied'));
+  f.core.pauseAgent('bot-0', 'pause-command'); assert.equal(f.core.getSnapshot().agents[0].config.enabled, true);
+  f.receive('bot-0', 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  assert.equal(f.core.getSnapshot().agents[0].config.enabled, false);
+  assert.ok(f.events.some(e => e.commandId === 'pause-command' && e.type === 'command.applied'));
+  const restored = new FleetController({ checkpoint: f.core.checkpoint(), now: f.now, send: () => {} });
+  assert.equal(restored.getSnapshot().agents[0].status, 'paused');
+});
+
+test('superseded queued settings are failed rather than falsely marked applied', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'home', params: { position: { x: 8, y: 64, z: 0 } } }); const active = f.latest();
+  f.core.updateAgent('bot-0', { role: 'farmer' }, 'queued', 'role-first');
+  f.core.updateAgent('bot-0', { role: 'guard' }, 'queued', 'role-second');
+  f.result(active, { outcome: 'completed', observations: [f.obs('position', { position: { x: 8, y: 64, z: 0 } })] });
+  f.receive('bot-0', 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  assert.ok(f.events.some(e => e.commandId === 'role-first' && e.type === 'command.failed'));
+  assert.equal(f.events.some(e => e.commandId === 'role-first' && e.type === 'command.applied'), false);
+  assert.ok(f.events.some(e => e.commandId === 'role-second' && e.type === 'command.applied'));
+});
+
+test('guard is ongoing, validates patrol arrivals and waits 30 seconds between cycles', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'guard' }); const active = f.latest();
+  assert.equal(goal.input.mode, 'maintain');
+  f.result(active, { outcome: 'completed', observations: [f.obs('position', { position: { x: 0, y: 64, z: 0 } })] });
+  assert.equal(f.core.getSnapshot().goals[0].state, 'maintaining'); assert.equal(f.assignments().length, 1);
+  f.advance(29000); f.status('bot-0'); assert.equal(f.assignments().length, 1);
+  f.advance(1000); f.status('bot-0'); assert.equal(f.assignments().length, 2);
+});
+
+test('farm harvest verifies actual harvested quantity then requires delivery to the shared warehouse', () => {
+  const f = fixture(); f.status('bot-0', [], 'idle', ['farm', 'store']);
+  const goal = f.core.createGoal({ kind: 'farm', quantity: 8, params: { crop: 'wheat', mode: 'harvest', plots: 8 } }); const farm = f.latest();
+  assert.equal(farm.payload.task.kind, 'farm');
+  f.result(farm, { outcome: 'condition-wait', observations: [f.obs('farm', { id: 'village', crop: 'wheat', plots: 8, planted: 8, watered: 8, ripe: 0, harvested: 3 })], checkpoint: { farm: { harvested: 3 } } });
+  assert.equal(f.core.getSnapshot().tasks[0].retryCount, 0);
+  f.advance(5000); f.status('bot-0', [{ name: 'wheat', count: 3 }], 'idle', ['farm', 'store']); const resumed = f.latest();
+  assert.deepEqual(resumed.payload.checkpoint.farm, { harvested: 3 });
+  f.result(resumed, { outcome: 'completed', observations: [f.obs('farm', { id: 'village', crop: 'wheat', plots: 8, planted: 8, watered: 8, ripe: 0, harvested: 8 }), f.obs('inventory', { items: [{ name: 'wheat', count: 8 }] })], checkpoint: { farm: { harvested: 8 } } });
+  const store = f.latest(); assert.equal(store.payload.task.kind, 'store'); assert.equal(store.botId, farm.botId); assert.notEqual(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed');
+  f.result(store, { outcome: 'completed', observations: [f.obs('inventory', { items: [] }), f.obs('container', { container: warehouse, items: [{ name: 'wheat', count: 8 }] })], evidence: [{ kind: 'transfer', container: warehouse, item: 'wheat', quantity: 8, direction: 'store', beforeInventory: 8, afterInventory: 0, beforeContainer: 0, afterContainer: 8 }] });
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed');
+});
+
+test('additional craft quantities freeze the assigned bot inventory baseline across retries', () => {
+  const f = fixture(); f.status('bot-0', [{ name: 'stick', count: 2 }], 'idle', ['craft']);
+  const goal = f.core.createGoal({ kind: 'craft', item: 'stick', quantity: 3, quantityMode: 'additional' }); const craft = f.latest();
+  assert.equal(craft.payload.task.params.quantity, 5); assert.equal(craft.payload.task.completion.kind, 'inventory');
+  f.result(craft, { outcome: 'completed', observations: [f.obs('inventory', { items: [{ name: 'stick', count: 5 }] })] });
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.targetQuantity, 5);
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed');
+});
+
+test('autonomous buildings respect the full footprint and shrinking bounds stops active construction', () => {
+  const f = fixture(); f.core.updateRules({ radius: 8, warehouse: null, autonomyEnabled: true }, 'queued'); f.receive('bot-0', 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  const outside = f.core.createGoal({ kind: 'build', source: 'autonomous', params: { design: 'cabin', origin: { x: 7, y: 64, z: 0 } } });
+  assert.equal(outside.state, 'condition-wait'); assert.equal(f.assignments().length, 0);
+  const inside = f.core.createGoal({ kind: 'build', source: 'autonomous', params: { design: 'cabin', origin: { x: 0, y: 64, z: 0 } } }); const build = f.latest();
+  assert.equal(build.payload.task.source, 'autonomous');
+  f.core.updateRules({ radius: 2 }, 'queued'); assert.ok(f.sent.some(m => m.type === 'task.cancel' && m.taskId === build.taskId));
+  f.receive('bot-0', 'task.cancelled', { safeStopped: true, checkpoint: { placed: 3 }, observations: [] }, build);
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === inside.id)?.state, 'condition-wait');
+});
+
+test('autonomy creates village plans, keeps user priority and respects disabling and explicit cancellation', () => {
+  const f = fixture(0); f.core.createGoal({ kind: 'home', params: { position: { x: 5, y: 64, z: 0 } } });
+  f.core.updateRules({ autonomyEnabled: true }, 'queued'); f.core.addAgent({ id: 'bot-0', name: 'Worker0' }); f.core.startSession('bot-0', 'session-0'); f.ready('bot-0');
+  assert.equal(f.latest().payload.task.kind, 'home');
+  const stock = f.core.getSnapshot().goals.find(g => g.input.source === 'autonomous' && g.input.kind === 'collect')!;
+  assert.ok(f.core.getSnapshot().goals.some(g => g.input.source === 'autonomous' && g.input.params.developmentId === 'village-house'), JSON.stringify({ goals: f.core.getSnapshot().goals.map(g => g.input), caps: f.core.getSnapshot().agents[0].session?.report?.capabilities }));
+  assert.ok(f.core.getSnapshot().goals.some(g => g.input.source === 'autonomous' && g.input.params.developmentId === 'village-warehouse'));
+  f.core.cancelGoal(stock.id); f.core.tick();
+  assert.equal(f.core.getSnapshot().goals.filter(g => g.input.source === 'autonomous' && g.input.item === stock.input.item).length, 1);
+  f.core.updateRules({ autonomyEnabled: false }, 'queued');
+  f.result(f.latest(), { outcome: 'completed', observations: [f.obs('position', { position: { x: 5, y: 64, z: 0 } })] });
+  f.receive('bot-0', 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  assert.equal(f.assignments().length, 1);
+});
+
+test('snapshot and checkpoint runtime validators round-trip trusted observations and task ownership', () => {
+  const f = fixture(); f.observeStock(0); f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 8 });
+  assert.equal(FleetSnapshotSchema.parse(f.core.getSnapshot()).tasks[0].source, 'user');
+  assert.equal(FleetCheckpointSchema.parse(f.core.checkpoint()).controllerEpoch, 'epoch');
+  assert.equal(FleetCheckpointSchema.safeParse({ ...f.core.checkpoint(), schemaVersion: 99 }).success, false);
+});
+
+test('partial rule and connection updates preserve existing world and user settings', () => {
+  const f = fixture(0); const before = f.core.getSnapshot().rules;
+  f.core.updateRules({ radius: 80, combat: { proactiveRoles: ['guard'] } });
+  f.core.updateRules({ combat: { retreatHealth: 7 } });
+  const rules = f.core.getSnapshot().rules;
+  assert.deepEqual(rules.center, before.center); assert.deepEqual(rules.warehouse, before.warehouse); assert.equal(rules.radius, 80); assert.deepEqual(rules.combat.proactiveRoles, ['guard']);
+  f.core.addAgent({ id: 'bot-0', name: 'Worker0', connection: { host: 'private.example', port: 25566, auth: 'microsoft' } });
+  f.core.updateAgent('bot-0', { connection: { port: 25567 } }, 'queued', 'port-update');
+  assert.deepEqual(f.core.getSnapshot().agents[0].config.connection, { host: 'private.example', port: 25567, auth: 'microsoft' });
+  assert.ok(f.events.some(e => e.type === 'command.applied' && e.commandId === 'port-update'));
+});
+
+test('running autonomous work yields safely to a newly registered user goal', () => {
+  const f = fixture(); f.core.updateRules({ autonomyEnabled: true, warehouse: null }); f.receive('bot-0', 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  const autonomous = f.core.createGoal({ kind: 'home', source: 'autonomous', params: { position: { x: 20, y: 64, z: 0 } } }); const active = f.latest();
+  const user = f.core.createGoal({ kind: 'home', params: { position: { x: 5, y: 64, z: 0 } } });
+  assert.ok(f.sent.some(m => m.type === 'task.cancel' && m.taskId === active.taskId)); assert.equal(f.assignments().length, 1);
+  f.receive('bot-0', 'task.cancelled', { safeStopped: true, checkpoint: { waypoint: 3 }, observations: [] }, active);
+  const switched = f.latest(); assert.equal(switched.payload.task.goalId, user.id);
+  f.result(switched, { outcome: 'completed', observations: [f.obs('position', { position: { x: 5, y: 64, z: 0 } })] });
+  assert.equal(f.latest().payload.task.goalId, autonomous.id); assert.equal(f.latest().payload.checkpoint.waypoint, 3);
+});
+
+test('an unconfirmed cancellation retains ownership until a later real safe-stop acknowledgement', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'home', params: { position: { x: 5, y: 64, z: 0 } } }); const active = f.latest();
+  f.core.cancelGoal(goal.id, 'cancel-goal');
+  f.receive('bot-0', 'task.cancelled', { safeStopped: false, checkpoint: {}, observations: [] }, active);
+  assert.equal(f.core.getSnapshot().agents[0].session?.activeAttemptId, active.attemptId);
+  assert.equal(f.core.getSnapshot().goals[0].state, 'cancelling');
+  assert.equal(f.receive('bot-0', 'task.cancelled', { safeStopped: true, checkpoint: {}, observations: [] }, active), true);
+  assert.equal(f.core.getSnapshot().goals[0].state, 'cancelled');
+});
+
+test('ongoing patrol history remains bounded while current ownership survives compaction', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'guard' });
+  for (let i = 0; i < 30; i++) {
+    f.result(f.latest(), { outcome: 'completed', observations: [f.obs('position', { position: { x: 0, y: 64, z: 0 } })] });
+    f.advance(30000); f.status('bot-0');
+  }
+  const snapshot = f.core.getSnapshot();
+  assert.equal(snapshot.goals.find(g => g.id === goal.id)?.state, 'active');
+  assert.ok(snapshot.tasks.length <= 3); assert.ok(snapshot.attempts.length <= 3); assert.equal(snapshot.agents[0].session?.activeAttemptId, f.latest().attemptId);
 });

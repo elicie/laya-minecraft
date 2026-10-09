@@ -36,7 +36,7 @@ function asBlocks(value: unknown): ExpectedBlock[] | undefined {
 export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehouseCount?: number): PlanResult {
   const input = goal.input, tasks: TaskSpec[] = [];
   const add = (kind: ActionKind, params: JsonObject, completion: CompletionCondition, dependencies: string[] = [], reservationKeys: string[] = []): TaskSpec => {
-    const task: TaskSpec = { id: newId(), goalId: goal.id, kind, params, dependencies, completion, reservationKeys };
+    const task: TaskSpec = { id: newId(), goalId: goal.id, kind, source: input.source, params, dependencies, completion, reservationKeys };
     tasks.push(task);
     return task;
   };
@@ -78,7 +78,20 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
   if (input.kind === 'farm') {
     const mode = input.params.mode === 'harvest' ? 'harvest' : 'setup';
     const plots = typeof input.params.plots === 'number' && input.params.plots > 0 ? Math.floor(input.params.plots) : 8;
-    add('farm', input.params, { kind: 'farm', mode, plots, crop: typeof input.params.crop === 'string' ? input.params.crop : 'wheat', quantity: input.quantity, baseline: typeof input.params.baseline === 'number' ? input.params.baseline : 0 }, [], [`farm:${rules.world}:${rules.dimension}:${String(input.params.id ?? 'village')}`]);
+    const crop = typeof input.params.crop === 'string' ? input.params.crop : 'wheat';
+    if (mode === 'harvest' && !destination) return { tasks, waiting: '수확물을 입고할 공동 창고를 설정해야 합니다.' };
+    const origin = asPosition(input.params.origin) ?? (rules.center ? { x: Math.floor(rules.center.x), y: Math.floor(rules.center.y) - 1, z: Math.floor(rules.center.z) } : undefined);
+    if (!origin) return { tasks, waiting: '밭의 실제 경작 좌표가 필요합니다.' };
+    const cells = Array.isArray(input.params.positions) ? input.params.positions.map(asPosition).filter((p): p is Position => !!p) : [-1, 0, 1].flatMap(x => [-1, 0, 1].filter(z => x !== 0 || z !== 0).map(z => ({ x: origin.x + x, y: origin.y, z: origin.z + z }))).slice(0, plots);
+    if (cells.length !== plots) return { tasks, waiting: '경작할 전체 밭 배치를 확인해야 합니다.' };
+    if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, [origin, ...cells].map(position => ({ position }))))) return { tasks, waiting: '전체 자율 농장 구획이 마을 반경 안에 있어야 합니다.' };
+    const reservations = [`farm:${rules.world}:${rules.dimension}:${String(input.params.id ?? 'village')}`, ...[origin, ...cells, ...cells.map(p => ({ ...p, y: p.y + 1 }))].map(p => `block:${rules.world}:${rules.dimension}:${positionKey(p)}`)];
+    const farm = add('farm', { ...input.params, crop, quantity: input.quantity, origin: jsonObject(origin), positions: cells.map(jsonObject) }, { kind: 'farm', mode, plots, crop, quantity: input.quantity, baseline: 0 }, [], reservations);
+    if (mode === 'harvest') {
+      const produce = ({ wheat: 'wheat', carrot: 'carrot', carrots: 'carrot', potato: 'potato', potatoes: 'potato', beetroot: 'beetroot', beetroots: 'beetroot' } as Record<string, string>)[crop];
+      if (!produce) return { tasks: [], waiting: '지원하는 수확 작물을 선택해야 합니다.' };
+      add('store', { item: produce, quantity: input.quantity, destination: jsonObject(destination!) }, { kind: 'transfer', container: destination!, item: produce, quantity: input.quantity, direction: 'store' }, [farm.id], [containerKey(destination!)]);
+    }
     return { tasks };
   }
   if (input.kind === 'fight' || input.kind === 'hunt') {
@@ -97,7 +110,8 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'breed') {
-    add('breed', input.params, { kind: 'breeding', minimum: input.quantity, animal: typeof input.params.animal === 'string' ? input.params.animal : undefined });
+    const pen = asPosition(input.params.position) ?? rules.center;
+    add('breed', input.params, { kind: 'breeding', minimum: input.quantity, animal: typeof input.params.animal === 'string' ? input.params.animal : undefined }, [], [`livestock:${rules.world}:${rules.dimension}:${String(input.params.animal ?? 'cow')}:${pen ? positionKey(pen) : 'village'}`]);
     return { tasks };
   }
   if (input.kind === 'sleep') { add('sleep', input.params, { kind: 'sleep' }); return { tasks }; }
