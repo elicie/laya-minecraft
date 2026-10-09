@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BotInputSchema, CentralMessageSchema, GoalInputSchema, RulesSchema, WorkerMessageSchema, sameContainer } from '../packages/contracts/src';
+import { BotInputSchema, BotPatchSchema, CentralMessageSchema, GoalInputSchema, RulesPatchSchema, RulesSchema, WorkerMessageSchema, sameContainer } from '../packages/contracts/src';
 
 const base = { protocolVersion: 1, messageId: 'message-1', controllerEpoch: 'epoch-1', botId: 'bot-1', sessionId: 'session-1', sentAt: 1000 };
 const report = { ready: true, world: 'local:25566', dimension: 'overworld', health: 20, food: 20, inventory: [], action: 'idle', reason: 'ready', mode: 'idle', capabilities: ['collect'], rulesVersion: 1 };
@@ -35,4 +35,11 @@ test('public viewer and shutdown contracts contain actual connection identity', 
   const container = { id: 'chest', position: { x: 1, y: 64, z: 2 }, world: 'local:25566', dimension: 'overworld' };
   assert.equal(sameContainer(container, { ...container, world: 'different:25566' }), false);
   assert.equal(sameContainer(container, { ...container, position: { x: 2, y: 64, z: 2 } }), false);
+});
+
+test('partial updates preserve omitted fields rather than injecting full configuration defaults', () => {
+  assert.deepEqual(RulesPatchSchema.parse({ radius: 80 }), { radius: 80 });
+  assert.deepEqual(RulesPatchSchema.parse({ combat: { retreatHealth: 7 } }), { combat: { retreatHealth: 7 } });
+  assert.deepEqual(RulesPatchSchema.parse({}), {});
+  assert.deepEqual(BotPatchSchema.parse({ connection: { port: 25567 } }), { connection: { port: 25567 } });
 });

@@ -128,7 +128,9 @@ export function createControlServer(options: ControlServerOptions) {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname;
       const viewer = path.match(/^\/viewer\/([^/]+)(?:\/|$)/);
-      if (viewer && req.method === 'GET') {
+      const viewerPolling = /^\/viewer\/[^/]+\/socket\.io\/?$/.test(path);
+      if (viewer && (req.method === 'GET' || req.method === 'POST' && viewerPolling)) {
+        validateOrigin(req, options.allowedOrigins);
         const target = viewerTarget(decodeURIComponent(viewer[1]!));
         if (!target) throw new HttpError(503, 'VIEWER_UNAVAILABLE', '선택한 봇의 3D 화면이 준비되지 않았습니다.');
         proxyViewerHttp(req, res, target);

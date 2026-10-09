@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import {
   DEFAULT_RULES, BotInputSchema, GoalInputSchema,
   type Agent, type CoreEvent, type FleetCheckpoint, type FleetSnapshot, type Goal,
@@ -181,4 +183,28 @@ test('unsupported natural-language goal returns a specific 422 message', async (
     assert.equal(response.status, 422);
     assert.deepEqual(await response.json(), { error: { code: 'GOAL_UNSUPPORTED', message: '지원하는 설계도를 선택해 주세요.' } });
   } finally { await f.api.close(); f.store.close(); }
+});
+
+test('viewer Socket.IO polling POST forwards its body without control headers and fences foreign origins', async () => {
+  let forwarded = '';
+  const upstream = createServer(async (req, res) => {
+    for await (const chunk of req) forwarded += String(chunk);
+    res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok');
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const port = (upstream.address() as AddressInfo).port;
+  const f = fixture({ viewerPortBase: port });
+  const address = await f.api.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  const agent = f.core.addAgent({ name: 'PollingBot' });
+  agent.session = { id: 'session', state: 'ready', lastReportAt: Date.now(), rulesVersion: 1 };
+  try {
+    await fetch(`${base}/api/v1/bots/${agent.id}/viewer`, { method: 'POST', headers: headers(), body: '{}' });
+    agent.viewer = { state: 'ready', port, prefix: `/viewer/${agent.id}` };
+    const path = `${base}/viewer/${agent.id}/socket.io/?EIO=4&transport=polling&sid=test`;
+    const response = await fetch(path, { method: 'POST', headers: { origin: 'http://127.0.0.1:5173', 'content-type': 'text/plain' }, body: '40' });
+    assert.equal(response.status, 200); assert.equal(await response.text(), 'ok'); assert.equal(forwarded, '40');
+    const denied = await fetch(path, { method: 'POST', headers: { origin: 'https://other.example', 'content-type': 'text/plain' }, body: '40' });
+    assert.equal(denied.status, 403); assert.equal(forwarded, '40');
+  } finally { await f.api.close(); f.store.close(); await new Promise<void>(resolve => upstream.close(() => resolve())); }
 });
