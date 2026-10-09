@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BotInputSchema, BotPatchSchema, DEFAULT_RULES, GoalInputSchema, GoalPatchSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
+  BotInputSchema, BotPatchSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
   itemCount, sameContainer,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
@@ -26,7 +26,7 @@ const activeAttempts = new Set(['assigned', 'accepted', 'running', 'cancelling']
 const runnable = new Set(['waiting', 'interrupted', 'retry-wait', 'condition-wait']);
 const isStockGoal = (goal: Goal) => goal.input.kind === 'collect' || (goal.input.kind === 'hunt' && !!goal.input.item);
 const clone = <T>(value: T): T => structuredClone(value);
-const taskSpec = (task: Task) => ({ id: task.id, goalId: task.goalId, kind: task.kind, params: task.params, dependencies: task.dependencies, completion: task.completion, reservationKeys: task.reservationKeys, ...(task.affinityBotId ? { affinityBotId: task.affinityBotId } : {}) });
+const taskSpec = (task: Task) => ({ id: task.id, goalId: task.goalId, kind: task.kind, ...(task.source ? { source: task.source } : {}), params: task.params, dependencies: task.dependencies, completion: task.completion, reservationKeys: task.reservationKeys, ...(task.affinityBotId ? { affinityBotId: task.affinityBotId } : {}) });
 
 export class FleetController {
   readonly controllerEpoch: string;
@@ -35,13 +35,14 @@ export class FleetController {
   private state: FleetCheckpoint;
   private messageIds: Set<string>;
   private ticking = false;
+  private disposed = false;
   private decisions = new Map<string, { token: string; sessionId: string; taskIds: string[]; requestedAt: number; abort: AbortController }>();
 
   constructor(options: FleetControllerOptions) {
     this.options = options;
     this.now = options.now ?? Date.now;
     this.controllerEpoch = options.controllerEpoch ?? randomUUID();
-    this.state = options.checkpoint ? clone(options.checkpoint) : {
+    this.state = options.checkpoint ? FleetCheckpointSchema.parse(options.checkpoint) : {
       schemaVersion: 1, controllerEpoch: this.controllerEpoch, revision: 0, updatedAt: this.now(), rules: RulesSchema.parse(options.rules ?? DEFAULT_RULES),
       agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [], processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [],
     };
@@ -72,6 +73,12 @@ export class FleetController {
     return clone(snapshot);
   }
   checkpoint(): FleetCheckpoint { return clone(this.state); }
+  dispose(): void {
+    this.disposed = true;
+    for (const decision of this.decisions.values()) decision.abort.abort();
+    this.decisions.clear();
+    for (const agent of this.state.agents) this.cancelAgentAttempt(agent, '중앙 종료: 진행 상태 보존', true);
+  }
 
   private agent(id: string): Agent { const agent = this.state.agents.find(a => a.id === id); if (!agent || agent.status === 'removed') throw new Error(`Unknown bot: ${id}`); return agent; }
   private goal(id: string): Goal { const goal = this.state.goals.find(g => g.id === id); if (!goal) throw new Error(`Unknown goal: ${id}`); return goal; }
@@ -90,11 +97,20 @@ export class FleetController {
     this.state.pendingCommands = this.state.pendingCommands.filter(c => c.commandId !== commandId);
     this.changed('command.applied', '변경이 실제 적용되었습니다.', { commandId, data });
   }
-  private pending(commandId: string | undefined, type: FleetCheckpoint['pendingCommands'][number]['type'], targetId: string): void {
-    if (commandId) this.state.pendingCommands.push({ commandId, type, targetId });
+  private pending(commandId: string | undefined, type: FleetCheckpoint['pendingCommands'][number]['type'], targetId: string, expected?: JsonObject): void {
+    if (commandId) this.state.pendingCommands.push({ commandId, type, targetId, ...(expected ? { expected } : {}) });
   }
+  private expectedApplied(expected: JsonObject | undefined, actual: unknown): boolean {
+    if (!expected) return true;
+    if (!actual || typeof actual !== 'object') return false;
+    return Object.entries(expected).every(([key, value]) => value && typeof value === 'object' && !Array.isArray(value) ? this.expectedApplied(value, (actual as Record<string, unknown>)[key]) : JSON.stringify((actual as Record<string, unknown>)[key]) === JSON.stringify(value));
+  }
+  private failed(commandId: string, reason: string): void { this.state.pendingCommands = this.state.pendingCommands.filter(c => c.commandId !== commandId); this.changed('command.failed', reason, { commandId }); }
   private finishCommands(targetId: string, types: FleetCheckpoint['pendingCommands'][number]['type'][]): void {
-    for (const command of [...this.state.pendingCommands]) if (command.targetId === targetId && types.includes(command.type)) this.applied(command.commandId, { targetId });
+    for (const command of [...this.state.pendingCommands]) if (command.targetId === targetId && types.includes(command.type)) {
+      if (['agent-update', 'pause', 'resume'].includes(command.type) && !this.expectedApplied(command.expected, this.state.agents.find(a => a.id === targetId)?.config)) this.failed(command.commandId, '후속 설정 요청으로 이 변경이 대체되었습니다.');
+      else this.applied(command.commandId, { targetId });
+    }
   }
   private send(agent: Agent, type: CentralMessage['type'], payload: unknown, extra: Partial<CentralMessage> = {}): void {
     if (!agent.session || agent.session.state === 'stopped') return;
@@ -148,12 +164,17 @@ export class FleetController {
       agent.viewer = { state: 'stopped' };
       if (agent.status === 'removed') this.finishCommands(botId, ['remove']);
     }
+    for (const command of [...this.state.pendingRuleCommands]) {
+      command.awaitingBotIds = command.awaitingBotIds.filter(id => id !== botId);
+      if (!command.awaitingBotIds.length) { this.state.pendingRuleCommands = this.state.pendingRuleCommands.filter(c => c !== command); if (this.expectedApplied(command.expected, this.state.rules)) this.applied(command.commandId, { version: this.state.rules.version }); else this.failed(command.commandId, '후속 규칙 요청으로 이 변경이 대체되었습니다.'); }
+    }
     this.changed('bot.process-stopped', '실제 봇 프로세스 종료를 확인했습니다.', { botId, data: { sessionId } });
     this.tick();
   }
   updateAgent(botId: string, patch: BotPatch, mode: ExecutionMode = 'queued', commandId?: string): Agent {
     const agent = this.agent(botId), parsed = BotPatchSchema.parse(patch);
-    const desired = BotInputSchema.omit({ id: true }).parse({ ...(agent.desiredConfig ?? agent.config), ...parsed });
+    const previous = agent.desiredConfig ?? agent.config;
+    const desired = BotInputSchema.omit({ id: true }).parse({ ...previous, ...parsed, connection: parsed.connection ? { ...previous.connection, ...parsed.connection } : previous.connection });
     if (desired.name !== agent.config.name || JSON.stringify(desired.connection) !== JSON.stringify(agent.config.connection)) {
       if (agent.session && agent.session.state !== 'stopped') throw new Error('Name and connection changes require a stopped bot');
     }
@@ -161,14 +182,14 @@ export class FleetController {
     agent.desiredConfig = desired;
     if (agent.session && agent.session.state !== 'stopped') this.state.rules = { ...this.state.rules, version: this.state.rules.version + 1 };
     agent.updatedAt = this.now();
-    this.pending(commandId, 'agent-update', botId);
+    this.pending(commandId, 'agent-update', botId, jsonObject(parsed));
     if (mode === 'immediate' || !desired.enabled) this.cancelAgentAttempt(agent, '봇 설정 변경', true);
     this.changed('bot.config-requested', '봇 설정 변경을 예약했습니다.', { botId, commandId });
     this.applyAgentRules(agent, mode);
     return clone(agent);
   }
-  pauseAgent(botId: string, commandId?: string): Agent { this.pending(commandId, 'pause', botId); return this.updateAgent(botId, { enabled: false }, 'immediate'); }
-  resumeAgent(botId: string, commandId?: string): Agent { this.pending(commandId, 'resume', botId); return this.updateAgent(botId, { enabled: true }, 'queued'); }
+  pauseAgent(botId: string, commandId?: string): Agent { this.agent(botId); this.pending(commandId, 'pause', botId, { enabled: false }); return this.updateAgent(botId, { enabled: false }, 'immediate'); }
+  resumeAgent(botId: string, commandId?: string): Agent { this.agent(botId); this.pending(commandId, 'resume', botId, { enabled: true }); return this.updateAgent(botId, { enabled: true }, 'queued'); }
   removeAgent(botId: string, commandId?: string): Agent {
     const agent = this.agent(botId);
     agent.status = 'removing';
@@ -180,11 +201,11 @@ export class FleetController {
     return clone(agent);
   }
   updateRules(patch: RulesPatch, mode: ExecutionMode = 'queued', commandId?: string): Rules {
-    const parsed = RulesPatchSchema.parse(patch), rules = RulesSchema.parse({ ...this.state.rules, ...parsed, version: this.state.rules.version + 1 });
+    const parsed = RulesPatchSchema.parse(patch), rules = RulesSchema.parse({ ...this.state.rules, ...parsed, combat: parsed.combat ? { ...this.state.rules.combat, ...parsed.combat } : this.state.rules.combat, version: this.state.rules.version + 1 });
     if (rules.statusTimeoutMs <= rules.statusIntervalMs) throw new Error('Status timeout must exceed report interval');
     this.state.rules = rules;
     const awaiting = this.state.agents.filter(a => a.session && a.session.state !== 'stopped' && a.status !== 'removed').map(a => a.id);
-    if (commandId && awaiting.length) this.state.pendingRuleCommands.push({ commandId, version: rules.version, awaitingBotIds: awaiting });
+    if (commandId && awaiting.length) this.state.pendingRuleCommands.push({ commandId, version: rules.version, awaitingBotIds: awaiting, expected: jsonObject(parsed) });
     this.changed('rules.updated', '새 마을 규칙을 저장하고 적용을 요청했습니다.', { commandId, data: { version: rules.version } });
     for (const agent of this.state.agents.filter(a => a.status !== 'removed')) {
       const attempt = this.state.attempts.find(a => a.id === agent.session?.activeAttemptId), task = this.state.tasks.find(t => t.id === attempt?.taskId), goal = task ? this.goal(task.goalId) : undefined;
@@ -213,6 +234,7 @@ export class FleetController {
   createGoal(input: GoalInput, commandId?: string): Goal {
     const definition = GoalInputSchema.parse(input);
     if (['guard', 'follow', 'survive'].includes(definition.kind)) definition.mode = 'maintain';
+    if (!definition.destination && this.state.rules.warehouse && (['collect', 'store', 'take'].includes(definition.kind) || (definition.kind === 'hunt' && definition.item) || (definition.kind === 'farm' && definition.params.mode === 'harvest'))) definition.destination = clone(this.state.rules.warehouse);
     if (definition.preferredBotId) this.agent(definition.preferredBotId);
     const goal: Goal = { id: randomUUID(), input: definition, title: goalTitle(definition), state: 'queued', taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: definition.quantity }, generation: 0 };
     if (definition.quantityMode === 'total') goal.targetQuantity = definition.quantity;
@@ -230,6 +252,7 @@ export class FleetController {
   updateGoal(goalId: string, patch: GoalPatch, commandId?: string): Goal {
     const goal = this.goal(goalId), parsed = GoalPatchSchema.parse(patch);
     if (terminalGoals.has(goal.state)) throw new Error('A finished goal cannot be edited');
+    if (parsed.preferredBotId) this.agent(parsed.preferredBotId);
     goal.input = GoalInputSchema.parse({ ...goal.input, ...parsed, preferredBotId: parsed.preferredBotId === null ? undefined : parsed.preferredBotId ?? goal.input.preferredBotId });
     goal.title = goalTitle(goal.input);
     if (parsed.quantity !== undefined) goal.targetQuantity = goal.input.quantityMode === 'total' ? parsed.quantity : undefined;
@@ -261,6 +284,7 @@ export class FleetController {
     const agent = this.agent(botId);
     if (!agent.session || agent.session.state !== 'ready') throw new Error('Viewer requires a connected bot');
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid viewer port');
+    for (const previous of [...this.state.pendingCommands]) if (previous.targetId === botId && (previous.type === 'viewer-start' || previous.type === 'viewer-stop')) this.failed(previous.commandId, '후속 화면 요청으로 이 변경이 대체되었습니다.');
     this.pending(commandId, enabled ? 'viewer-start' : 'viewer-stop', botId);
     agent.viewer = enabled ? { state: 'starting', port, prefix: `/viewer/${encodeURIComponent(botId)}` } : { ...agent.viewer, state: 'stopping' };
     this.send(agent, enabled ? 'viewer.start' : 'viewer.stop', enabled ? { port, prefix: agent.viewer.prefix } : {});
@@ -277,7 +301,8 @@ export class FleetController {
     if (!agent?.session || agent.session.id !== message.sessionId || agent.session.state === 'stopped' || agent.status === 'removed') return false;
     if ('attemptId' in message) {
       const attempt = this.state.attempts.find(a => a.id === message.attemptId), task = this.state.tasks.find(t => t.id === message.taskId);
-      if (!attempt || !task || task.attemptId !== attempt.id || attempt.botId !== agent.id || attempt.sessionId !== message.sessionId || attempt.controllerEpoch !== this.controllerEpoch || !activeAttempts.has(attempt.state)) return false;
+      const recoveringStop = attempt?.state === 'uncertain' && !attempt.finishedAt && agent.session.activeAttemptId === attempt.id && ['task.cancelled', 'task.interrupted', 'task.result'].includes(message.type);
+      if (!attempt || !task || task.attemptId !== attempt.id || attempt.botId !== agent.id || attempt.sessionId !== message.sessionId || attempt.controllerEpoch !== this.controllerEpoch || (!activeAttempts.has(attempt.state) && !recoveringStop)) return false;
     }
     this.messageIds.add(message.messageId);
     this.state.processedMessageIds.push(message.messageId);
@@ -292,6 +317,8 @@ export class FleetController {
       if (input.world !== agent.session?.report?.world || input.dimension !== agent.session?.report?.dimension || input.observedAt > this.now() + 1000) continue;
       if (input.kind === 'container' && (input.data.container.world !== input.world || input.data.container.dimension !== input.dimension)) continue;
       if (this.state.observations.some(o => o.id === input.id && o.sessionId === agent.session?.id)) continue;
+      if (input.kind === 'inventory' && agent.session?.report && !this.state.observations.some(o => o.kind === 'inventory' && o.botId === agent.id && o.sessionId === agent.session?.id && o.observedAt > input.observedAt)) agent.session.report.inventory = clone(input.data.items);
+      if (input.kind === 'position' && agent.session?.report && !this.state.observations.some(o => o.kind === 'position' && o.botId === agent.id && o.sessionId === agent.session?.id && o.observedAt > input.observedAt)) agent.session.report.position = clone(input.data.position);
       this.state.observations.push({ ...clone(input), botId: agent.id, sessionId: agent.session!.id, controllerEpoch: this.controllerEpoch, receivedAt: this.now(), ...(attemptId ? { attemptId } : {}) });
     }
     this.state.observations = this.state.observations.filter(o => this.now() - o.receivedAt <= Math.max(300000, this.state.rules.observationMaxAgeMs)).slice(-5000);
@@ -317,7 +344,7 @@ export class FleetController {
         this.finishCommands(agent.id, ['agent-update', 'pause', 'resume']);
         for (const command of [...this.state.pendingRuleCommands]) if (command.version <= session.rulesVersion) {
           command.awaitingBotIds = command.awaitingBotIds.filter(id => id !== agent.id);
-          if (!command.awaitingBotIds.length) { this.state.pendingRuleCommands = this.state.pendingRuleCommands.filter(c => c !== command); this.applied(command.commandId, { version: session.rulesVersion }); }
+          if (!command.awaitingBotIds.length) { this.state.pendingRuleCommands = this.state.pendingRuleCommands.filter(c => c !== command); if (this.expectedApplied(command.expected, this.state.rules)) this.applied(command.commandId, { version: session.rulesVersion }); else this.failed(command.commandId, '후속 규칙 요청으로 이 변경이 대체되었습니다.'); }
         }
         this.changed('rules.applied', '봇이 규칙을 실제 적용했습니다.', { botId: agent.id, data: { version: session.rulesVersion } });
         return;
@@ -448,7 +475,10 @@ export class FleetController {
   private reconcileAndPlan(goal: Goal): void {
     if (goal.state === 'cancelling') { this.finishGoalCancellation(goal); return; }
     if (terminalGoals.has(goal.state)) return;
+    if (!goal.input.destination && this.state.rules.warehouse && (isStockGoal(goal) || ['store', 'take'].includes(goal.input.kind) || (goal.input.kind === 'farm' && goal.input.params.mode === 'harvest'))) goal.input.destination = clone(this.state.rules.warehouse);
     let tasks = this.currentTasks(goal), stock = this.warehouseCount(goal);
+    if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) { goal.state = 'condition-wait'; goal.reason = '자율 마을 발전이 꺼져 있습니다.'; return; }
+    if (goal.input.source === 'autonomous' && tasks.some(t => t.completion.kind === 'blocks' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, t.completion.blocks))) && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '마을 범위에 맞는 전체 배치를 다시 확인합니다.'); tasks = []; }
     if (isStockGoal(goal)) {
       if (stock !== undefined) {
         if (goal.targetQuantity === undefined) goal.targetQuantity = stock + goal.input.quantity;
@@ -479,8 +509,13 @@ export class FleetController {
       if (isStockGoal(goal) && stock === undefined) { goal.state = 'condition-wait'; goal.reason = '최종 창고 재고 관측이 필요합니다.'; return; }
       const ongoing = goal.input.mode === 'maintain' || ['guard', 'follow', 'survive'].includes(goal.input.kind);
       if (!isStockGoal(goal) && !ongoing) {
-        goal.state = 'completed'; goal.progress.current = goal.input.quantity; goal.updatedAt = this.now();
+        goal.state = 'completed'; goal.progress.current = goal.targetQuantity ?? goal.input.quantity; goal.progress.target = goal.targetQuantity ?? goal.input.quantity; goal.updatedAt = this.now();
         this.changed('goal.completed', '목표의 실제 결과를 확인했습니다.', { goalId: goal.id }); return;
+      }
+      if (ongoing && !isStockGoal(goal)) {
+        if (goal.nextRunAt === undefined) { goal.nextRunAt = this.now() + (goal.input.kind === 'guard' ? 30000 : 5000); goal.state = 'maintaining'; return; }
+        if (goal.nextRunAt > this.now()) return;
+        goal.nextRunAt = undefined;
       }
       this.invalidatePlan(goal, '다음 실행 주기를 준비합니다.'); tasks = [];
     }
@@ -500,6 +535,7 @@ export class FleetController {
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;
+      if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) return false;
       if (task.blockedByGoalId && !terminalGoals.has(this.goal(task.blockedByGoalId).state)) return false;
       if (task.affinityBotId && task.affinityBotId !== agent.id) return false;
       if (pinned && task.affinityBotId !== agent.id) return false;
@@ -528,6 +564,11 @@ export class FleetController {
   private assign(agent: Agent, task: Task, decision: SchedulerDecision = { id: task.id, source: 'code', reason: '우선순위, 역할, 능력과 예약 조건을 확인했습니다.' }): void {
     if (!this.candidateTasks(agent).some(t => t.id === task.id) || this.preferredElsewhere(task, agent)) return;
     if (task.kind === 'collect' && task.completion.kind === 'inventory') task.params.quantity = Math.max(0, task.completion.minimum - itemCount(agent.session!.report!.inventory, task.completion.item));
+    const goal = this.goal(task.goalId);
+    if ((task.kind === 'craft' || task.kind === 'smelt') && task.completion.kind === 'inventory' && goal.input.quantityMode === 'additional') {
+      if (goal.targetQuantity === undefined) { goal.targetQuantity = itemCount(agent.session!.report!.inventory, task.completion.item) + goal.input.quantity; task.params.additionalBaseline = goal.targetQuantity - goal.input.quantity; }
+      task.completion.minimum = goal.targetQuantity; task.params.quantity = goal.targetQuantity; goal.progress.target = goal.targetQuantity;
+    }
     const attempt: TaskAttempt = { id: randomUUID(), taskId: task.id, botId: agent.id, sessionId: agent.session!.id, controllerEpoch: this.controllerEpoch, reason: task.retryCount ? 'retry' : task.resumeCount ? 'resume' : 'initial', state: 'assigned', assignedAt: this.now() };
     this.state.attempts.push(attempt); task.attemptId = attempt.id; task.state = 'assigned'; task.updatedAt = this.now();
     agent.session!.activeAttemptId = attempt.id;
@@ -566,9 +607,27 @@ export class FleetController {
       if (eligible.length) this.assign(agent, eligible[0], { id: eligible[0].id, source: 'code', reason: '모델 오류: 검증된 배정 규칙을 사용합니다.' });
     });
   }
+  private yieldAutonomy(): void {
+    const userTasks = this.state.tasks.filter(t => {
+      const goal = this.goal(t.goalId);
+      return goal.input.source === 'user' && !terminalGoals.has(goal.state) && goal.state !== 'held' && goal.state !== 'cancelling' && t.generation === goal.generation && runnable.has(t.state) && (t.retryAt ?? 0) <= this.now() && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed');
+    }).sort((a, b) => this.taskPriority(b) - this.taskPriority(a));
+    for (const task of userTasks) {
+      if (this.state.agents.some(a => this.candidateTasks(a).some(t => t.id === task.id))) continue;
+      const agent = this.state.agents.find(a => {
+        const active = this.state.tasks.find(t => t.attemptId === a.session?.activeAttemptId);
+        return active && active.state !== 'cancelling' && this.goal(active.goalId).input.source === 'autonomous' && a.status === 'ready' && a.config.enabled && a.desiredConfig?.enabled !== false && a.session?.state === 'ready' && a.session.report?.mode !== 'emergency' && a.config.allowedActions.includes(task.kind) && a.session.report?.capabilities.includes(task.kind) && (!task.affinityBotId || task.affinityBotId === a.id);
+      });
+      if (!agent) continue;
+      const active = this.state.tasks.find(t => t.attemptId === agent.session?.activeAttemptId)!;
+      active.blockedByGoalId = task.goalId;
+      this.cancelTask(active, '사용자 목표를 우선하고 마을 발전 진행을 보존합니다.', true);
+      this.changed('autonomy.yielded', '사용자 목표를 수행할 봇을 확보하기 위해 자율 작업을 안전하게 중단합니다.', { botId: agent.id, taskId: active.id, goalId: task.goalId });
+    }
+  }
 
   tick(): void {
-    if (this.ticking) return;
+    if (this.ticking || this.disposed) return;
     this.ticking = true;
     try {
       for (const agent of this.state.agents) {
@@ -576,16 +635,47 @@ export class FleetController {
         this.applyAgentRules(agent);
       }
       if (this.state.rules.autonomyEnabled && this.state.rules.center && this.state.rules.warehouse && this.state.agents.some(a => a.session?.state === 'ready' && a.config.enabled)) {
-        for (const stock of this.state.rules.developmentStock) if (!this.state.goals.some(g => g.input.source === 'autonomous' && g.input.kind === 'collect' && g.input.item === stock.item && !terminalGoals.has(g.state))) {
+        for (const stock of this.state.rules.developmentStock) if (!this.state.goals.some(g => g.input.source === 'autonomous' && g.input.kind === 'collect' && g.input.item === stock.item)) {
           const input = GoalInputSchema.parse({ kind: 'collect', item: stock.item, quantity: stock.quantity, mode: 'maintain', source: 'autonomous', priority: 10 });
           const goal: Goal = { id: randomUUID(), input, title: goalTitle(input), state: 'queued', targetQuantity: stock.quantity, taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: stock.quantity }, generation: 0 };
-          this.state.goals.push(goal); this.changed('goal.autonomous-created', '여유 봇을 위한 마을 재고 유지 목표를 추가했습니다.', { goalId: goal.id });
+          this.state.goals.push(goal); this.changed('goal.autonomous-created', '여유 봇을 위한 마을 재고 유지 목표를 추가했습니다.', { goalId: goal.id, data: { source: 'code' } });
+        }
+        const center = this.state.rules.center;
+        const development: GoalInput[] = [
+          { kind: 'farm', source: 'autonomous', params: { developmentId: 'village-farm', id: 'village-farm', crop: 'wheat', mode: 'setup', plots: 8, origin: { x: Math.floor(center.x) - 12, y: Math.floor(center.y) - 1, z: Math.floor(center.z) } }, priority: 8 },
+          { kind: 'build', source: 'autonomous', params: { developmentId: 'village-house', design: 'cabin', origin: { x: center.x + 12, y: center.y, z: center.z } }, priority: 5 },
+          { kind: 'build', source: 'autonomous', params: { developmentId: 'village-warehouse', design: 'warehouse', origin: { x: center.x, y: center.y, z: center.z + 12 } }, priority: 4 },
+          { kind: 'build', source: 'autonomous', params: { developmentId: 'village-watchtower', design: 'tower', origin: { x: center.x - 12, y: center.y, z: center.z - 12 } }, priority: 3 },
+          { kind: 'guard', source: 'autonomous', mode: 'maintain', params: { developmentId: 'village-defense', position: { x: center.x, y: center.y, z: center.z } }, priority: 3 },
+        ];
+        for (const candidate of development) if (!this.state.goals.some(g => g.input.source === 'autonomous' && g.input.params.developmentId === candidate.params?.developmentId) && this.state.agents.some(a => a.config.allowedActions.includes(candidate.kind) && a.session?.report?.capabilities.includes(candidate.kind))) {
+          const input = GoalInputSchema.parse(candidate), goal: Goal = { id: randomUUID(), input, title: goalTitle(input), state: 'queued', taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: input.quantity }, generation: 0 };
+          this.state.goals.push(goal); this.changed('goal.autonomous-created', '관측과 범위 검증을 거쳐 마을 발전 작업을 준비합니다.', { goalId: goal.id, data: { source: 'code' } });
         }
       }
       for (const goal of [...this.state.goals]) this.reconcileAndPlan(goal);
+      this.yieldAutonomy();
       const agents = [...this.state.agents].sort((a, b) => Number(this.state.goals.some(g => g.input.preferredBotId === b.id && !terminalGoals.has(g.state))) - Number(this.state.goals.some(g => g.input.preferredBotId === a.id && !terminalGoals.has(g.state))) || a.createdAt - b.createdAt);
       for (const agent of agents) this.schedule(agent);
+      this.compact();
     } finally { this.ticking = false; }
+  }
+  private compact(): void {
+    const retention = this.now() - this.state.rules.logRetentionDays * 86400000;
+    this.state.goals = this.state.goals.filter(g => !terminalGoals.has(g.state) || g.input.source === 'autonomous' || g.updatedAt >= retention);
+    const goals = new Map(this.state.goals.map(g => [g.id, g]));
+    this.state.tasks = this.state.tasks.filter(t => {
+      const goal = goals.get(t.goalId);
+      return !!goal && (t.generation >= goal.generation - 2 || this.taskHasActor(t) || this.state.reservations.some(r => r.taskId === t.id));
+    });
+    const taskIds = new Set(this.state.tasks.map(t => t.id));
+    for (const goal of this.state.goals) goal.taskIds = goal.taskIds.filter(id => taskIds.has(id));
+    const retain = new Set(this.state.reservations.map(r => r.attemptId));
+    for (const task of this.state.tasks) {
+      if (task.attemptId) retain.add(task.attemptId);
+      for (const attempt of this.state.attempts.filter(a => a.taskId === task.id).slice(-10)) retain.add(attempt.id);
+    }
+    this.state.attempts = this.state.attempts.filter(a => retain.has(a.id) || activeAttempts.has(a.state) || (a.state === 'uncertain' && !a.finishedAt));
   }
 }
 export function createFleetController(options: FleetControllerOptions): FleetController { return new FleetController(options); }

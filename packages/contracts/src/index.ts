@@ -26,7 +26,8 @@ export type Connection = z.infer<typeof ConnectionSchema>;
 export const BotInputSchema = z.object({ id: IdSchema.optional(), name: z.string().regex(/^[A-Za-z0-9_]{3,16}$/, 'Minecraft name must be 3–16 letters, digits or underscores'), role: z.string().min(1).max(40).default('general'), enabled: z.boolean().default(true), allowedActions: z.array(ActionKindSchema).max(32).default([...ACTION_KINDS]), connection: ConnectionSchema.default({ host: '127.0.0.1', port: 25566, auth: 'offline' }) }).strict();
 export type BotInput = z.input<typeof BotInputSchema>;
 export type BotConfig = Omit<z.output<typeof BotInputSchema>, 'id'>;
-export const BotPatchSchema = z.object({ name: BotInputSchema.shape.name.optional(), role: z.string().min(1).max(40).optional(), enabled: z.boolean().optional(), allowedActions: z.array(ActionKindSchema).max(32).optional(), connection: ConnectionSchema.optional() }).strict();
+export const ConnectionPatchSchema = z.object({ host: ConnectionSchema.shape.host.removeDefault().optional(), port: ConnectionSchema.shape.port.removeDefault().optional(), version: ConnectionSchema.shape.version, auth: ConnectionSchema.shape.auth.removeDefault().optional() }).strict();
+export const BotPatchSchema = z.object({ name: BotInputSchema.shape.name.optional(), role: z.string().min(1).max(40).optional(), enabled: z.boolean().optional(), allowedActions: z.array(ActionKindSchema).max(32).optional(), connection: ConnectionPatchSchema.optional() }).strict();
 export type BotPatch = z.infer<typeof BotPatchSchema>;
 
 export const RulesSchema = z.object({
@@ -44,8 +45,10 @@ export const RulesSchema = z.object({
   combat: z.object({ proactiveRoles: z.array(z.string()).default(['guard', 'hunter']), counterattackWhenAttacked: z.boolean().default(true), retreatHealth: z.number().min(1).max(20).default(6), supportHealth: z.number().min(1).max(20).default(10), enemyRatioLimit: z.number().min(1).max(10).default(2), protectPlayers: z.boolean().default(true) }).strict().default({ proactiveRoles: ['guard', 'hunter'], counterattackWhenAttacked: true, retreatHealth: 6, supportHealth: 10, enemyRatioLimit: 2, protectPlayers: true }),
 }).strict();
 export type Rules = z.infer<typeof RulesSchema>;
-export const RulesPatchSchema = RulesSchema.omit({ version: true }).partial().strict();
-export type RulesPatch = z.infer<typeof RulesPatchSchema>;
+export type RulesPatch = Omit<Partial<Omit<Rules, 'version'>>, 'combat'> & { combat?: Partial<Rules['combat']> };
+const combatPatchShape = Object.fromEntries(Object.entries(RulesSchema.shape.combat.removeDefault().shape).map(([key, schema]) => [key, schema.removeDefault().optional()]));
+const rulesPatchShape = Object.fromEntries(Object.entries(RulesSchema.omit({ version: true }).shape).map(([key, schema]) => [key, key === 'combat' ? z.object(combatPatchShape).strict().optional() : schema.removeDefault().optional()]));
+export const RulesPatchSchema = z.object(rulesPatchShape).strict() as z.ZodType<RulesPatch>;
 export const DEFAULT_RULES: Rules = RulesSchema.parse({});
 
 export const GoalInputSchema = z.object({
@@ -82,8 +85,8 @@ export const CompletionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('manual'), reason: z.string().min(1) }).strict(),
 ]);
 export type CompletionCondition = z.infer<typeof CompletionSchema>;
-export interface TaskSpec { id: string; goalId: string; kind: ActionKind; params: JsonObject; dependencies: string[]; completion: CompletionCondition; reservationKeys: string[]; affinityBotId?: string; }
-export const TaskSpecSchema: z.ZodType<TaskSpec> = z.object({ id: IdSchema, goalId: IdSchema, kind: ActionKindSchema, params: JsonObjectSchema, dependencies: z.array(IdSchema), completion: CompletionSchema, reservationKeys: z.array(z.string()), affinityBotId: IdSchema.optional() }).strict();
+export interface TaskSpec { id: string; goalId: string; kind: ActionKind; source?: 'user' | 'autonomous'; params: JsonObject; dependencies: string[]; completion: CompletionCondition; reservationKeys: string[]; affinityBotId?: string; }
+export const TaskSpecSchema = z.object({ id: IdSchema, goalId: IdSchema, kind: ActionKindSchema, source: z.enum(['user', 'autonomous']).optional(), params: JsonObjectSchema, dependencies: z.array(IdSchema), completion: CompletionSchema, reservationKeys: z.array(z.string()), affinityBotId: IdSchema.optional() }).strict();
 
 const observationBase = { id: IdSchema, observedAt: time, world: z.string().min(1), dimension: z.string().min(1) };
 export const ObservationInputSchema = z.discriminatedUnion('kind', [
@@ -148,7 +151,7 @@ export const WorkerMessageSchema = z.discriminatedUnion('type', [
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 
 export type GoalState = 'queued' | 'active' | 'condition-wait' | 'maintaining' | 'completed' | 'cancelling' | 'cancelled' | 'held';
-export interface Goal { id: string; input: GoalDefinition; title: string; state: GoalState; targetQuantity?: number; taskIds: string[]; createdAt: number; updatedAt: number; reason?: string; progress: { current: number; target?: number }; generation: number; }
+export interface Goal { id: string; input: GoalDefinition; title: string; state: GoalState; targetQuantity?: number; taskIds: string[]; createdAt: number; updatedAt: number; reason?: string; progress: { current: number; target?: number }; generation: number; nextRunAt?: number; }
 export type TaskState = 'waiting' | 'assigned' | 'accepted' | 'running' | 'verifying' | 'completed' | 'condition-wait' | 'interrupted' | 'retry-wait' | 'cancelling' | 'cancelled' | 'held';
 export interface Task extends TaskSpec { generation: number; state: TaskState; attemptId?: string; retryCount: number; resumeCount: number; checkpoint: JsonObject; progress: number; reason?: string; createdAt: number; updatedAt: number; retryAt?: number; blockedByGoalId?: string; }
 export interface TaskAttempt { id: string; taskId: string; botId: string; sessionId: string; controllerEpoch: string; reason: 'initial' | 'retry' | 'resume'; state: 'assigned' | 'accepted' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'interrupted' | 'failed' | 'uncertain'; startedAt?: number; assignedAt: number; finishedAt?: number; result?: ResultPayload; }
@@ -157,12 +160,24 @@ export interface AgentSession { id: string; state: 'starting' | 'ready' | 'abnor
 export interface Agent { id: string; config: BotConfig; desiredConfig?: BotConfig; pendingCommandIds: string[]; session?: AgentSession; status: 'registered' | 'connecting' | 'ready' | 'paused' | 'removing' | 'removed' | 'abnormal'; viewer: { state: 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'; port?: number; prefix?: string }; createdAt: number; updatedAt: number; }
 export interface CoreEvent { id: string; time: number; revision: number; type: string; commandId?: string; botId?: string; goalId?: string; taskId?: string; attemptId?: string; message: string; data?: JsonObject; }
 export interface FleetSnapshot { schemaVersion: 1; controllerEpoch: string; revision: number; updatedAt: number; rules: Rules; agents: Agent[]; goals: Goal[]; tasks: Task[]; attempts: TaskAttempt[]; reservations: Reservation[]; observations: Observation[]; events: CoreEvent[]; }
-export interface PendingRuleCommand { commandId: string; version: number; awaitingBotIds: string[]; }
-export interface PendingCoreCommand { commandId: string; type: 'agent-update' | 'pause' | 'resume' | 'remove' | 'viewer-start' | 'viewer-stop' | 'goal-cancel' | 'goal-update'; targetId: string; }
+export interface PendingRuleCommand { commandId: string; version: number; awaitingBotIds: string[]; expected?: JsonObject; }
+export interface PendingCoreCommand { commandId: string; type: 'agent-update' | 'pause' | 'resume' | 'remove' | 'viewer-start' | 'viewer-stop' | 'goal-cancel' | 'goal-update'; targetId: string; expected?: JsonObject; }
 export interface FleetCheckpoint extends FleetSnapshot { processedMessageIds: string[]; pendingRuleCommands: PendingRuleCommand[]; pendingCommands: PendingCoreCommand[]; stoppedSessionIds: string[]; }
 export const CommandReceiptSchema = z.object({ id: IdSchema, type: z.string(), state: z.enum(['accepted', 'applying', 'applied', 'failed']), createdAt: time, updatedAt: time, result: JsonValueSchema.optional(), error: z.string().optional() }).strict();
 export type CommandReceipt = z.infer<typeof CommandReceiptSchema>;
 export interface ApiError { error: { code: string; message: string; details?: JsonValue }; }
+
+export const GoalSchema = z.object({ id: IdSchema, input: GoalInputSchema, title: z.string(), state: z.enum(['queued', 'active', 'condition-wait', 'maintaining', 'completed', 'cancelling', 'cancelled', 'held']), targetQuantity: z.number().int().nonnegative().optional(), taskIds: z.array(IdSchema), createdAt: time, updatedAt: time, reason: z.string().optional(), progress: z.object({ current: z.number().nonnegative(), target: z.number().nonnegative().optional() }).strict(), generation: z.number().int().nonnegative(), nextRunAt: time.optional() }).strict();
+export const TaskSchema = TaskSpecSchema.extend({ generation: z.number().int().nonnegative(), state: z.enum(['waiting', 'assigned', 'accepted', 'running', 'verifying', 'completed', 'condition-wait', 'interrupted', 'retry-wait', 'cancelling', 'cancelled', 'held']), attemptId: IdSchema.optional(), retryCount: z.number().int().nonnegative(), resumeCount: z.number().int().nonnegative(), checkpoint: JsonObjectSchema, progress: z.number().min(0).max(1), reason: z.string().optional(), createdAt: time, updatedAt: time, retryAt: time.optional(), blockedByGoalId: IdSchema.optional() }).strict();
+export const TaskAttemptSchema = z.object({ id: IdSchema, taskId: IdSchema, botId: IdSchema, sessionId: IdSchema, controllerEpoch: IdSchema, reason: z.enum(['initial', 'retry', 'resume']), state: z.enum(['assigned', 'accepted', 'running', 'cancelling', 'completed', 'cancelled', 'interrupted', 'failed', 'uncertain']), assignedAt: time, startedAt: time.optional(), finishedAt: time.optional(), result: ResultPayloadSchema.optional() }).strict();
+export const ReservationSchema = z.object({ key: z.string(), taskId: IdSchema, attemptId: IdSchema, botId: IdSchema, sessionId: IdSchema, acquiredAt: time }).strict();
+export const AgentSessionSchema = z.object({ id: IdSchema, state: z.enum(['starting', 'ready', 'abnormal', 'stopped']), lastReportAt: time, report: BotReportSchema.optional(), activeAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), pendingRulesVersion: z.number().int().positive().optional() }).strict();
+export const AgentSchema = z.object({ id: IdSchema, config: BotInputSchema.omit({ id: true }), desiredConfig: BotInputSchema.omit({ id: true }).optional(), pendingCommandIds: z.array(IdSchema), session: AgentSessionSchema.optional(), status: z.enum(['registered', 'connecting', 'ready', 'paused', 'removing', 'removed', 'abnormal']), viewer: z.object({ state: z.enum(['stopped', 'starting', 'ready', 'stopping', 'failed']), port: z.number().int().min(1024).max(65535).optional(), prefix: z.string().startsWith('/').optional() }).strict(), createdAt: time, updatedAt: time }).strict();
+export const CoreEventSchema = z.object({ id: IdSchema, time, revision: z.number().int().nonnegative(), type: z.string(), commandId: IdSchema.optional(), botId: IdSchema.optional(), goalId: IdSchema.optional(), taskId: IdSchema.optional(), attemptId: IdSchema.optional(), message: z.string(), data: JsonObjectSchema.optional() }).strict();
+// ObservationInput is strict at the wire boundary; the persisted form adds trusted envelope fields.
+export const ObservationSchema = z.union(ObservationInputSchema.options.map(option => option.extend({ botId: IdSchema, sessionId: IdSchema, receivedAt: time, attemptId: IdSchema.optional(), controllerEpoch: IdSchema }))) as z.ZodType<Observation>;
+export const FleetSnapshotSchema = z.object({ schemaVersion: z.literal(1), controllerEpoch: IdSchema, revision: z.number().int().nonnegative(), updatedAt: time, rules: RulesSchema, agents: z.array(AgentSchema), goals: z.array(GoalSchema), tasks: z.array(TaskSchema), attempts: z.array(TaskAttemptSchema), reservations: z.array(ReservationSchema), observations: z.array(ObservationSchema), events: z.array(CoreEventSchema) }).strict();
+export const FleetCheckpointSchema = FleetSnapshotSchema.extend({ processedMessageIds: z.array(IdSchema), pendingRuleCommands: z.array(z.object({ commandId: IdSchema, version: z.number().int().positive(), awaitingBotIds: z.array(IdSchema), expected: JsonObjectSchema.optional() }).strict()), pendingCommands: z.array(z.object({ commandId: IdSchema, type: z.enum(['agent-update', 'pause', 'resume', 'remove', 'viewer-start', 'viewer-stop', 'goal-cancel', 'goal-update']), targetId: IdSchema, expected: JsonObjectSchema.optional() }).strict()).default([]), stoppedSessionIds: z.array(IdSchema).default([]) }).strict();
 
 export function itemCount(items: readonly ItemStack[], item: string): number { return items.reduce((total, stack) => total + (stack.name === item ? stack.count : 0), 0); }
 export function sameContainer(a: ContainerRef, b: ContainerRef): boolean { return a.id === b.id && a.world === b.world && a.dimension === b.dimension && a.position.x === b.position.x && a.position.y === b.position.y && a.position.z === b.position.z; }
