@@ -250,11 +250,13 @@ export function VillageMap({
         </svg>
         <div className="map-overlay">
           {rules
-            ? `${rules.dimension} · 반경 ${radius} 블록`
+            ? rules.center
+              ? `${rules.dimension} · 반경 ${radius} 블록`
+              : `${rules.dimension} · 관측한 봇 위치 기준`
             : "마을 상태 확인 중"}
         </div>
         <div className="map-compass">N ↑</div>
-        {!rules?.center && (
+        {!rules?.center && !bots.length && (
           <div className="map-empty">
             <strong>
               {snapshot
