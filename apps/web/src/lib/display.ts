@@ -1,0 +1,163 @@
+export const roleLabels: Record<string, string> = {
+  gatherer: "채집가",
+  builder: "건축가",
+  farmer: "농부",
+  hunter: "사냥꾼",
+  guard: "경비병",
+  rancher: "축산가",
+  explorer: "탐험가",
+  general: "생활 지원",
+  generalist: "생활 지원",
+  companion: "생활 지원",
+};
+
+export const stateLabels: Record<string, string> = {
+  registered: "등록됨",
+  connecting: "접속 중",
+  starting: "시작 중",
+  ready: "접속됨",
+  paused: "일시정지",
+  removing: "안전하게 종료 중",
+  removed: "제거됨",
+  abnormal: "접속 이상",
+  stopped: "중지됨",
+  queued: "예약됨",
+  waiting: "대기",
+  assigned: "배정됨",
+  accepted: "요청 접수",
+  running: "수행 중",
+  verifying: "결과 확인 중",
+  completed: "완료",
+  complete: "완료",
+  interrupted: "중단됨",
+  retry_wait: "재시도 대기",
+  condition_wait: "조건 대기",
+  "retry-wait": "재시도 대기",
+  "condition-wait": "조건 대기",
+  cancelling: "안전하게 중단 중",
+  held: "보류",
+  cancelled: "취소됨",
+  failed: "실패",
+  applying: "적용 중",
+  applied: "적용 완료",
+  active: "진행 중",
+  maintaining: "유지 중",
+  pending: "대기",
+  unavailable: "사용 불가",
+};
+
+export const actionLabels: Record<string, string> = {
+  collect: "수집",
+  craft: "제작",
+  smelt: "제련",
+  build: "건축",
+  farm: "농사",
+  harvest: "수확",
+  hunt: "사냥",
+  guard: "경비",
+  fight: "전투",
+  store: "보관",
+  take: "꺼내기",
+  transfer: "운반",
+  explore: "탐색",
+  survive: "생존 유지",
+  follow: "따라가기",
+  home: "거점 복귀",
+  sleep: "수면",
+  recover: "아이템 회수",
+  breed: "번식",
+  idle: "작업 대기",
+  retreat: "퇴각",
+  counterattack: "반격",
+};
+
+export function label(value: string | undefined, labels = stateLabels): string {
+  return value ? (labels[value] ?? value) : "—";
+}
+
+export function isReportStale(
+  lastReportAt: number | string | undefined,
+  now = Date.now(),
+): boolean {
+  if (lastReportAt === undefined) return true;
+  const timestamp =
+    typeof lastReportAt === "number" ? lastReportAt : Date.parse(lastReportAt);
+  return !Number.isFinite(timestamp) || now - timestamp >= 10_000;
+}
+
+export function finitePosition(
+  value: unknown,
+): value is { x: number; y: number; z: number } {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Record<string, unknown>;
+  return ["x", "y", "z"].every(
+    (axis) => typeof point[axis] === "number" && Number.isFinite(point[axis]),
+  );
+}
+
+export function positionText(point: unknown): string {
+  return finitePosition(point)
+    ? `X ${point.x.toFixed(1)} · Y ${point.y.toFixed(1)} · Z ${point.z.toFixed(1)}`
+    : "위치 관측 대기";
+}
+
+export function safeViewerUrl(
+  value: unknown,
+  botId: string,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const expected = `/viewer/${encodeURIComponent(botId)}`;
+  return (value === expected || value.startsWith(`${expected}/`)) &&
+    !value.includes("\\") &&
+    !value.includes("..")
+    ? value === expected
+      ? `${value}/`
+      : value
+    : undefined;
+}
+
+export function percent(current: number, target?: number): number | undefined {
+  if (!Number.isFinite(current) || !target || !Number.isFinite(target))
+    return undefined;
+  return Math.max(0, Math.min(100, (current / target) * 100));
+}
+
+export function localTime(value: number | string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+}
+
+export interface ReceiptLike {
+  id?: string;
+  commandId?: string;
+  state: string;
+  updatedAt?: number | string;
+}
+
+export function mergeReceipt<T extends ReceiptLike>(
+  previous: T | undefined,
+  incoming: T,
+): T {
+  if (!previous) return incoming;
+  const terminal = new Set(["applied", "failed"]);
+  if (terminal.has(previous.state) && !terminal.has(incoming.state))
+    return previous;
+  const before =
+    typeof previous.updatedAt === "number"
+      ? previous.updatedAt
+      : Date.parse(previous.updatedAt ?? "");
+  const after =
+    typeof incoming.updatedAt === "number"
+      ? incoming.updatedAt
+      : Date.parse(incoming.updatedAt ?? "");
+  if (Number.isFinite(before) && Number.isFinite(after) && after < before)
+    return previous;
+  return incoming;
+}
