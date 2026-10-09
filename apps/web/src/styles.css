@@ -599,8 +599,10 @@ svg {
   gap: 20px;
 }
 .bot-detail {
-  position: sticky;
-  top: 16px;
+  max-height: min(720px, calc(100dvh - 32px));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 .detail-heading {
   display: flex;
@@ -608,6 +610,10 @@ svg {
   align-items: center;
   padding: 18px 19px;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
 }
 .detail-heading h2 {
   font-size: 17px;
@@ -751,6 +757,18 @@ svg {
   padding: 0;
   list-style: none;
 }
+.activity-scroll {
+  max-height: 210px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.activity-toggle {
+  width: 100%;
+  margin: 6px 0;
+  padding: 6px 9px;
+  font-size: 11px;
+}
 .activity-list li {
   display: grid;
   grid-template-columns: 53px minmax(0, 1fr);
@@ -782,8 +800,6 @@ svg {
 }
 .event-panel {
   padding: 5px 19px;
-  max-height: 290px;
-  overflow-y: auto;
 }
 .notice {
   padding: 11px 14px;
@@ -987,6 +1003,11 @@ dialog::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
   .bot-detail {
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+  .detail-heading {
     position: static;
   }
   .overview-heading {

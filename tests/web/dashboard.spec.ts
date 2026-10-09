@@ -432,6 +432,126 @@ test("an idle stream with zero bots stays connected without new snapshots", asyn
   await expect(page.getByRole("status")).toContainText("중앙 시스템 연결됨");
 });
 
+test("long activity histories stay inside cards and keep narrow controls reachable", async ({
+  page,
+}, testInfo) => {
+  const state = snapshot();
+  const botId = "f296dc1e-7c8e-4217-ae09-7e841ff29a6f";
+  state.agents = [agent(botId, "hunter")];
+  state.agents[0]!.config.name = "Hunter";
+  state.events = Array.from({ length: 80 }, (_, index) => ({
+    id: `history-${index}`,
+    time: Date.now() - (80 - index) * 1000,
+    revision: index + 1,
+    type: "command.applied",
+    botId,
+    message: `활동 ${index + 1} 확인: 공동 창고에 필요한 원목을 확보했습니다.`,
+  }));
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith("/snapshot")
+        ? state
+        : {
+            id: "viewer-command",
+            type: "viewer.start",
+            state: "applied",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+    .click();
+  const detail = page.getByRole("region", { name: "Hunter 상세 상태" });
+  const botHistory = page.getByRole("region", {
+    name: "최근 봇 활동 기록",
+    exact: true,
+  });
+  const villageHistory = page.getByRole("region", {
+    name: "마을 활동 기록",
+    exact: true,
+  });
+  await expect(botHistory.locator("li")).toHaveCount(6);
+  await expect(villageHistory.locator("li")).toHaveCount(6);
+  await expect(botHistory.locator("li").first()).toContainText("활동 80 확인");
+  await expect(page.locator("body")).not.toContainText(botId);
+  await expect(page.locator("body")).not.toContainText("command.applied");
+  const compactHeight = await page.evaluate(
+    () => document.documentElement.scrollHeight,
+  );
+  await detail
+    .getByRole("button", { name: "전체 기록 80건 보기", exact: true })
+    .click();
+  await page
+    .locator(".event-panel")
+    .getByRole("button", { name: "전체 기록 80건 보기", exact: true })
+    .click();
+  await expect(botHistory.locator("li")).toHaveCount(80);
+  await expect(villageHistory.locator("li")).toHaveCount(80);
+  const geometry = await page.evaluate(() => ({
+    pageHeight: document.documentElement.scrollHeight,
+    viewportHeight: window.innerHeight,
+    detailHeight: document.querySelector(".bot-detail")!.getBoundingClientRect()
+      .height,
+    logs: [...document.querySelectorAll<HTMLElement>(".activity-scroll")].map(
+      (element) => ({
+        height: element.clientHeight,
+        contentHeight: element.scrollHeight,
+        overflow: getComputedStyle(element).overflowY,
+      }),
+    ),
+  }));
+  expect(geometry.pageHeight, JSON.stringify(geometry)).toBeLessThan(2000);
+  expect(geometry.pageHeight).toBeLessThanOrEqual(compactHeight + 80);
+  expect(geometry.detailHeight).toBeLessThanOrEqual(
+    Math.min(720, geometry.viewportHeight - 32),
+  );
+  for (const log of geometry.logs) {
+    expect(log.height).toBeLessThanOrEqual(210);
+    expect(log.contentHeight).toBeGreaterThan(log.height);
+    expect(log.overflow).toBe("auto");
+  }
+  await villageHistory.focus();
+  await page.keyboard.press("End");
+  await expect
+    .poll(() => villageHistory.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await detail.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await villageHistory.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await page.screenshot({
+    path: testInfo.outputPath("compact-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const goalButton = detail.getByRole("button", {
+    name: "이 봇으로 목표",
+    exact: true,
+  });
+  await goalButton.scrollIntoViewIfNeeded();
+  await expect(goalButton).toBeInViewport();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await goalButton.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByLabel("무엇을 할까요?").fill("원목 8개 모아 줘");
+  await expect(page.getByLabel("무엇을 할까요?")).toHaveValue(
+    "원목 8개 모아 줘",
+  );
+  await page.getByRole("dialog").getByLabel("닫기", { exact: true }).click();
+  await page.screenshot({
+    path: testInfo.outputPath("compact-mobile.png"),
+    fullPage: true,
+  });
+});
+
 test("construction and harvest previews keep the edited plan and full destination", async ({
   page,
 }) => {

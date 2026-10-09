@@ -236,7 +236,10 @@ export function BotDetail({
       </div>
       <div className="detail-section">
         <h3>최근 활동</h3>
-        <Events events={events.filter((event) => event.botId === bot.id)} />
+        <Events
+          events={events.filter((event) => event.botId === bot.id)}
+          label="최근 봇 활동 기록"
+        />
       </div>
     </section>
   );

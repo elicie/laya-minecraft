@@ -671,7 +671,16 @@ export function App() {
                 <Sprout size={16} color="#94b47e" />
               </div>
               <div className="event-panel">
-                <Events events={snapshot?.events ?? []} />
+                <Events
+                  events={snapshot?.events ?? []}
+                  label="마을 활동 기록"
+                  botNames={Object.fromEntries(
+                    (snapshot?.agents ?? []).map((bot) => [
+                      bot.id,
+                      bot.config.name,
+                    ]),
+                  )}
+                />
               </div>
             </section>
             <section className="panel">
