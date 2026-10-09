@@ -148,6 +148,7 @@ test('cabin keeps a planned access stair until its fixtures exist and closes it 
       closedFromGround = true;
     }
     await place(p, item, expected, face);
+    if (p.x === 0 && p.y === 5 && p.z === 3) f.bot.entity.position = new Vec3(1.5, 3, 3.5); // A high placement can reposition onto a utility.
   };
   const result = await executeVillageTask(task('build', blocks), f.service);
   assert.equal(result.outcome, 'completed'); assert.ok(closedFromGround);

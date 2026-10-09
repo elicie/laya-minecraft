@@ -144,16 +144,17 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     const pending = access.columns[i]!.filter(block => at(s, block.position)?.name !== block.name);
     if (!pending.length) continue;
     const stand = access.stands[i + 1] ?? access.exit;
-    const support = at(s, offset(stand, 0, -1, 0));
-    if (!support || !(support.name.endsWith('_planks') || ['cobblestone', 'stone', 'stone_bricks', 'bricks', 'dirt', 'grass_block'].includes(support.name)) ||
-      at(s, stand)?.boundingBox !== 'empty' || at(s, offset(stand, 0, 1, 0))?.boundingBox !== 'empty')
-      throw new ConditionWait('내려올 발판과 몸이 들어갈 빈 공간을 실제 관측으로 확인해야 합니다.', s.checkpoint);
-    await s.near(offset(stand, 0.5, 0, 0.5), 0);
-    const feet = s.bot.entity.position;
-    if (Math.floor(feet.x) !== stand.x || Math.floor(feet.z) !== stand.z || Math.abs(feet.y - stand.y) > 0.1)
-      throw new ConditionWait('다음 발판에 실제로 도착한 뒤 건축 접근로를 닫아야 합니다.', s.checkpoint);
     // Fill each column from the top while standing on the next lower step.
     for (const expected of pending) {
+      const support = at(s, offset(stand, 0, -1, 0));
+      if (!support || !(support.name.endsWith('_planks') || ['cobblestone', 'stone', 'stone_bricks', 'bricks', 'dirt', 'grass_block'].includes(support.name)) ||
+        at(s, stand)?.boundingBox !== 'empty' || at(s, offset(stand, 0, 1, 0))?.boundingBox !== 'empty')
+        throw new ConditionWait('내려올 발판과 몸이 들어갈 빈 공간을 실제 관측으로 확인해야 합니다.', s.checkpoint);
+      // Public placement may reposition for a high face; restore the step for every cell.
+      await s.near(offset(stand, 0.5, 0, 0.5), 0);
+      const feet = s.bot.entity.position;
+      if (Math.floor(feet.x) !== stand.x || Math.floor(feet.z) !== stand.z || Math.abs(feet.y - stand.y) > 0.1)
+        throw new ConditionWait('다음 발판에 실제로 도착한 뒤 건축 접근로를 닫아야 합니다.', s.checkpoint);
       s.check();
       const current = at(s, expected.position);
       if (!current || !AIR.has(current.name)) throw new ConditionWait('건축 접근로를 닫기 전에 실제 빈 부지를 확인해야 합니다.', s.checkpoint);
