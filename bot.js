@@ -43,10 +43,10 @@ const auto={enabled:false,target:'stone_pickaxe',phase:'대기',failures:0,start
 let autoRunning=false
 const blocked=new Map()
 const owners = new Set((process.env.MC_OWNERS || '').split(',').filter(Boolean))
-const bot = mineflayer.createBot({host:process.env.MC_HOST || '127.0.0.1',port:Number(process.env.MC_PORT || 25565),version:process.env.MC_VERSION || '1.21.1',username:process.env.MC_USERNAME || 'LayaBot',auth:process.env.MC_AUTH || 'offline',profilesFolder:__dirname+'/auth'})
+const bot = mineflayer.createBot({host:process.env.MC_HOST || '127.0.0.1',port:Number(process.env.MC_PORT || 25565),version:process.env.MC_VERSION || '26.1',username:process.env.MC_USERNAME || 'LayaBot',auth:process.env.MC_AUTH || 'offline',profilesFolder:__dirname+'/auth'})
 bot.loadPlugin(pathfinder)
 let ready = false, busy = false, generation = 0, job = 'idle', observedDeaths=0
-let viewerReady=false
+let viewerReady=false,botViewer=null
 let lastAliveInventory=[]
 let healthPausedGoal=null,previousHealth=null,activeCommand=null,followCommand=null
 async function ensureDifficulty(token){
@@ -328,7 +328,9 @@ async function executeCommand(text, player=null, fromAuto=false) {
 bot.once('spawn',()=>{
   if(process.env.WEB_VIEWER==='1') {
     try {
-      require('prismarine-viewer').mineflayer(bot,{port:{port:3008,host:'127.0.0.1'},prefix:'/view',firstPerson:true,viewDistance:4})
+      const viewerPort=Number(process.env.BOT_VIEWER_PORT||3008),viewerDistance=Number(process.env.BOT_VIEWER_DISTANCE||4),viewerPrefix=process.env.BOT_VIEWER_PREFIX||'/view'
+      if(!Number.isInteger(viewerPort)||viewerPort<1024||viewerPort>65535||!Number.isInteger(viewerDistance)||viewerDistance<1||viewerDistance>8||!/^\/view(?:\/fleet\/[A-Za-z0-9_]{1,16})?$/.test(viewerPrefix))throw new Error('Invalid viewer configuration')
+      botViewer=require('./viewer-compat').createBotViewer(bot,{port:{port:viewerPort,host:'127.0.0.1'},prefix:viewerPrefix,firstPerson:true,viewDistance:viewerDistance})
       viewerReady=true
     } catch(e) {log({type:'error',error:'Viewer: '+e.message})}
   }
@@ -405,8 +407,8 @@ bot.on('death',()=>{
 bot.on('entityDead',entity=>{if(entity.name==='ender_dragon'&&bot.game.dimension.includes('the_end')){campaign.record('dragon',{source:'server_entity_dead',entityId:entity.id,position:entity.position});log({type:'message',text:'서버의 엔더드래곤 사망 이벤트를 확인했습니다.'})}})
 bot.on('kicked',reason=>{ready=false;threatResponse?.cancel('서버 연결이 종료되었습니다.');console.error('kicked',reason);log({type:'kicked',reason})})
 bot.on('error',e=>{console.error(e);log({type:'error',error:e.message})})
-bot.on('end',()=>{ready=false;threatResponse?.cancel('서버 연결이 종료되었습니다.');viewerReady=false;sendState();bot.viewer?.close();console.log('연결 종료');if(process.send)setTimeout(()=>process.exit(1),100);else if(!process.env.BOT_ONCE)process.exitCode=1})
+bot.on('end',()=>{ready=false;threatResponse?.cancel('서버 연결이 종료되었습니다.');viewerReady=false;sendState();botViewer?.close();console.log('연결 종료');if(process.send)setTimeout(()=>process.exit(1),100);else if(!process.env.BOT_ONCE)process.exitCode=1})
 readline.createInterface({input:process.stdin}).on('line',text=>void command(text))
-function shutdown(){stop({preserveIntent:true});bot.viewer?.close();bot.quit();setTimeout(()=>process.exit(0),300)}
+function shutdown(){stop({preserveIntent:true});botViewer?.close();bot.quit();setTimeout(()=>process.exit(0),300)}
 process.on('SIGINT',shutdown)
 process.on('SIGTERM',shutdown)

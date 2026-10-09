@@ -2,9 +2,9 @@
 
 위치: `/home/elicie/Dev/minecraft`
 
-Laya 다국어 체크포인트를 한국어 마크 명령에 파인튜닝하고 Mineflayer에 연결한 Java 1.21.1 실험용 봇입니다.
+Laya 다국어 체크포인트를 한국어 마크 명령에 파인튜닝하고 Mineflayer에 연결한 Java Edition 봇입니다. 현재 기본 접속 대상은 외부 서버 `infra:25565`, 봇 버전은 `26.1`, 인증 방식은 `offline`입니다.
 현재는 **명령 분류·식량 판단·다섯 작업의 다음 행동 선택에 각각 학습한 Laya**를 사용하고, 재료 준비·제작 순서와 실행에는 우리 봇 코드를 사용합니다.
-기본 설정은 파인튜닝한 `minecraft-ko-v1`을 localhost:8082에서 호출하며, 한국어 표현 변환을 끄고 원문을 모델에 전달합니다. 기존 Ollaya 원본은 8081에서 유지합니다.
+현재 추론은 GPU 한 개를 공유하는 vLLM/Laya 게이트웨이 `http://127.0.0.1:8091`을 사용합니다. 명령·식량·활동 모델은 `/models/<모델명>/api/decide`로 호출하며, 한국어 표현 변환을 끄고 원문을 모델에 전달합니다. 아래 학습 기록의 8082~8084 서비스는 이전 개별 모델 운영 구성입니다.
 
 개발 범위는 우리가 만든 봇 코드와 Laya 판단·학습입니다. Mineflayer와 외부
 라이브러리는 배포 원본을 유지하며 소스 패치나 실행 중 함수 교체를 하지 않습니다.
@@ -15,7 +15,25 @@ Laya 다국어 체크포인트를 한국어 마크 명령에 파인튜닝하고 
 도구·철검·빵·화로·상자 제작, 케이크 제작 후 빈 양동이 회수, 취소와 실제 서버
 인벤토리를 검증합니다. 테스트 재료는 해당 임시 월드에만 제공합니다.
 
-## 실행
+## 외부 서버에 12명 접속하기
+
+`.env.example`을 `.env`로 복사하고 서버 주소와 모델 경로를 확인합니다.
+12명은 역할별 닉네임을 사용하므로 외부 서버가 해당 인증 방식을 받아야 합니다.
+서버 버전·설정 변경 후에는 서버를 재시작하여 적용합니다.
+
+```bash
+cd /home/elicie/Dev/minecraft
+export PATH=/home/elicie/tools/node22/bin:$PATH
+npm run web
+# 다른 터미널에서 실행
+npm run village
+```
+
+`http://127.0.0.1:3000/fleet`에서 12명 관전 화면을 확인합니다.
+마인크래프트 서버는 별도로 운영하며 이 실행 명령은 서버를 만들지 않습니다.
+봇별 상태·로그는 `.env`의 `FLEET_LOG_DIR` 아래에 분리합니다.
+
+## 기존 로컬 시험 서버
 
 Minecraft EULA를 읽고 동의한 경우에만 서버 실행:
 
@@ -531,18 +549,17 @@ Qwen 요청은 백그라운드에서 진행합니다. 허기가 낮으면 보유
 실제 후퇴, 같은 목표 재개와 수동 중지 후 재개 취소를 검증합니다. 지형·목재·
 검·빵은 시험용으로 준비하고, 후퇴 시험의 크리퍼는 고정 배치합니다.
 길이 막힌 지형의 탈출이나 모든 전투의 생존을 보장하는 검증은 아닙니다.
-# vLLM Laya deployment and ten-bot fleet
+# vLLM Laya deployment and bot fleet
 
 Laya inference now runs through the local vLLM CUDA fork at `http://127.0.0.1:8091`. Command, food and activity checkpoints keep their trained weights and question schemas. Full implementation and measurements: [vLLM Laya production guide](../vllm-laya/docs/laya-production.md).
 
-The server is configured for sixteen players and a 4G Java heap. Start the prepared server and ten independent bots:
+The optional local test server has a 4G Java heap. Production village bots connect to the external server configured in `.env`. Start twelve independent generic bots with:
 
 ```bash
-ACCEPT_MINECRAFT_EULA=true ./server-start.sh
-PATH="/home/elicie/tools/node22/bin:$PATH" BOT_COUNT=10 npm run fleet
+PATH="/home/elicie/tools/node22/bin:$PATH" BOT_COUNT=12 npm run fleet
 ```
 
-Fleet identities are `LayaBot01` through `LayaBot10`; their logs and persistent state are separated under `logs/fleet/`. Ctrl-C stops the fleet. The dashboard continues to control its original single bot. Ten production bots were tested together in the disposable world on port 25566, including vLLM decisions and follower movement; long survival campaigns were not part of that test.
+Generic fleet identities are `LayaBot01` through `LayaBot12`; their logs and persistent state are separated under `FLEET_LOG_DIR`. Use `npm run village` for the twelve assigned roles below. Ctrl-C stops the fleet. The original dashboard controls a separate single bot; opening the fleet page does not start another bot. Ten production bots were previously tested together in the disposable world on port 25566, including vLLM decisions and follower movement; long survival campaigns were not part of that test.
 
 ## 12명 마을 운영
 
@@ -558,12 +575,12 @@ Fleet identities are `LayaBot01` through `LayaBot10`; their logs and persistent 
 
 | 역할 | 닉네임 | 현재 맡는 작업 |
 |---|---|---|
-| 경비병 2명 | LayaGuard01~02 | 별도 순찰 경로, 보유 장비로 가능한 적 방어, 위험 시 회피 |
-| 건축가 4명 | LayaBuilder01~04 | 작은집·넓은집·창고·전망대의 각자 부지, 재료 확보·건축·파손 보수 |
-| 농부 2명 | LayaFarmer01~02 | 서로 다른 밀밭의 파종·수확·재파종, 빵 제작과 창고 보급 |
-| 관리자 1명 | LayaManager01 | 실제 창고 재고 확인, 개발·식량·방어·축산 우선순위 선택 |
-| 축산 1명 | LayaRancher01 | 주변 성체 가축 두 마리에 먹이주기, 새끼 관측, 16마리 번식 한도 |
-| 사냥꾼 2명 | LayaHunter01~02 | 좌우로 나눈 마을 바깥 구역에서 관측한 동물 사냥, 고기 조리·고기와 가죽 등의 창고 보급 |
+| 경비병 2명 | Guard1, Guard2 | 별도 순찰 경로, 보유 장비로 가능한 적 방어, 위험 시 회피 |
+| 건축가 4명 | Builder1~4 | 작은집·넓은집·창고·전망대의 각자 부지, 재료 확보·건축·파손 보수 |
+| 농부 2명 | Farmer1, Farmer2 | 서로 다른 밀밭의 파종·수확·재파종, 빵 제작과 창고 보급 |
+| 관리자 1명 | Manager | 실제 창고 재고 확인, 개발·식량·방어·축산 우선순위 선택 |
+| 축산 1명 | Rancher | 주변 성체 가축 두 마리에 먹이주기, 새끼 관측, 16마리 번식 한도 |
+| 사냥꾼 2명 | Hunter1, Hunter2 | 좌우로 나눈 마을 바깥 구역에서 관측한 동물 사냥, 고기 조리·고기와 가죽 등의 창고 보급 |
 
 관리자 봇의 첫 접속 위치가 마을 중심입니다. 중심은 `logs/fleet/village.json`에
 서버 주소·차원과 함께 저장하고 재시작해도 유지합니다. 새 서버·새 마을은
@@ -587,10 +604,10 @@ PATH="/home/elicie/tools/node22/bin:$PATH" MC_HOST="SERVER_ADDRESS" MC_PORT=2556
 
 현재 고정 역할 닉네임은 기존 `MC_AUTH=offline` 연결 방식입니다.
 인증 방식은 접속할 서버 설정에 맞아야 합니다.
-터미널에서는 `LayaBuilder01 !stop`, `LayaBuilder01 마을 시작`,
+터미널에서는 `Builder1 !stop`, `Builder1 마을 시작`,
 `all !stop`, `all 마을 시작`으로 개별·전체 중지와 재개를 제어합니다.
 채팅 제어는 `MC_OWNERS`에 등록한 플레이어가 봇 닉네임 뒤에 명령을 붙입니다.
-예: `LayaFarmer01 !stop`. Ctrl-C는 모든 봇을 종료합니다.
+예: `Farmer1 !stop`. Ctrl-C는 모든 봇을 종료합니다.
 수동 중지는 저장되며 재접속해도 자동으로 해제되지 않습니다.
 역할 상태는 `logs/fleet/status.json`, 봇별 기록은 해당 닉네임 폴더에 저장합니다.
 
@@ -600,4 +617,45 @@ PATH="/home/elicie/tools/node22/bin:$PATH" MC_HOST="SERVER_ADDRESS" MC_PORT=2556
 가축을 준비하고 12개 production 봇의 Laya GPU 역할 선택, 순찰, 건축 착수,
 파종, 실제 새끼 소 탄생과 전체 중지를 확인합니다.
 전체 마을 완공이나 장기 자급·확장 성공을 뜻하는 테스트는 아닙니다.
-12명으로 변경한 구성과 사냥꾼 동작은 사용자 요청에 따라 현재 실행·테스트하지 않았습니다.
+실제 게임 검증은 접속한 서버와 수행한 작업에 한정하며, 관전 화면 확인만으로
+마을 완공이나 장기 생존을 검증한 것으로 취급하지 않습니다.
+
+## 12명 관전 화면
+
+`/fleet`은 기본으로 Manager의 큰 화면 하나와 12명의 상태를 표시합니다.
+다른 봇의 ‘보기’를 누르면 메인 화면을 전환하고, ‘Manager 보기’로 돌아옵니다.
+선택하지 않은 봇의 3D 화면은 연결하지 않아 브라우저 부담을 줄입니다.
+‘12명 동시 관전’을 선택하면 데스크톱에서 4×3 화면, 작은 화면에서 2열 또는 1열로 표시합니다.
+봇마다 역할·접속 상태·체력·허기·작업·좌표와 1인칭 화면을 보여 줍니다.
+화면을 누르면 기존 관전 화면이 확대되고 Esc로 돌아옵니다.
+관전 일시정지나 다른 탭 이동은 화면 전송을 멈추며 봇의 작업은 계속됩니다.
+
+`FLEET_VIEWER=1`로 활성화하고 `FLEET_VIEWER_BASE_PORT=3100`이면
+각 봇의 관전 서버는 localhost의 3101~3112에 열립니다.
+웹 서버가 `/view/fleet/<닉네임>/` 아래로 HTTP·WebSocket을 전달합니다.
+`FLEET_VIEW_DISTANCE=2`가 기본이며 1~8로 설정할 수 있습니다.
+12개 화면의 렌더링은 관전 브라우저가 수행하고 Laya 모델은 기존 GPU 서버를 공유합니다.
+
+현재 prismarine-viewer의 최신 화면 자산은 1.21.4까지 지원합니다.
+26.1 접속·이동·행동은 원래 버전으로 실행하며, 우리 `viewer-compat.js`가
+관측한 청크를 화면용으로만 변환합니다. 공통 블록은 이름과 속성을 대응시키고
+새 블록은 돌 또는 공기로 표시하므로 신규 블록의 외관은 실제 게임과 다를 수 있습니다.
+이 변환은 봇의 월드 상태나 외부 라이브러리를 변경하지 않습니다.
+
+계속 실행할 사용자 서비스는 [packaging/minecraft-laya-village.service](packaging/minecraft-laya-village.service)를 사용합니다.
+이 파일의 Node 경로는 이 작업 환경 기준이므로 다른 설치에서는 경로를 맞춥니다.
+
+```bash
+cp packaging/minecraft-laya-village.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user start minecraft-laya-village.service
+journalctl --user -u minecraft-laya-village.service -f
+# 종료
+systemctl --user stop minecraft-laya-village.service
+```
+
+`npm run test:fleet-viewer`는 상태 유효성·12개 경로·HTTP/WebSocket 분리를,
+`npm run test:viewer-compat`은 실제 청크 자료형의 버전 변환과 원본 보존을 검증합니다.
+`npm run test:fleet-dashboard`는 Playwright와 Chromium으로 12개 화면의 확대·중지·복구·모바일 배치를 검증합니다.
+브라우저 테스트는 `PLAYWRIGHT_PATH`, `CHROMIUM_PATH`로 설치 경로를 지정할 수 있습니다.
+이 세 검증은 Minecraft에 접속하거나 월드를 변경하지 않습니다.

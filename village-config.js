@@ -32,7 +32,7 @@ function loadVillageConfig(file) {
 }
 
 function members() {
-  return Object.entries(COUNTS).flatMap(([role, count]) => Array.from({length: count}, (_, i) => ({role, index: i + 1, username: 'Laya' + PREFIXES[role] + String(i + 1).padStart(2, '0')})))
+  return Object.entries(COUNTS).flatMap(([role, count]) => Array.from({length: count}, (_, i) => ({role, index: i + 1, username: PREFIXES[role] + (count > 1 ? i + 1 : '')})))
 }
 
 function assignment(config, member, center, dimension) {

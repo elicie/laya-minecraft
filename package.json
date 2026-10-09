@@ -8,7 +8,7 @@
     "fleet": "node --env-file-if-exists=.env fleet.js",
     "test:fleet-vllm-live": "node --env-file-if-exists=.env tests/fleet-vllm-live.cjs",
     "test": "node --env-file-if-exists=.env smoke-test.js",
-    "check": "node --check bot.js && node --check decision.js && node --check web-server.js && node --check web/app.js && node --check qwen-planner.js && node --check acquisition.js && node --check survival-skills.js && node --check world-skills.js && node --check structures.js && node --check campaign.js && node --check missions.js && node --check endgame.js && node --check farming.js && node --check combat.js && node --check exploration.js && node --check resource-collector.js && node --check food-manager.js && node --check crafting.js && node --check survival-policy.js && node --check policy-feedback.js && node --check activity-policy.js && node --check activity-manager.js && node --check activity-feedback.js && node --check death-recovery.js && node --check web/build-preview.js && node --check building-navigation.js && node --check routine.js && node --check castle.js && node --check minimap.js && node --check web/minimap.js && node --check home.js && node --check pickup-navigation.js && node --check food-planner.js && node --check threat-response.js && node --check fleet.js && node --check village-config.js && node --check village-coordinator.js && node --check village-worker.js && node --check livestock.js",
+    "check": "node --check bot.js && node --check decision.js && node --check web-server.js && node --check web/app.js && node --check qwen-planner.js && node --check acquisition.js && node --check survival-skills.js && node --check world-skills.js && node --check structures.js && node --check campaign.js && node --check missions.js && node --check endgame.js && node --check farming.js && node --check combat.js && node --check exploration.js && node --check resource-collector.js && node --check food-manager.js && node --check crafting.js && node --check survival-policy.js && node --check policy-feedback.js && node --check activity-policy.js && node --check activity-manager.js && node --check activity-feedback.js && node --check death-recovery.js && node --check web/build-preview.js && node --check building-navigation.js && node --check routine.js && node --check castle.js && node --check minimap.js && node --check web/minimap.js && node --check home.js && node --check pickup-navigation.js && node --check food-planner.js && node --check threat-response.js && node --check fleet.js && node --check village-config.js && node --check village-coordinator.js && node --check village-worker.js && node --check livestock.js && node --check fleet-viewer.js && node --check viewer-proxy.js && node --check web/fleet.js && node --check viewer-compat.js",
     "web": "node --env-file-if-exists=.env web-server.js",
     "test:planner": "node tests/planner.cjs && node tests/qwen-planner.cjs && node tests/goal-input.cjs && node tests/survival-plan.cjs && node tests/inventory-state.cjs && node tests/shelter.cjs && node tests/missions.cjs && node tests/acquisition.cjs && node tests/advanced.cjs && node tests/food.cjs && node tests/policy.cjs && node tests/nutrition.cjs && node tests/activity.cjs && node tests/death-recovery.cjs && node tests/buildings.cjs && node tests/collector.cjs && node tests/routine.cjs && node tests/castle.cjs && node tests/home.cjs && node tests/library-integrity.cjs && node tests/threat-response.cjs",
     "test:advanced-live": "node tests/advanced-live.cjs",
@@ -27,7 +27,10 @@
     "test:threat-live": "node tests/threat-response-live.cjs",
     "village": "node --env-file-if-exists=.env fleet.js --village config/village.json",
     "test:village": "node tests/village.cjs",
-    "test:village-live": "node --env-file-if-exists=.env tests/village-live.cjs"
+    "test:village-live": "node --env-file-if-exists=.env tests/village-live.cjs",
+    "test:fleet-viewer": "node tests/fleet-viewer.cjs",
+    "test:fleet-dashboard": "node tests/fleet-dashboard.cjs",
+    "test:viewer-compat": "node tests/viewer-compat.cjs"
   },
   "keywords": [],
   "author": "",

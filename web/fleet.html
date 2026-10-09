@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Laya · 마을 관전</title>
+  <link rel="stylesheet" href="/fleet.css">
+  <script src="/fleet.js" defer></script>
+</head>
+<body>
+  <header id="fleetHeader">
+    <a class="brand" href="/" aria-label="Laya 기본 화면"><span class="cube" aria-hidden="true">◇</span><span><b>LAYA <span>VILLAGE</span></b><small>함께 자라는 마을</small></span></a>
+    <a class="back-link" href="/">기본 화면 ↗</a>
+  </header>
+  <main>
+    <section id="fleetOverview" class="overview" aria-labelledby="pageTitle">
+      <div><p class="eyebrow">VILLAGE OBSERVATORY</p><h1 id="pageTitle">열두 시선, 하나의 마을.</h1><p class="description">Manager를 메인으로 관전합니다. 다른 봇은 ‘보기’를 눌러 전환하세요.</p></div>
+      <div class="overview-controls"><span id="fleetStatus" class="fleet-status" role="status">접속 상태 확인 중</span><button id="managerView" type="button">Manager 보기</button><button id="allViews" type="button" aria-pressed="false">12명 동시 관전</button><button id="pauseViews" type="button" aria-pressed="false">관전 일시정지</button></div>
+    </section>
+    <div id="fleetInfo" class="fleet-info"><span id="serverAddress">서버 확인 중</span><span id="villageCenter">마을 위치 대기</span><span id="viewCount">화면 연결 대기</span></div>
+    <p id="fleetNotice" class="notice" role="status">마을 봇이 접속하면 각 화면이 자동으로 열립니다.</p>
+    <section id="cameraGrid" class="camera-grid" aria-label="봇별 관전 화면"></section>
+    <p class="footnote">기본 관전은 화면 하나만 연결합니다. 화면 전환이나 관전 일시정지 중에도 12명은 계속 작업합니다.</p>
+    <noscript><p class="notice">관전 화면을 보려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+  </main>
+  <div id="focusBackdrop" class="focus-backdrop" hidden></div>
+</body>
+</html>

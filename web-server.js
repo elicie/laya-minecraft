@@ -2,10 +2,15 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),
 const {classify,log}=require('./decision'),{correct}=require('./feedback')
 const {createSurvivalPolicy}=require('./survival-policy'),{correctPolicy}=require('./policy-feedback')
 const {createActivityPolicy,domains}=require('./activity-policy'),{correctActivity}=require('./activity-feedback')
+const {readFleetStatus,fleetViewerTarget}=require('./fleet-viewer')
+const {proxyViewer,proxyViewerUpgrade}=require('./viewer-proxy')
 const policyTest=createSurvivalPolicy()
 const activityTest=createActivityPolicy()
 const root=__dirname,port=Number(process.env.WEB_PORT||3000)
-const addresses=['127.0.0.1',process.env.WEB_HOST||'100.82.139.118']
+const addresses=[...new Set(['127.0.0.1',process.env.WEB_HOST||'100.82.139.118'])]
+const fleetDirectory=path.resolve(process.env.FLEET_LOG_DIR||path.join(root,'logs/fleet'))
+function fleetState(){const fleet=readFleetStatus(fleetDirectory);return {...fleet,server:fleet.server||`${process.env.MC_HOST||'127.0.0.1'}:${process.env.MC_PORT||25565}`}}
+function viewerTarget(url){return url.startsWith('/view/fleet/')?fleetViewerTarget(url,fleetState()):url.startsWith('/view/')?{port:3008,prefix:'/view'}:null}
 const allowedHosts=new Set([...addresses,'gti12-1'].map(a=>`${a}:${port}`))
 const textures=path.join(root,'node_modules/prismarine-viewer/public/textures/1.21.1')
 const itemIcons=new Map()
@@ -41,11 +46,12 @@ async function checkModel(){const endpoints=[process.env.LAYA_ENDPOINT||'http://
 checkModel();setInterval(checkModel,5000).unref()
 function json(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))}
 async function body(req){let s='';for await(const b of req){s+=b;if(s.length>4096)throw new Error('요청이 너무 깁니다.')}return JSON.parse(s||'{}')}
-function proxy(req,res){const upstream=http.request({hostname:'127.0.0.1',port:3008,path:req.url,method:req.method,headers:req.headers},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res)});upstream.on('error',()=>{if(!res.headersSent)json(res,503,{error:'봇이 서버에 접속하면 관전 화면이 열립니다.'});else res.end()});req.pipe(upstream)}
 async function handler(req,res){
  if(!allowedHosts.has(req.headers.host))return json(res,403,{error:'허용되지 않은 호스트'})
- if(req.url.startsWith('/view/'))return proxy(req,res)
+ if(req.url.startsWith('/view/')){const target=viewerTarget(req.url);return target?proxyViewer(req,res,target):json(res,503,{error:'해당 봇의 관전 화면이 아직 준비되지 않았습니다.'})}
  try {
+  if(req.method==='GET'&&req.url==='/api/fleet')return json(res,200,fleetState())
+  if(req.method==='GET'&&req.url==='/fleet/'){res.writeHead(302,{Location:'/fleet'});return res.end()}
   if(req.method==='GET'&&req.url==='/api/buildings/designs'){const {designs,designPreview}=require('./structures');return json(res,200,Object.keys(designs).map(designPreview))}
   const catalog=req.url.match(/^\/api\/items\/([a-z0-9_]+)$/)
   if(req.method==='GET'&&catalog){const item=require('./catalog').itemInfo(catalog[1]);return json(res,item?200:404,item||{error:'Unknown item'})}
@@ -92,7 +98,7 @@ async function handler(req,res){
    }
    return json(res,404,{error:'없는 기능입니다.'})
   }
-  const files={'/':'index.html','/app.js':'app.js','/minimap.js':'minimap.js','/build-preview.js':'build-preview.js','/style.css':'style.css'}
+  const files={'/':'index.html','/app.js':'app.js','/minimap.js':'minimap.js','/build-preview.js':'build-preview.js','/style.css':'style.css','/fleet':'fleet.html','/fleet.js':'fleet.js','/fleet.css':'fleet.css'}
   if(req.method==='GET'&&files[req.url]){
    const name=files[req.url];res.writeHead(200,{'Content-Type':name.endsWith('.js')?'text/javascript; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'"});return fs.createReadStream(path.join(root,'web',name)).pipe(res)
   }
@@ -102,10 +108,10 @@ async function handler(req,res){
 const servers=addresses.map(host=>{
  const server=http.createServer(handler)
  server.on('upgrade',(req,socket,head)=>{
-  if(!allowedHosts.has(req.headers.host)||!req.url.startsWith('/view/socket.io')||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`))return socket.destroy()
-  const upstream=http.request({host:'127.0.0.1',port:3008,path:req.url,headers:req.headers})
-  upstream.on('upgrade',(r,s,upHead)=>{socket.write('HTTP/1.1 101 Switching Protocols\r\n'+Object.entries(r.headers).map(([k,v])=>`${k}: ${v}`).join('\r\n')+'\r\n\r\n');if(upHead.length)socket.write(upHead);if(head.length)s.write(head);s.pipe(socket);socket.pipe(s);s.on('error',()=>socket.destroy());socket.on('error',()=>s.destroy());socket.on('close',()=>s.destroy())})
-  upstream.on('response',()=>socket.destroy());upstream.on('error',()=>socket.destroy());upstream.end()
+  if(!allowedHosts.has(req.headers.host)||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`))return socket.destroy()
+  const target=viewerTarget(req.url)
+  if(!target||!req.url.startsWith(target.prefix+'/socket.io'))return socket.destroy()
+  proxyViewerUpgrade(req,socket,head,target)
  })
  server.listen(port,host,()=>console.log(`Laya Lab: http://${host}:${port}`));return server
 })
