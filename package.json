@@ -1,0 +1,42 @@
+{
+  "name": "minecraft-laya",
+  "version": "1.0.0",
+  "description": "Local Laya decision model + Minecraft Java bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env bot.js",
+    "fleet": "node --env-file-if-exists=.env fleet.js",
+    "test:fleet-vllm-live": "node --env-file-if-exists=.env tests/fleet-vllm-live.cjs",
+    "test": "node --env-file-if-exists=.env smoke-test.js",
+    "check": "node --check bot.js && node --check decision.js && node --check web-server.js && node --check web/app.js && node --check qwen-planner.js && node --check acquisition.js && node --check survival-skills.js && node --check world-skills.js && node --check structures.js && node --check campaign.js && node --check missions.js && node --check endgame.js && node --check farming.js && node --check combat.js && node --check exploration.js && node --check resource-collector.js && node --check food-manager.js && node --check crafting.js && node --check survival-policy.js && node --check policy-feedback.js && node --check activity-policy.js && node --check activity-manager.js && node --check activity-feedback.js && node --check death-recovery.js && node --check web/build-preview.js && node --check building-navigation.js && node --check routine.js && node --check castle.js && node --check minimap.js && node --check web/minimap.js && node --check home.js && node --check pickup-navigation.js && node --check food-planner.js && node --check threat-response.js && node --check fleet.js && node --check village-config.js && node --check village-coordinator.js && node --check village-worker.js && node --check livestock.js",
+    "web": "node --env-file-if-exists=.env web-server.js",
+    "test:planner": "node tests/planner.cjs && node tests/qwen-planner.cjs && node tests/goal-input.cjs && node tests/survival-plan.cjs && node tests/inventory-state.cjs && node tests/shelter.cjs && node tests/missions.cjs && node tests/acquisition.cjs && node tests/advanced.cjs && node tests/food.cjs && node tests/policy.cjs && node tests/nutrition.cjs && node tests/activity.cjs && node tests/death-recovery.cjs && node tests/buildings.cjs && node tests/collector.cjs && node tests/routine.cjs && node tests/castle.cjs && node tests/home.cjs && node tests/library-integrity.cjs && node tests/threat-response.cjs",
+    "test:advanced-live": "node tests/advanced-live.cjs",
+    "test:food-live": "node tests/food-live.cjs",
+    "test:integrity": "node tests/library-integrity.cjs",
+    "test:crafting-live": "node tests/crafting-live.cjs",
+    "test:activity-live": "node tests/activity-live.cjs",
+    "test:activity-safety-live": "node tests/activity-safety-live.cjs",
+    "test:death-live": "node tests/death-recovery-live.cjs",
+    "test:house-death-live": "node tests/house-death-live.cjs",
+    "test:routine-live": "node tests/routine-live.cjs",
+    "test:castle-live": "node tests/castle-live.cjs",
+    "test:home-live": "node tests/home-live.cjs",
+    "test:castle-inspection-live": "node tests/castle-inspection-live.cjs",
+    "test:nutrition-live": "node tests/nutrition-live.cjs",
+    "test:threat-live": "node tests/threat-response-live.cjs",
+    "village": "node --env-file-if-exists=.env fleet.js --village config/village.json",
+    "test:village": "node tests/village.cjs",
+    "test:village-live": "node --env-file-if-exists=.env tests/village-live.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "prismarine-viewer": "^1.33.0",
+    "vec3": "^0.2.0"
+  }
+}

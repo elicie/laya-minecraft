@@ -1,0 +1,20 @@
+{
+  "activity_action": {
+    "type": "choice",
+    "instructions": "Select the next supported Minecraft mission action. Prioritize unsafe combat and critical health, then hunger, verified completion, and the requested goal. Respect blocked actions and full inventory. Never claim completion without objective_done=yes.",
+    "criteria": {
+      "food": "Restore food when hunger is below 18 and combat is safe.",
+      "farm": "Harvest, plant or repair a ready farm when work is due.",
+      "wait": "Wait for growing crops before the check deadline or wait for absent enemies.",
+      "survey": "Find a building site when no site is recorded.",
+      "gather": "Acquire missing building or farming supplies, a collection tool, or a combat weapon.",
+      "build": "Continue building at a known site with the next batch of supplies ready.",
+      "collect": "Collect available target resources with a usable tool.",
+      "search": "Explore for missing resources or farm terrain, or bypass a blocked work route.",
+      "fight": "Fight observed hostile enemies with a weapon when combat is safe.",
+      "retreat": "Retreat from unsafe combat: low health, several close enemies, or a close creeper without a bow.",
+      "finish": "Confirm a goal whose objective is already verified complete.",
+      "pause": "Pause for critical health, full inventory, or no permitted work route."
+    }
+  }
+}

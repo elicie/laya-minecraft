@@ -1,0 +1,1017 @@
+{
+  "correct": 46,
+  "total": 54,
+  "per_class": {
+    "follow": [
+      3,
+      6
+    ],
+    "come": [
+      4,
+      6
+    ],
+    "wood": [
+      6,
+      6
+    ],
+    "wooden_pickaxe": [
+      5,
+      6
+    ],
+    "stone_pickaxe": [
+      5,
+      6
+    ],
+    "iron_pickaxe": [
+      6,
+      6
+    ],
+    "status": [
+      6,
+      6
+    ],
+    "stop": [
+      6,
+      6
+    ],
+    "unknown": [
+      5,
+      6
+    ]
+  },
+  "results": [
+    {
+      "id": "seed-v1-eval-follow-00",
+      "state": "내가 움직일 테니 뒤에서 쫓아와 줘",
+      "expected": "follow",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.1796,
+        "come": 0.6357,
+        "wood": 0.0104,
+        "wooden_pickaxe": 0.0104,
+        "stone_pickaxe": 0.0104,
+        "iron_pickaxe": 0.0104,
+        "status": 0.0104,
+        "stop": 0.0105,
+        "unknown": 0.1222
+      },
+      "latency_ms": 11.39
+    },
+    {
+      "id": "seed-v1-eval-follow-01",
+      "state": "이동할 때 내 뒤에 붙어서 와",
+      "expected": "follow",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0631,
+        "come": 0.8049,
+        "wood": 0.0038,
+        "wooden_pickaxe": 0.0038,
+        "stone_pickaxe": 0.0038,
+        "iron_pickaxe": 0.0038,
+        "status": 0.0038,
+        "stop": 0.0038,
+        "unknown": 0.1093
+      },
+      "latency_ms": 8.71
+    },
+    {
+      "id": "seed-v1-eval-follow-02",
+      "state": "어디로 가든 나를 따라다녀 줬으면 해",
+      "expected": "follow",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0097,
+        "come": 0.9535,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0207
+      },
+      "latency_ms": 8.74
+    },
+    {
+      "id": "seed-v1-eval-follow-03",
+      "state": "길 안내할게 뒤따라오렴",
+      "expected": "follow",
+      "actual": "follow",
+      "probabilities": {
+        "follow": 0.961,
+        "come": 0.0071,
+        "wood": 0.0026,
+        "wooden_pickaxe": 0.0026,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0026,
+        "status": 0.0026,
+        "stop": 0.0027,
+        "unknown": 0.0163
+      },
+      "latency_ms": 8.24
+    },
+    {
+      "id": "seed-v1-eval-follow-04",
+      "state": "Keep up with me wherever I go",
+      "expected": "follow",
+      "actual": "follow",
+      "probabilities": {
+        "follow": 0.9665,
+        "come": 0.0028,
+        "wood": 0.0026,
+        "wooden_pickaxe": 0.0026,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0026,
+        "status": 0.0026,
+        "stop": 0.0026,
+        "unknown": 0.0149
+      },
+      "latency_ms": 8.42
+    },
+    {
+      "id": "seed-v1-eval-follow-05",
+      "state": "계속 내 뒤를 따라 이동해",
+      "expected": "follow",
+      "actual": "follow",
+      "probabilities": {
+        "follow": 0.9699,
+        "come": 0.0092,
+        "wood": 0.0026,
+        "wooden_pickaxe": 0.0026,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0026,
+        "status": 0.0026,
+        "stop": 0.0026,
+        "unknown": 0.0051
+      },
+      "latency_ms": 8.31
+    },
+    {
+      "id": "seed-v1-eval-come-00",
+      "state": "내가 서 있는 자리까지 오렴",
+      "expected": "come",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0047,
+        "come": 0.9723,
+        "wood": 0.0026,
+        "wooden_pickaxe": 0.0026,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0026,
+        "status": 0.0026,
+        "stop": 0.0026,
+        "unknown": 0.0073
+      },
+      "latency_ms": 8.61
+    },
+    {
+      "id": "seed-v1-eval-come-01",
+      "state": "나 있는 쪽으로 한번 이동해 줄래",
+      "expected": "come",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0076,
+        "come": 0.9695,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0066
+      },
+      "latency_ms": 8.27
+    },
+    {
+      "id": "seed-v1-eval-come-02",
+      "state": "내 앞까지 와서 기다려",
+      "expected": "come",
+      "actual": "follow",
+      "probabilities": {
+        "follow": 0.8034,
+        "come": 0.1788,
+        "wood": 0.0023,
+        "wooden_pickaxe": 0.0023,
+        "stone_pickaxe": 0.0023,
+        "iron_pickaxe": 0.0023,
+        "status": 0.0023,
+        "stop": 0.0025,
+        "unknown": 0.0039
+      },
+      "latency_ms": 8.29
+    },
+    {
+      "id": "seed-v1-eval-come-03",
+      "state": "이 자리로 와 줬으면 해",
+      "expected": "come",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.9551,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0261
+      },
+      "latency_ms": 8.38
+    },
+    {
+      "id": "seed-v1-eval-come-04",
+      "state": "Join me at my current position then wait",
+      "expected": "come",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.3448,
+        "come": 0.0303,
+        "wood": 0.0297,
+        "wooden_pickaxe": 0.0297,
+        "stone_pickaxe": 0.0297,
+        "iron_pickaxe": 0.0297,
+        "status": 0.053,
+        "stop": 0.0591,
+        "unknown": 0.3938
+      },
+      "latency_ms": 8.5
+    },
+    {
+      "id": "seed-v1-eval-come-05",
+      "state": "일단 내 쪽으로 와 봐",
+      "expected": "come",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0052,
+        "come": 0.9686,
+        "wood": 0.0031,
+        "wooden_pickaxe": 0.0031,
+        "stone_pickaxe": 0.0031,
+        "iron_pickaxe": 0.0031,
+        "status": 0.0031,
+        "stop": 0.0054,
+        "unknown": 0.0052
+      },
+      "latency_ms": 8.33
+    },
+    {
+      "id": "seed-v1-eval-wood-00",
+      "state": "주변에서 통나무를 좀 모아와 줄래",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.0044,
+        "come": 0.0195,
+        "wood": 0.9411,
+        "wooden_pickaxe": 0.0057,
+        "stone_pickaxe": 0.0036,
+        "iron_pickaxe": 0.0036,
+        "status": 0.0036,
+        "stop": 0.0037,
+        "unknown": 0.0148
+      },
+      "latency_ms": 8.24
+    },
+    {
+      "id": "seed-v1-eval-wood-01",
+      "state": "벌목해서 원목을 마련해 줘",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.003,
+        "come": 0.003,
+        "wood": 0.9634,
+        "wooden_pickaxe": 0.014,
+        "stone_pickaxe": 0.003,
+        "iron_pickaxe": 0.003,
+        "status": 0.003,
+        "stop": 0.003,
+        "unknown": 0.0044
+      },
+      "latency_ms": 8.43
+    },
+    {
+      "id": "seed-v1-eval-wood-02",
+      "state": "목재가 없으니 나무부터 구하자",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.003,
+        "come": 0.003,
+        "wood": 0.9517,
+        "wooden_pickaxe": 0.0272,
+        "stone_pickaxe": 0.003,
+        "iron_pickaxe": 0.003,
+        "status": 0.003,
+        "stop": 0.003,
+        "unknown": 0.0032
+      },
+      "latency_ms": 8.53
+    },
+    {
+      "id": "seed-v1-eval-wood-03",
+      "state": "나무줄기를 캐서 가져와",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0033,
+        "wood": 0.9768,
+        "wooden_pickaxe": 0.0029,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0034
+      },
+      "latency_ms": 8.31
+    },
+    {
+      "id": "seed-v1-eval-wood-04",
+      "state": "Harvest logs from nearby trees",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.9786,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0029
+      },
+      "latency_ms": 8.61
+    },
+    {
+      "id": "seed-v1-eval-wood-05",
+      "state": "건축용 원목을 수집해 줬으면 해",
+      "expected": "wood",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.0034,
+        "come": 0.0034,
+        "wood": 0.965,
+        "wooden_pickaxe": 0.007,
+        "stone_pickaxe": 0.0034,
+        "iron_pickaxe": 0.0034,
+        "status": 0.0035,
+        "stop": 0.0035,
+        "unknown": 0.0072
+      },
+      "latency_ms": 8.45
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-00",
+      "state": "가장 먼저 목재 곡괭이 한 자루 제작해",
+      "expected": "wooden_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0031,
+        "come": 0.0031,
+        "wood": 0.0032,
+        "wooden_pickaxe": 0.9749,
+        "stone_pickaxe": 0.0031,
+        "iron_pickaxe": 0.0031,
+        "status": 0.0031,
+        "stop": 0.0031,
+        "unknown": 0.0032
+      },
+      "latency_ms": 8.55
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-01",
+      "state": "나무 재질의 곡괭이를 마련해 줘",
+      "expected": "wooden_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0045,
+        "come": 0.0045,
+        "wood": 0.0071,
+        "wooden_pickaxe": 0.9609,
+        "stone_pickaxe": 0.0045,
+        "iron_pickaxe": 0.0045,
+        "status": 0.0045,
+        "stop": 0.0045,
+        "unknown": 0.0048
+      },
+      "latency_ms": 8.37
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-02",
+      "state": "나무곡을 새로 하나 뽑아 줘",
+      "expected": "wooden_pickaxe",
+      "actual": "wood",
+      "probabilities": {
+        "follow": 0.0029,
+        "come": 0.0029,
+        "wood": 0.8705,
+        "wooden_pickaxe": 0.1088,
+        "stone_pickaxe": 0.0029,
+        "iron_pickaxe": 0.0029,
+        "status": 0.0029,
+        "stop": 0.0029,
+        "unknown": 0.0034
+      },
+      "latency_ms": 8.26
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-03",
+      "state": "곡괭이 한 개를 목재로 제작하자",
+      "expected": "wooden_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0029,
+        "come": 0.0029,
+        "wood": 0.0029,
+        "wooden_pickaxe": 0.9767,
+        "stone_pickaxe": 0.0029,
+        "iron_pickaxe": 0.0029,
+        "status": 0.0029,
+        "stop": 0.0029,
+        "unknown": 0.0029
+      },
+      "latency_ms": 8.4
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-04",
+      "state": "Please craft me a pickaxe made of wood",
+      "expected": "wooden_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0028,
+        "come": 0.0028,
+        "wood": 0.0106,
+        "wooden_pickaxe": 0.9696,
+        "stone_pickaxe": 0.0028,
+        "iron_pickaxe": 0.0028,
+        "status": 0.0028,
+        "stop": 0.0028,
+        "unknown": 0.0029
+      },
+      "latency_ms": 8.47
+    },
+    {
+      "id": "seed-v1-eval-wooden_pickaxe-05",
+      "state": "철곡 대신 나무곡을 만들어",
+      "expected": "wooden_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0213,
+        "come": 0.0213,
+        "wood": 0.0214,
+        "wooden_pickaxe": 0.6131,
+        "stone_pickaxe": 0.0213,
+        "iron_pickaxe": 0.2375,
+        "status": 0.0213,
+        "stop": 0.0213,
+        "unknown": 0.0216
+      },
+      "latency_ms": 8.33
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-00",
+      "state": "조약돌 곡괭이 한 자루 제작하자",
+      "expected": "stone_pickaxe",
+      "actual": "wooden_pickaxe",
+      "probabilities": {
+        "follow": 0.0298,
+        "come": 0.0298,
+        "wood": 0.0298,
+        "wooden_pickaxe": 0.6522,
+        "stone_pickaxe": 0.0298,
+        "iron_pickaxe": 0.0952,
+        "status": 0.0298,
+        "stop": 0.0298,
+        "unknown": 0.074
+      },
+      "latency_ms": 8.32
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-01",
+      "state": "돌 재질로 곡괭이를 마련해 줘",
+      "expected": "stone_pickaxe",
+      "actual": "stone_pickaxe",
+      "probabilities": {
+        "follow": 0.0066,
+        "come": 0.0066,
+        "wood": 0.0074,
+        "wooden_pickaxe": 0.0369,
+        "stone_pickaxe": 0.9159,
+        "iron_pickaxe": 0.0066,
+        "status": 0.0066,
+        "stop": 0.0066,
+        "unknown": 0.0068
+      },
+      "latency_ms": 8.3
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-02",
+      "state": "돌곡 하나 새로 뽑아 줘",
+      "expected": "stone_pickaxe",
+      "actual": "stone_pickaxe",
+      "probabilities": {
+        "follow": 0.0032,
+        "come": 0.0032,
+        "wood": 0.0044,
+        "wooden_pickaxe": 0.0034,
+        "stone_pickaxe": 0.9668,
+        "iron_pickaxe": 0.0095,
+        "status": 0.0032,
+        "stop": 0.0032,
+        "unknown": 0.0033
+      },
+      "latency_ms": 8.5
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-03",
+      "state": "이제 돌을 재료로 곡괭이를 제작해",
+      "expected": "stone_pickaxe",
+      "actual": "stone_pickaxe",
+      "probabilities": {
+        "follow": 0.0107,
+        "come": 0.0108,
+        "wood": 0.0118,
+        "wooden_pickaxe": 0.201,
+        "stone_pickaxe": 0.718,
+        "iron_pickaxe": 0.0145,
+        "status": 0.0107,
+        "stop": 0.0107,
+        "unknown": 0.0117
+      },
+      "latency_ms": 8.26
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-04",
+      "state": "Please craft me a pickaxe made of stone",
+      "expected": "stone_pickaxe",
+      "actual": "stone_pickaxe",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.9786,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.0027,
+        "unknown": 0.0027
+      },
+      "latency_ms": 8.28
+    },
+    {
+      "id": "seed-v1-eval-stone_pickaxe-05",
+      "state": "철곡 대신 돌곡을 만들어",
+      "expected": "stone_pickaxe",
+      "actual": "stone_pickaxe",
+      "probabilities": {
+        "follow": 0.0186,
+        "come": 0.0186,
+        "wood": 0.0189,
+        "wooden_pickaxe": 0.0502,
+        "stone_pickaxe": 0.6259,
+        "iron_pickaxe": 0.2114,
+        "status": 0.0186,
+        "stop": 0.0186,
+        "unknown": 0.0194
+      },
+      "latency_ms": 8.32
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-00",
+      "state": "철제 곡괭이 한 자루 제작하자",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.003,
+        "come": 0.003,
+        "wood": 0.003,
+        "wooden_pickaxe": 0.0045,
+        "stone_pickaxe": 0.003,
+        "iron_pickaxe": 0.9748,
+        "status": 0.003,
+        "stop": 0.003,
+        "unknown": 0.003
+      },
+      "latency_ms": 8.5
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-01",
+      "state": "철 재질로 곡괭이를 마련해 줘",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.0055,
+        "come": 0.0055,
+        "wood": 0.0055,
+        "wooden_pickaxe": 0.0073,
+        "stone_pickaxe": 0.0055,
+        "iron_pickaxe": 0.9535,
+        "status": 0.0055,
+        "stop": 0.0055,
+        "unknown": 0.0062
+      },
+      "latency_ms": 8.87
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-02",
+      "state": "철곡 하나 새로 뽑아 줘",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.0044,
+        "come": 0.0044,
+        "wood": 0.0044,
+        "wooden_pickaxe": 0.0044,
+        "stone_pickaxe": 0.0044,
+        "iron_pickaxe": 0.9632,
+        "status": 0.0044,
+        "stop": 0.0044,
+        "unknown": 0.0057
+      },
+      "latency_ms": 8.71
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-03",
+      "state": "이제 철을 재료로 곡괭이를 제작해",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.0041,
+        "come": 0.0041,
+        "wood": 0.0041,
+        "wooden_pickaxe": 0.0053,
+        "stone_pickaxe": 0.0041,
+        "iron_pickaxe": 0.9651,
+        "status": 0.0041,
+        "stop": 0.0041,
+        "unknown": 0.0048
+      },
+      "latency_ms": 8.87
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-04",
+      "state": "Please craft me a pickaxe made of iron",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.0026,
+        "come": 0.0026,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.9789,
+        "status": 0.0027,
+        "stop": 0.0026,
+        "unknown": 0.0027
+      },
+      "latency_ms": 8.79
+    },
+    {
+      "id": "seed-v1-eval-iron_pickaxe-05",
+      "state": "나무곡 대신 철곡을 만들어",
+      "expected": "iron_pickaxe",
+      "actual": "iron_pickaxe",
+      "probabilities": {
+        "follow": 0.0041,
+        "come": 0.0041,
+        "wood": 0.0041,
+        "wooden_pickaxe": 0.0056,
+        "stone_pickaxe": 0.0041,
+        "iron_pickaxe": 0.9659,
+        "status": 0.0041,
+        "stop": 0.0041,
+        "unknown": 0.0041
+      },
+      "latency_ms": 8.54
+    },
+    {
+      "id": "seed-v1-eval-status-00",
+      "state": "지금 가방 속 내용물을 보고해",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0058,
+        "come": 0.0053,
+        "wood": 0.0053,
+        "wooden_pickaxe": 0.0053,
+        "stone_pickaxe": 0.0052,
+        "iron_pickaxe": 0.0053,
+        "status": 0.9488,
+        "stop": 0.0053,
+        "unknown": 0.0138
+      },
+      "latency_ms": 8.32
+    },
+    {
+      "id": "seed-v1-eval-status-01",
+      "state": "남아 있는 하트가 몇 개니",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0054,
+        "come": 0.0054,
+        "wood": 0.0054,
+        "wooden_pickaxe": 0.0054,
+        "stone_pickaxe": 0.0053,
+        "iron_pickaxe": 0.0054,
+        "status": 0.9297,
+        "stop": 0.0054,
+        "unknown": 0.0329
+      },
+      "latency_ms": 8.19
+    },
+    {
+      "id": "seed-v1-eval-status-02",
+      "state": "보유 중인 물건 목록이 궁금해",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0029,
+        "come": 0.0029,
+        "wood": 0.0029,
+        "wooden_pickaxe": 0.0029,
+        "stone_pickaxe": 0.0029,
+        "iron_pickaxe": 0.0029,
+        "status": 0.9675,
+        "stop": 0.0029,
+        "unknown": 0.0124
+      },
+      "latency_ms": 8.59
+    },
+    {
+      "id": "seed-v1-eval-status-03",
+      "state": "배는 얼마나 고프고 체력은 어때",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0214,
+        "come": 0.0214,
+        "wood": 0.0214,
+        "wooden_pickaxe": 0.0214,
+        "stone_pickaxe": 0.0212,
+        "iron_pickaxe": 0.0214,
+        "status": 0.6901,
+        "stop": 0.0214,
+        "unknown": 0.1601
+      },
+      "latency_ms": 8.46
+    },
+    {
+      "id": "seed-v1-eval-status-04",
+      "state": "List what you currently have in your inventory",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0034,
+        "come": 0.0034,
+        "wood": 0.0034,
+        "wooden_pickaxe": 0.0034,
+        "stone_pickaxe": 0.0034,
+        "iron_pickaxe": 0.0034,
+        "status": 0.9725,
+        "stop": 0.0034,
+        "unknown": 0.0036
+      },
+      "latency_ms": 8.29
+    },
+    {
+      "id": "seed-v1-eval-status-05",
+      "state": "현재 봇 상태를 확인하고 싶어",
+      "expected": "status",
+      "actual": "status",
+      "probabilities": {
+        "follow": 0.0036,
+        "come": 0.0036,
+        "wood": 0.0036,
+        "wooden_pickaxe": 0.0036,
+        "stone_pickaxe": 0.0036,
+        "iron_pickaxe": 0.0036,
+        "status": 0.9671,
+        "stop": 0.0036,
+        "unknown": 0.0078
+      },
+      "latency_ms": 8.32
+    },
+    {
+      "id": "seed-v1-eval-stop-00",
+      "state": "하던 작업은 전부 취소하고 대기해",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.9783,
+        "unknown": 0.0028
+      },
+      "latency_ms": 8.49
+    },
+    {
+      "id": "seed-v1-eval-stop-01",
+      "state": "더 이상 내 뒤를 쫓아오지 마",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0096,
+        "come": 0.0054,
+        "wood": 0.0026,
+        "wooden_pickaxe": 0.0026,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0026,
+        "status": 0.0026,
+        "stop": 0.9664,
+        "unknown": 0.0054
+      },
+      "latency_ms": 8.3
+    },
+    {
+      "id": "seed-v1-eval-stop-02",
+      "state": "벌목을 당장 그만둬",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0027,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.9787,
+        "unknown": 0.0027
+      },
+      "latency_ms": 8.2
+    },
+    {
+      "id": "seed-v1-eval-stop-03",
+      "state": "철곡 만들라는 명령 취소할게",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0032,
+        "come": 0.0032,
+        "wood": 0.0032,
+        "wooden_pickaxe": 0.0032,
+        "stone_pickaxe": 0.0031,
+        "iron_pickaxe": 0.0058,
+        "status": 0.0032,
+        "stop": 0.9716,
+        "unknown": 0.0036
+      },
+      "latency_ms": 8.03
+    },
+    {
+      "id": "seed-v1-eval-stop-04",
+      "state": "Halt all actions immediately",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.9788,
+        "unknown": 0.0027
+      },
+      "latency_ms": 8.71
+    },
+    {
+      "id": "seed-v1-eval-stop-05",
+      "state": "나무 캐는 건 하지 말고 가만히 있어",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "follow": 0.0027,
+        "come": 0.0027,
+        "wood": 0.0027,
+        "wooden_pickaxe": 0.0027,
+        "stone_pickaxe": 0.0026,
+        "iron_pickaxe": 0.0027,
+        "status": 0.0027,
+        "stop": 0.9785,
+        "unknown": 0.0029
+      },
+      "latency_ms": 8.3
+    },
+    {
+      "id": "seed-v1-eval-unknown-00",
+      "state": "오늘도 수고했네",
+      "expected": "unknown",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.0069,
+        "come": 0.0052,
+        "wood": 0.0052,
+        "wooden_pickaxe": 0.0052,
+        "stone_pickaxe": 0.0052,
+        "iron_pickaxe": 0.0052,
+        "status": 0.0065,
+        "stop": 0.0052,
+        "unknown": 0.9554
+      },
+      "latency_ms": 8.48
+    },
+    {
+      "id": "seed-v1-eval-unknown-01",
+      "state": "용암이 무서워",
+      "expected": "unknown",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.0209,
+        "come": 0.0209,
+        "wood": 0.0209,
+        "wooden_pickaxe": 0.0209,
+        "stone_pickaxe": 0.0209,
+        "iron_pickaxe": 0.0225,
+        "status": 0.0211,
+        "stop": 0.0209,
+        "unknown": 0.831
+      },
+      "latency_ms": 8.28
+    },
+    {
+      "id": "seed-v1-eval-unknown-02",
+      "state": "돌 곡괭이가 뭔지 설명해 줘",
+      "expected": "unknown",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.0388,
+        "come": 0.0399,
+        "wood": 0.0388,
+        "wooden_pickaxe": 0.0388,
+        "stone_pickaxe": 0.2227,
+        "iron_pickaxe": 0.0388,
+        "status": 0.0388,
+        "stop": 0.0388,
+        "unknown": 0.5045
+      },
+      "latency_ms": 8.47
+    },
+    {
+      "id": "seed-v1-eval-unknown-03",
+      "state": "철곡괭이 제작법을 설명해",
+      "expected": "unknown",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.0167,
+        "come": 0.0167,
+        "wood": 0.0167,
+        "wooden_pickaxe": 0.0167,
+        "stone_pickaxe": 0.0167,
+        "iron_pickaxe": 0.1771,
+        "status": 0.0167,
+        "stop": 0.0167,
+        "unknown": 0.7063
+      },
+      "latency_ms": 8.2
+    },
+    {
+      "id": "seed-v1-eval-unknown-04",
+      "state": "Can you build a castle for me",
+      "expected": "unknown",
+      "actual": "unknown",
+      "probabilities": {
+        "follow": 0.0156,
+        "come": 0.0156,
+        "wood": 0.0156,
+        "wooden_pickaxe": 0.0175,
+        "stone_pickaxe": 0.0156,
+        "iron_pickaxe": 0.0156,
+        "status": 0.0156,
+        "stop": 0.0156,
+        "unknown": 0.873
+      },
+      "latency_ms": 8.24
+    },
+    {
+      "id": "seed-v1-eval-unknown-05",
+      "state": "방금 내가 나무를 캤어",
+      "expected": "unknown",
+      "actual": "come",
+      "probabilities": {
+        "follow": 0.0065,
+        "come": 0.4516,
+        "wood": 0.0926,
+        "wooden_pickaxe": 0.0045,
+        "stone_pickaxe": 0.0043,
+        "iron_pickaxe": 0.0043,
+        "status": 0.0043,
+        "stop": 0.0044,
+        "unknown": 0.4274
+      },
+      "latency_ms": 8.36
+    }
+  ],
+  "accuracy": 0.8518518518518519
+}

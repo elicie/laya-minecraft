@@ -1,0 +1,48 @@
+{
+  "train_items": 144,
+  "calibration_items": 36,
+  "skipped": {},
+  "epoch_loss": [
+    1.1456338071988688,
+    0.2204748988345576,
+    0.24875706123683322,
+    0.03497990753371186,
+    0.13508431601140083,
+    3.7218413949287785e-06,
+    8.28181250018329e-06,
+    0.0004948796040628404,
+    4.30505007198434e-06,
+    5.009069795081089e-05
+  ],
+  "temperature": [
+    3.4111685752868652,
+    1.0,
+    1.0
+  ],
+  "temperature_by_options": {},
+  "n_by_bucket": {
+    "choice:6-10": 36
+  },
+  "calibration": {
+    "choice": {
+      "items": 36,
+      "temperature": 3.4111685752868652,
+      "issues": [
+        "fitted on only 36 calibration items"
+      ],
+      "accuracy": 0.9166666666666666,
+      "mean_confidence": 0.8949682096191098
+    },
+    "score": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    },
+    "noul": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    }
+  },
+  "output_dir": "/home/elicie/Dev/minecraft/checkpoints/minecraft-ko-v1"
+}

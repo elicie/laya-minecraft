@@ -1,0 +1,207 @@
+{
+  "scope": "Port 25566 disposable world; supplied materials/terrain. Learned action selection and actual skill execution, not autonomous acquisition of all prerequisites.",
+  "decision": {
+    "type": "activity_decision",
+    "preview": false,
+    "source": "fallback",
+    "action": "gather",
+    "proposed": "farm",
+    "confidence": 0.9999,
+    "probabilities": {
+      "food": 0,
+      "farm": 0.9999,
+      "wait": 0,
+      "survey": 0,
+      "gather": 0,
+      "build": 0,
+      "collect": 0,
+      "search": 0,
+      "fight": 0.0001,
+      "retreat": 0,
+      "finish": 0,
+      "pause": 0
+    },
+    "model": "minecraft-activity-v1",
+    "error": "현재 상태에서 실행할 수 없는 행동: farm",
+    "observation": {
+      "version": 1,
+      "domain": "farm",
+      "mode": "setup",
+      "health": 20,
+      "hunger": 20,
+      "bagFull": false,
+      "goalDone": false,
+      "siteKnown": false,
+      "suppliesMissing": true,
+      "farmPlaceKnown": true,
+      "seedAvailable": true,
+      "ripe": 0,
+      "growing": false,
+      "checkDue": true,
+      "have": 0,
+      "target": 1,
+      "sources": 0,
+      "toolReady": true,
+      "found": false,
+      "threats": 0,
+      "closeThreats": 0,
+      "creeperClose": false,
+      "bowReady": false,
+      "weaponReady": false,
+      "built": 0,
+      "harvested": 0,
+      "visited": 0,
+      "kills": 0,
+      "failures": 0,
+      "blocked": []
+    },
+    "state": "Goal=farm; mode=setup; health=20; hunger=20; bag_full=no; objective_done=no; site_known=no; supplies_missing=yes; farm_place=yes; seeds_available=yes; ripe=0; growing=no; check_due=yes; stock=0/1; resource_sources=0; tool_ready=yes; requested_resource_found=no; enemies=0; close_enemies=0; close_creeper=no; bow_ready=no; weapon_ready=no; unsafe_combat=no; blocks_built=0; harvested=0; visits=0; kills=0; failures=0; blocked=none.",
+    "allowed": [
+      "pause",
+      "gather",
+      "search"
+    ],
+    "started": 1791352869758,
+    "latency_ms": 28
+  },
+  "outcome": {
+    "type": "activity_outcome",
+    "episodeId": "07db2360-513f-4089-9e41-79d47a066ad9",
+    "episodeStep": 0,
+    "decision_id": "live-3",
+    "action": "gather",
+    "source": "fallback",
+    "model": "minecraft-activity-v1",
+    "state": "Goal=farm; mode=setup; health=20; hunger=20; bag_full=no; objective_done=no; site_known=no; supplies_missing=yes; farm_place=yes; seeds_available=yes; ripe=0; growing=no; check_due=yes; stock=0/1; resource_sources=0; tool_ready=yes; requested_resource_found=no; enemies=0; close_enemies=0; close_creeper=no; bow_ready=no; weapon_ready=no; unsafe_combat=no; blocks_built=0; harvested=0; visits=0; kills=0; failures=0; blocked=none.",
+    "observation": {
+      "version": 1,
+      "domain": "farm",
+      "mode": "setup",
+      "health": 20,
+      "hunger": 20,
+      "bagFull": false,
+      "goalDone": false,
+      "siteKnown": false,
+      "suppliesMissing": true,
+      "farmPlaceKnown": true,
+      "seedAvailable": true,
+      "ripe": 0,
+      "growing": false,
+      "checkDue": true,
+      "have": 0,
+      "target": 1,
+      "sources": 0,
+      "toolReady": true,
+      "found": false,
+      "threats": 0,
+      "closeThreats": 0,
+      "creeperClose": false,
+      "bowReady": false,
+      "weaponReady": false,
+      "built": 0,
+      "harvested": 0,
+      "visited": 0,
+      "kills": 0,
+      "failures": 0,
+      "blocked": []
+    },
+    "after": {
+      "version": 1,
+      "domain": "farm",
+      "mode": "setup",
+      "health": 20,
+      "hunger": 20,
+      "bagFull": false,
+      "goalDone": false,
+      "siteKnown": false,
+      "suppliesMissing": false,
+      "farmPlaceKnown": true,
+      "seedAvailable": true,
+      "ripe": 0,
+      "growing": false,
+      "checkDue": true,
+      "have": 0,
+      "target": 1,
+      "sources": 0,
+      "toolReady": true,
+      "found": false,
+      "threats": 0,
+      "closeThreats": 0,
+      "creeperClose": false,
+      "bowReady": false,
+      "weaponReady": false,
+      "built": 0,
+      "harvested": 0,
+      "visited": 0,
+      "kills": 0,
+      "failures": 0,
+      "blocked": []
+    },
+    "details": {
+      "goal": {
+        "type": "farm",
+        "item": "",
+        "design": "cabin",
+        "quantity": 1,
+        "crop": "wheat",
+        "mode": "setup",
+        "reason": "밀 농사 · 농장 조성"
+      },
+      "preparation": [
+        {
+          "item": "stone_hoe",
+          "need": 1,
+          "have": 0,
+          "missing": 1
+        }
+      ],
+      "inventoryBefore": [
+        {
+          "name": "wheat_seeds",
+          "count": 64
+        },
+        {
+          "name": "cobblestone",
+          "count": 64
+        },
+        {
+          "name": "stick",
+          "count": 4
+        },
+        {
+          "name": "cooked_beef",
+          "count": 16
+        }
+      ],
+      "inventoryAfter": [
+        {
+          "name": "cobblestone",
+          "count": 62
+        },
+        {
+          "name": "stick",
+          "count": 2
+        },
+        {
+          "name": "stone_hoe",
+          "count": 1
+        },
+        {
+          "name": "wheat_seeds",
+          "count": 64
+        },
+        {
+          "name": "cooked_beef",
+          "count": 16
+        }
+      ]
+    },
+    "ok": true,
+    "error": null,
+    "terminal": false,
+    "interrupted": false,
+    "elapsed_ms": 2789,
+    "labelStatus": "unreviewed",
+    "trainingEligible": false
+  }
+}

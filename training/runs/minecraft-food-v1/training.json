@@ -1,0 +1,44 @@
+{
+  "train_items": 432,
+  "calibration_items": 108,
+  "skipped": {},
+  "epoch_loss": [
+    1.6314948901396107,
+    0.4489084848885088,
+    0.13369154643311806,
+    0.12491197973157371,
+    0.017871197960870513,
+    0.00023988488841880445,
+    0.0033158658758142565,
+    1.2667980679756695e-06
+  ],
+  "temperature": [
+    3.5304038524627686,
+    1.0,
+    1.0
+  ],
+  "temperature_by_options": {},
+  "n_by_bucket": {
+    "choice:6-10": 108
+  },
+  "calibration": {
+    "choice": {
+      "items": 108,
+      "temperature": 3.5304038524627686,
+      "issues": [],
+      "accuracy": 0.9814814814814815,
+      "mean_confidence": 0.9809131840991901
+    },
+    "score": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    },
+    "noul": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    }
+  },
+  "output_dir": "/home/elicie/Dev/minecraft/checkpoints/minecraft-food-v1"
+}

@@ -1,0 +1,44 @@
+{
+  "train_items": 576,
+  "calibration_items": 144,
+  "skipped": {},
+  "epoch_loss": [
+    2.469890841593345,
+    1.3485376714832253,
+    1.127839392180451,
+    0.8664522198830835,
+    0.4942985202469572,
+    0.17844601285906947,
+    0.12283266283812545,
+    0.08539933385696369
+  ],
+  "temperature": [
+    1.54299795627594,
+    1.0,
+    1.0
+  ],
+  "temperature_by_options": {},
+  "n_by_bucket": {
+    "choice:11+": 144
+  },
+  "calibration": {
+    "choice": {
+      "items": 144,
+      "temperature": 1.54299795627594,
+      "issues": [],
+      "accuracy": 0.9791666666666666,
+      "mean_confidence": 0.9808206993320715
+    },
+    "score": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    },
+    "noul": {
+      "items": 0,
+      "temperature": 1.0,
+      "issues": []
+    }
+  },
+  "output_dir": "/home/elicie/Dev/minecraft/checkpoints/minecraft-activity-v1"
+}

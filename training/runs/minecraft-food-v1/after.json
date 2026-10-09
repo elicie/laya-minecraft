@@ -1,0 +1,1990 @@
+{
+  "correct": 108,
+  "total": 108,
+  "per_class": {
+    "eat": [
+      12,
+      12
+    ],
+    "cook": [
+      12,
+      12
+    ],
+    "bread": [
+      12,
+      12
+    ],
+    "hunt": [
+      12,
+      12
+    ],
+    "farm": [
+      12,
+      12
+    ],
+    "explore": [
+      12,
+      12
+    ],
+    "wait": [
+      12,
+      12
+    ],
+    "continue": [
+      12,
+      12
+    ],
+    "stop": [
+      12,
+      12
+    ]
+  },
+  "results": [
+    {
+      "id": "food-v1-eval-eat-0",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9612,
+        "cook": 0.0054,
+        "bread": 0.0038,
+        "hunt": 0.0038,
+        "farm": 0.0038,
+        "explore": 0.0038,
+        "wait": 0.0038,
+        "continue": 0.0106,
+        "stop": 0.0038
+      },
+      "truncated": false,
+      "latency_ms": 13.5
+    },
+    {
+      "id": "food-v1-eval-eat-1",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9693,
+        "cook": 0.0031,
+        "bread": 0.0031,
+        "hunt": 0.0031,
+        "farm": 0.0031,
+        "explore": 0.0062,
+        "wait": 0.0031,
+        "continue": 0.0056,
+        "stop": 0.0034
+      },
+      "truncated": false,
+      "latency_ms": 9.27
+    },
+    {
+      "id": "food-v1-eval-eat-2",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9677,
+        "cook": 0.0037,
+        "bread": 0.0037,
+        "hunt": 0.0037,
+        "farm": 0.0037,
+        "explore": 0.004,
+        "wait": 0.0037,
+        "continue": 0.0063,
+        "stop": 0.0037
+      },
+      "truncated": false,
+      "latency_ms": 8.74
+    },
+    {
+      "id": "food-v1-eval-eat-3",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9753,
+        "cook": 0.0023,
+        "bread": 0.002,
+        "hunt": 0.002,
+        "farm": 0.002,
+        "explore": 0.002,
+        "wait": 0.002,
+        "continue": 0.0104,
+        "stop": 0.002
+      },
+      "truncated": false,
+      "latency_ms": 8.7
+    },
+    {
+      "id": "food-v1-eval-eat-4",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9607,
+        "cook": 0.0034,
+        "bread": 0.0028,
+        "hunt": 0.0028,
+        "farm": 0.0028,
+        "explore": 0.0028,
+        "wait": 0.0028,
+        "continue": 0.0191,
+        "stop": 0.0028
+      },
+      "truncated": false,
+      "latency_ms": 9.01
+    },
+    {
+      "id": "food-v1-eval-eat-5",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9745,
+        "cook": 0.0047,
+        "bread": 0.0027,
+        "hunt": 0.0027,
+        "farm": 0.0027,
+        "explore": 0.0027,
+        "wait": 0.0027,
+        "continue": 0.0046,
+        "stop": 0.0027
+      },
+      "truncated": false,
+      "latency_ms": 8.78
+    },
+    {
+      "id": "food-v1-eval-eat-6",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9713,
+        "cook": 0.0027,
+        "bread": 0.0024,
+        "hunt": 0.0024,
+        "farm": 0.0024,
+        "explore": 0.0024,
+        "wait": 0.0024,
+        "continue": 0.0118,
+        "stop": 0.0024
+      },
+      "truncated": false,
+      "latency_ms": 8.68
+    },
+    {
+      "id": "food-v1-eval-eat-7",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.931,
+        "cook": 0.0076,
+        "bread": 0.0073,
+        "hunt": 0.0072,
+        "farm": 0.0072,
+        "explore": 0.0073,
+        "wait": 0.0072,
+        "continue": 0.0181,
+        "stop": 0.0072
+      },
+      "truncated": false,
+      "latency_ms": 8.44
+    },
+    {
+      "id": "food-v1-eval-eat-8",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9557,
+        "cook": 0.0045,
+        "bread": 0.0045,
+        "hunt": 0.0044,
+        "farm": 0.0044,
+        "explore": 0.0044,
+        "wait": 0.0044,
+        "continue": 0.013,
+        "stop": 0.0046
+      },
+      "truncated": false,
+      "latency_ms": 8.7
+    },
+    {
+      "id": "food-v1-eval-eat-9",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9635,
+        "cook": 0.0031,
+        "bread": 0.0027,
+        "hunt": 0.0027,
+        "farm": 0.0027,
+        "explore": 0.0027,
+        "wait": 0.0027,
+        "continue": 0.0174,
+        "stop": 0.0027
+      },
+      "truncated": false,
+      "latency_ms": 8.64
+    },
+    {
+      "id": "food-v1-eval-eat-10",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9557,
+        "cook": 0.0076,
+        "bread": 0.0044,
+        "hunt": 0.0044,
+        "farm": 0.0045,
+        "explore": 0.0044,
+        "wait": 0.0044,
+        "continue": 0.01,
+        "stop": 0.0045
+      },
+      "truncated": false,
+      "latency_ms": 8.67
+    },
+    {
+      "id": "food-v1-eval-eat-11",
+      "expected": "eat",
+      "actual": "eat",
+      "probabilities": {
+        "eat": 0.9702,
+        "cook": 0.0043,
+        "bread": 0.003,
+        "hunt": 0.003,
+        "farm": 0.0032,
+        "explore": 0.003,
+        "wait": 0.003,
+        "continue": 0.0071,
+        "stop": 0.0031
+      },
+      "truncated": false,
+      "latency_ms": 8.75
+    },
+    {
+      "id": "food-v1-eval-cook-0",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.9959,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0007,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.97
+    },
+    {
+      "id": "food-v1-eval-cook-1",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0006,
+        "cook": 0.9943,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0014,
+        "wait": 0.0006,
+        "continue": 0.0006,
+        "stop": 0.0006
+      },
+      "truncated": false,
+      "latency_ms": 8.67
+    },
+    {
+      "id": "food-v1-eval-cook-2",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.996,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0006,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.58
+    },
+    {
+      "id": "food-v1-eval-cook-3",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0008,
+        "cook": 0.9956,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0007,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.6
+    },
+    {
+      "id": "food-v1-eval-cook-4",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.9949,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0009,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0012,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 9.01
+    },
+    {
+      "id": "food-v1-eval-cook-5",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.9958,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0007,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0006,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.6
+    },
+    {
+      "id": "food-v1-eval-cook-6",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0009,
+        "cook": 0.9953,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0009,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0006,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.48
+    },
+    {
+      "id": "food-v1-eval-cook-7",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0011,
+        "cook": 0.9953,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0007,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.77
+    },
+    {
+      "id": "food-v1-eval-cook-8",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0009,
+        "cook": 0.9953,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0008,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0007,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.9
+    },
+    {
+      "id": "food-v1-eval-cook-9",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.9957,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0008,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0007,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.46
+    },
+    {
+      "id": "food-v1-eval-cook-10",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.9955,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0008,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0008,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.77
+    },
+    {
+      "id": "food-v1-eval-cook-11",
+      "expected": "cook",
+      "actual": "cook",
+      "probabilities": {
+        "eat": 0.0008,
+        "cook": 0.9957,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0006,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.67
+    },
+    {
+      "id": "food-v1-eval-bread-0",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0006,
+        "bread": 0.9948,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0011,
+        "wait": 0.0005,
+        "continue": 0.001,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.96
+    },
+    {
+      "id": "food-v1-eval-bread-1",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0018,
+        "cook": 0.0019,
+        "bread": 0.9324,
+        "hunt": 0.0017,
+        "farm": 0.0017,
+        "explore": 0.0554,
+        "wait": 0.0017,
+        "continue": 0.0017,
+        "stop": 0.0017
+      },
+      "truncated": false,
+      "latency_ms": 8.8
+    },
+    {
+      "id": "food-v1-eval-bread-2",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0009,
+        "cook": 0.0011,
+        "bread": 0.976,
+        "hunt": 0.0009,
+        "farm": 0.0009,
+        "explore": 0.0175,
+        "wait": 0.0009,
+        "continue": 0.0009,
+        "stop": 0.0009
+      },
+      "truncated": false,
+      "latency_ms": 8.65
+    },
+    {
+      "id": "food-v1-eval-bread-3",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.9952,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0011,
+        "wait": 0.0005,
+        "continue": 0.0009,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.69
+    },
+    {
+      "id": "food-v1-eval-bread-4",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.9604,
+        "hunt": 0.001,
+        "farm": 0.0012,
+        "explore": 0.0321,
+        "wait": 0.001,
+        "continue": 0.001,
+        "stop": 0.0011
+      },
+      "truncated": false,
+      "latency_ms": 9.08
+    },
+    {
+      "id": "food-v1-eval-bread-5",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.9885,
+        "hunt": 0.0005,
+        "farm": 0.0072,
+        "explore": 0.0009,
+        "wait": 0.0005,
+        "continue": 0.0009,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.81
+    },
+    {
+      "id": "food-v1-eval-bread-6",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.9882,
+        "hunt": 0.0005,
+        "farm": 0.0077,
+        "explore": 0.0006,
+        "wait": 0.0005,
+        "continue": 0.0009,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.61
+    },
+    {
+      "id": "food-v1-eval-bread-7",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0026,
+        "cook": 0.0031,
+        "bread": 0.9264,
+        "hunt": 0.0022,
+        "farm": 0.0022,
+        "explore": 0.0565,
+        "wait": 0.0022,
+        "continue": 0.0025,
+        "stop": 0.0023
+      },
+      "truncated": false,
+      "latency_ms": 8.71
+    },
+    {
+      "id": "food-v1-eval-bread-8",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0006,
+        "bread": 0.9876,
+        "hunt": 0.0006,
+        "farm": 0.0079,
+        "explore": 0.0008,
+        "wait": 0.0005,
+        "continue": 0.0009,
+        "stop": 0.0006
+      },
+      "truncated": false,
+      "latency_ms": 9.0
+    },
+    {
+      "id": "food-v1-eval-bread-9",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0006,
+        "bread": 0.9947,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0009,
+        "wait": 0.0005,
+        "continue": 0.0012,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.77
+    },
+    {
+      "id": "food-v1-eval-bread-10",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.9944,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0019,
+        "wait": 0.0005,
+        "continue": 0.0006,
+        "stop": 0.0005
+      },
+      "truncated": false,
+      "latency_ms": 8.8
+    },
+    {
+      "id": "food-v1-eval-bread-11",
+      "expected": "bread",
+      "actual": "bread",
+      "probabilities": {
+        "eat": 0.0008,
+        "cook": 0.0008,
+        "bread": 0.9811,
+        "hunt": 0.0007,
+        "farm": 0.0007,
+        "explore": 0.0135,
+        "wait": 0.0007,
+        "continue": 0.0008,
+        "stop": 0.0007
+      },
+      "truncated": false,
+      "latency_ms": 8.66
+    },
+    {
+      "id": "food-v1-eval-hunt-0",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.0008,
+        "cook": 0.0009,
+        "bread": 0.0008,
+        "hunt": 0.9889,
+        "farm": 0.0015,
+        "explore": 0.002,
+        "wait": 0.0034,
+        "continue": 0.0008,
+        "stop": 0.0008
+      },
+      "truncated": false,
+      "latency_ms": 9.37
+    },
+    {
+      "id": "food-v1-eval-hunt-1",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.001,
+        "hunt": 0.9878,
+        "farm": 0.001,
+        "explore": 0.0055,
+        "wait": 0.001,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.68
+    },
+    {
+      "id": "food-v1-eval-hunt-2",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.0011,
+        "cook": 0.0013,
+        "bread": 0.0011,
+        "hunt": 0.9859,
+        "farm": 0.0011,
+        "explore": 0.0026,
+        "wait": 0.0048,
+        "continue": 0.0011,
+        "stop": 0.0011
+      },
+      "truncated": false,
+      "latency_ms": 8.73
+    },
+    {
+      "id": "food-v1-eval-hunt-3",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.001,
+        "hunt": 0.9873,
+        "farm": 0.001,
+        "explore": 0.0058,
+        "wait": 0.001,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.47
+    },
+    {
+      "id": "food-v1-eval-hunt-4",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.0011,
+        "cook": 0.0012,
+        "bread": 0.0011,
+        "hunt": 0.9845,
+        "farm": 0.0011,
+        "explore": 0.0026,
+        "wait": 0.0062,
+        "continue": 0.0011,
+        "stop": 0.0011
+      },
+      "truncated": false,
+      "latency_ms": 8.88
+    },
+    {
+      "id": "food-v1-eval-hunt-5",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.001,
+        "hunt": 0.9861,
+        "farm": 0.001,
+        "explore": 0.0026,
+        "wait": 0.0052,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.65
+    },
+    {
+      "id": "food-v1-eval-hunt-6",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.001,
+        "hunt": 0.9855,
+        "farm": 0.0051,
+        "explore": 0.0034,
+        "wait": 0.001,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.4
+    },
+    {
+      "id": "food-v1-eval-hunt-7",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.001,
+        "hunt": 0.9841,
+        "farm": 0.0064,
+        "explore": 0.0034,
+        "wait": 0.001,
+        "continue": 0.0012,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.59
+    },
+    {
+      "id": "food-v1-eval-hunt-8",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.0011,
+        "cook": 0.0012,
+        "bread": 0.0011,
+        "hunt": 0.9855,
+        "farm": 0.0011,
+        "explore": 0.0026,
+        "wait": 0.0054,
+        "continue": 0.0011,
+        "stop": 0.0011
+      },
+      "truncated": false,
+      "latency_ms": 8.93
+    },
+    {
+      "id": "food-v1-eval-hunt-9",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.0011,
+        "bread": 0.001,
+        "hunt": 0.9868,
+        "farm": 0.001,
+        "explore": 0.0026,
+        "wait": 0.0044,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.64
+    },
+    {
+      "id": "food-v1-eval-hunt-10",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.0011,
+        "cook": 0.0011,
+        "bread": 0.0011,
+        "hunt": 0.986,
+        "farm": 0.0011,
+        "explore": 0.0026,
+        "wait": 0.005,
+        "continue": 0.0011,
+        "stop": 0.0011
+      },
+      "truncated": false,
+      "latency_ms": 8.43
+    },
+    {
+      "id": "food-v1-eval-hunt-11",
+      "expected": "hunt",
+      "actual": "hunt",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.0009,
+        "hunt": 0.9875,
+        "farm": 0.001,
+        "explore": 0.0058,
+        "wait": 0.001,
+        "continue": 0.001,
+        "stop": 0.001
+      },
+      "truncated": false,
+      "latency_ms": 8.66
+    },
+    {
+      "id": "food-v1-eval-farm-0",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0021,
+        "cook": 0.004,
+        "bread": 0.0021,
+        "hunt": 0.0055,
+        "farm": 0.971,
+        "explore": 0.0032,
+        "wait": 0.0021,
+        "continue": 0.0078,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 9.04
+    },
+    {
+      "id": "food-v1-eval-farm-1",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0016,
+        "cook": 0.0016,
+        "bread": 0.0016,
+        "hunt": 0.004,
+        "farm": 0.9821,
+        "explore": 0.0028,
+        "wait": 0.0016,
+        "continue": 0.0031,
+        "stop": 0.0016
+      },
+      "truncated": false,
+      "latency_ms": 8.76
+    },
+    {
+      "id": "food-v1-eval-farm-2",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.001,
+        "farm": 0.9946,
+        "explore": 0.0005,
+        "wait": 0.0006,
+        "continue": 0.001,
+        "stop": 0.0008
+      },
+      "truncated": false,
+      "latency_ms": 8.85
+    },
+    {
+      "id": "food-v1-eval-farm-3",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0028,
+        "cook": 0.003,
+        "bread": 0.0028,
+        "hunt": 0.0029,
+        "farm": 0.9684,
+        "explore": 0.009,
+        "wait": 0.0028,
+        "continue": 0.0052,
+        "stop": 0.0031
+      },
+      "truncated": false,
+      "latency_ms": 8.53
+    },
+    {
+      "id": "food-v1-eval-farm-4",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.9945,
+        "explore": 0.0007,
+        "wait": 0.0014,
+        "continue": 0.0005,
+        "stop": 0.0008
+      },
+      "truncated": false,
+      "latency_ms": 9.01
+    },
+    {
+      "id": "food-v1-eval-farm-5",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0019,
+        "cook": 0.002,
+        "bread": 0.0019,
+        "hunt": 0.0069,
+        "farm": 0.9746,
+        "explore": 0.004,
+        "wait": 0.0019,
+        "continue": 0.0049,
+        "stop": 0.0019
+      },
+      "truncated": false,
+      "latency_ms": 8.66
+    },
+    {
+      "id": "food-v1-eval-farm-6",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0025,
+        "cook": 0.0029,
+        "bread": 0.0025,
+        "hunt": 0.0028,
+        "farm": 0.9668,
+        "explore": 0.0149,
+        "wait": 0.0025,
+        "continue": 0.0026,
+        "stop": 0.0026
+      },
+      "truncated": false,
+      "latency_ms": 8.65
+    },
+    {
+      "id": "food-v1-eval-farm-7",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.0006,
+        "farm": 0.9944,
+        "explore": 0.0007,
+        "wait": 0.0012,
+        "continue": 0.0006,
+        "stop": 0.0009
+      },
+      "truncated": false,
+      "latency_ms": 8.55
+    },
+    {
+      "id": "food-v1-eval-farm-8",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0027,
+        "cook": 0.0031,
+        "bread": 0.0027,
+        "hunt": 0.0031,
+        "farm": 0.9651,
+        "explore": 0.0149,
+        "wait": 0.0028,
+        "continue": 0.0029,
+        "stop": 0.0028
+      },
+      "truncated": false,
+      "latency_ms": 8.94
+    },
+    {
+      "id": "food-v1-eval-farm-9",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0021,
+        "cook": 0.0025,
+        "bread": 0.0021,
+        "hunt": 0.0064,
+        "farm": 0.9738,
+        "explore": 0.0033,
+        "wait": 0.0021,
+        "continue": 0.0058,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 9.24
+    },
+    {
+      "id": "food-v1-eval-farm-10",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0005,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.0006,
+        "farm": 0.9943,
+        "explore": 0.0007,
+        "wait": 0.0013,
+        "continue": 0.0006,
+        "stop": 0.0009
+      },
+      "truncated": false,
+      "latency_ms": 9.42
+    },
+    {
+      "id": "food-v1-eval-farm-11",
+      "expected": "farm",
+      "actual": "farm",
+      "probabilities": {
+        "eat": 0.0018,
+        "cook": 0.0019,
+        "bread": 0.0017,
+        "hunt": 0.0019,
+        "farm": 0.9794,
+        "explore": 0.0079,
+        "wait": 0.0018,
+        "continue": 0.0018,
+        "stop": 0.0018
+      },
+      "truncated": false,
+      "latency_ms": 9.51
+    },
+    {
+      "id": "food-v1-eval-explore-0",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0017,
+        "cook": 0.0018,
+        "bread": 0.0017,
+        "hunt": 0.0017,
+        "farm": 0.0017,
+        "explore": 0.986,
+        "wait": 0.0017,
+        "continue": 0.0017,
+        "stop": 0.0017
+      },
+      "truncated": false,
+      "latency_ms": 9.81
+    },
+    {
+      "id": "food-v1-eval-explore-1",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0009,
+        "cook": 0.0009,
+        "bread": 0.0009,
+        "hunt": 0.0009,
+        "farm": 0.0009,
+        "explore": 0.993,
+        "wait": 0.0009,
+        "continue": 0.0009,
+        "stop": 0.0009
+      },
+      "truncated": false,
+      "latency_ms": 9.14
+    },
+    {
+      "id": "food-v1-eval-explore-2",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0016,
+        "cook": 0.0017,
+        "bread": 0.0016,
+        "hunt": 0.0016,
+        "farm": 0.0019,
+        "explore": 0.9869,
+        "wait": 0.0016,
+        "continue": 0.0016,
+        "stop": 0.0016
+      },
+      "truncated": false,
+      "latency_ms": 8.9
+    },
+    {
+      "id": "food-v1-eval-explore-3",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0013,
+        "cook": 0.0013,
+        "bread": 0.0013,
+        "hunt": 0.0013,
+        "farm": 0.0014,
+        "explore": 0.9893,
+        "wait": 0.0013,
+        "continue": 0.0013,
+        "stop": 0.0013
+      },
+      "truncated": false,
+      "latency_ms": 9.13
+    },
+    {
+      "id": "food-v1-eval-explore-4",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0014,
+        "cook": 0.0014,
+        "bread": 0.0014,
+        "hunt": 0.0014,
+        "farm": 0.0014,
+        "explore": 0.9891,
+        "wait": 0.0014,
+        "continue": 0.0014,
+        "stop": 0.0014
+      },
+      "truncated": false,
+      "latency_ms": 8.67
+    },
+    {
+      "id": "food-v1-eval-explore-5",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0016,
+        "cook": 0.0017,
+        "bread": 0.0016,
+        "hunt": 0.0016,
+        "farm": 0.002,
+        "explore": 0.9869,
+        "wait": 0.0016,
+        "continue": 0.0016,
+        "stop": 0.0016
+      },
+      "truncated": false,
+      "latency_ms": 8.64
+    },
+    {
+      "id": "food-v1-eval-explore-6",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0012,
+        "cook": 0.0012,
+        "bread": 0.0012,
+        "hunt": 0.0012,
+        "farm": 0.002,
+        "explore": 0.9896,
+        "wait": 0.0012,
+        "continue": 0.0012,
+        "stop": 0.0013
+      },
+      "truncated": false,
+      "latency_ms": 8.38
+    },
+    {
+      "id": "food-v1-eval-explore-7",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0015,
+        "cook": 0.0015,
+        "bread": 0.0015,
+        "hunt": 0.0015,
+        "farm": 0.0015,
+        "explore": 0.9882,
+        "wait": 0.0015,
+        "continue": 0.0015,
+        "stop": 0.0015
+      },
+      "truncated": false,
+      "latency_ms": 8.95
+    },
+    {
+      "id": "food-v1-eval-explore-8",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0015,
+        "cook": 0.0015,
+        "bread": 0.0015,
+        "hunt": 0.0015,
+        "farm": 0.0016,
+        "explore": 0.9877,
+        "wait": 0.0015,
+        "continue": 0.0015,
+        "stop": 0.0015
+      },
+      "truncated": false,
+      "latency_ms": 8.97
+    },
+    {
+      "id": "food-v1-eval-explore-9",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0016,
+        "cook": 0.002,
+        "bread": 0.0016,
+        "hunt": 0.0016,
+        "farm": 0.0016,
+        "explore": 0.9867,
+        "wait": 0.0016,
+        "continue": 0.0016,
+        "stop": 0.0016
+      },
+      "truncated": false,
+      "latency_ms": 8.71
+    },
+    {
+      "id": "food-v1-eval-explore-10",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0013,
+        "cook": 0.0015,
+        "bread": 0.0013,
+        "hunt": 0.0013,
+        "farm": 0.0016,
+        "explore": 0.989,
+        "wait": 0.0013,
+        "continue": 0.0013,
+        "stop": 0.0013
+      },
+      "truncated": false,
+      "latency_ms": 8.59
+    },
+    {
+      "id": "food-v1-eval-explore-11",
+      "expected": "explore",
+      "actual": "explore",
+      "probabilities": {
+        "eat": 0.0014,
+        "cook": 0.0014,
+        "bread": 0.0014,
+        "hunt": 0.0018,
+        "farm": 0.0014,
+        "explore": 0.9883,
+        "wait": 0.0014,
+        "continue": 0.0014,
+        "stop": 0.0014
+      },
+      "truncated": false,
+      "latency_ms": 9.08
+    },
+    {
+      "id": "food-v1-eval-wait-0",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0026,
+        "cook": 0.005,
+        "bread": 0.0026,
+        "hunt": 0.0036,
+        "farm": 0.0027,
+        "explore": 0.0056,
+        "wait": 0.9722,
+        "continue": 0.0031,
+        "stop": 0.0026
+      },
+      "truncated": false,
+      "latency_ms": 8.78
+    },
+    {
+      "id": "food-v1-eval-wait-1",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0022,
+        "cook": 0.0039,
+        "bread": 0.0021,
+        "hunt": 0.0028,
+        "farm": 0.005,
+        "explore": 0.0038,
+        "wait": 0.9761,
+        "continue": 0.0022,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 8.83
+    },
+    {
+      "id": "food-v1-eval-wait-2",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0021,
+        "cook": 0.0036,
+        "bread": 0.002,
+        "hunt": 0.0026,
+        "farm": 0.004,
+        "explore": 0.0037,
+        "wait": 0.9779,
+        "continue": 0.0021,
+        "stop": 0.002
+      },
+      "truncated": false,
+      "latency_ms": 8.62
+    },
+    {
+      "id": "food-v1-eval-wait-3",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0024,
+        "cook": 0.0039,
+        "bread": 0.0023,
+        "hunt": 0.0033,
+        "farm": 0.0082,
+        "explore": 0.0045,
+        "wait": 0.9703,
+        "continue": 0.0027,
+        "stop": 0.0023
+      },
+      "truncated": false,
+      "latency_ms": 8.91
+    },
+    {
+      "id": "food-v1-eval-wait-4",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.002,
+        "cook": 0.0036,
+        "bread": 0.002,
+        "hunt": 0.0026,
+        "farm": 0.0049,
+        "explore": 0.0035,
+        "wait": 0.9773,
+        "continue": 0.0021,
+        "stop": 0.002
+      },
+      "truncated": false,
+      "latency_ms": 8.44
+    },
+    {
+      "id": "food-v1-eval-wait-5",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0022,
+        "cook": 0.0043,
+        "bread": 0.0022,
+        "hunt": 0.003,
+        "farm": 0.0023,
+        "explore": 0.0047,
+        "wait": 0.9768,
+        "continue": 0.0023,
+        "stop": 0.0022
+      },
+      "truncated": false,
+      "latency_ms": 8.56
+    },
+    {
+      "id": "food-v1-eval-wait-6",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0023,
+        "cook": 0.0039,
+        "bread": 0.0023,
+        "hunt": 0.0031,
+        "farm": 0.0078,
+        "explore": 0.0046,
+        "wait": 0.9707,
+        "continue": 0.0029,
+        "stop": 0.0023
+      },
+      "truncated": false,
+      "latency_ms": 8.36
+    },
+    {
+      "id": "food-v1-eval-wait-7",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0024,
+        "cook": 0.0039,
+        "bread": 0.0024,
+        "hunt": 0.0034,
+        "farm": 0.0078,
+        "explore": 0.0046,
+        "wait": 0.9698,
+        "continue": 0.0032,
+        "stop": 0.0024
+      },
+      "truncated": false,
+      "latency_ms": 9.21
+    },
+    {
+      "id": "food-v1-eval-wait-8",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0022,
+        "cook": 0.0041,
+        "bread": 0.0021,
+        "hunt": 0.0028,
+        "farm": 0.0046,
+        "explore": 0.0039,
+        "wait": 0.9761,
+        "continue": 0.0022,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 8.72
+    },
+    {
+      "id": "food-v1-eval-wait-9",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0022,
+        "cook": 0.004,
+        "bread": 0.0022,
+        "hunt": 0.0029,
+        "farm": 0.0023,
+        "explore": 0.0046,
+        "wait": 0.9773,
+        "continue": 0.0023,
+        "stop": 0.0022
+      },
+      "truncated": false,
+      "latency_ms": 8.55
+    },
+    {
+      "id": "food-v1-eval-wait-10",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0026,
+        "cook": 0.0044,
+        "bread": 0.0026,
+        "hunt": 0.0036,
+        "farm": 0.013,
+        "explore": 0.0048,
+        "wait": 0.9632,
+        "continue": 0.0033,
+        "stop": 0.0026
+      },
+      "truncated": false,
+      "latency_ms": 8.5
+    },
+    {
+      "id": "food-v1-eval-wait-11",
+      "expected": "wait",
+      "actual": "wait",
+      "probabilities": {
+        "eat": 0.0022,
+        "cook": 0.0035,
+        "bread": 0.0021,
+        "hunt": 0.0028,
+        "farm": 0.0022,
+        "explore": 0.0044,
+        "wait": 0.9785,
+        "continue": 0.0022,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 9.03
+    },
+    {
+      "id": "food-v1-eval-continue-0",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0025,
+        "cook": 0.0028,
+        "bread": 0.0025,
+        "hunt": 0.0025,
+        "farm": 0.0025,
+        "explore": 0.0025,
+        "wait": 0.0025,
+        "continue": 0.9797,
+        "stop": 0.0025
+      },
+      "truncated": false,
+      "latency_ms": 8.7
+    },
+    {
+      "id": "food-v1-eval-continue-1",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0021,
+        "cook": 0.0023,
+        "bread": 0.0021,
+        "hunt": 0.0021,
+        "farm": 0.0021,
+        "explore": 0.0021,
+        "wait": 0.0021,
+        "continue": 0.9832,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 8.66
+    },
+    {
+      "id": "food-v1-eval-continue-2",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0034,
+        "cook": 0.0036,
+        "bread": 0.0034,
+        "hunt": 0.0034,
+        "farm": 0.0034,
+        "explore": 0.0034,
+        "wait": 0.0034,
+        "continue": 0.9728,
+        "stop": 0.0033
+      },
+      "truncated": false,
+      "latency_ms": 8.65
+    },
+    {
+      "id": "food-v1-eval-continue-3",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0016,
+        "cook": 0.0016,
+        "bread": 0.0016,
+        "hunt": 0.0016,
+        "farm": 0.0016,
+        "explore": 0.0016,
+        "wait": 0.0016,
+        "continue": 0.9874,
+        "stop": 0.0016
+      },
+      "truncated": false,
+      "latency_ms": 9.32
+    },
+    {
+      "id": "food-v1-eval-continue-4",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0035,
+        "cook": 0.0045,
+        "bread": 0.0035,
+        "hunt": 0.0035,
+        "farm": 0.0035,
+        "explore": 0.0035,
+        "wait": 0.0035,
+        "continue": 0.9711,
+        "stop": 0.0035
+      },
+      "truncated": false,
+      "latency_ms": 8.87
+    },
+    {
+      "id": "food-v1-eval-continue-5",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0036,
+        "cook": 0.0036,
+        "bread": 0.0036,
+        "hunt": 0.0036,
+        "farm": 0.0036,
+        "explore": 0.0037,
+        "wait": 0.0036,
+        "continue": 0.971,
+        "stop": 0.0036
+      },
+      "truncated": false,
+      "latency_ms": 8.54
+    },
+    {
+      "id": "food-v1-eval-continue-6",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0038,
+        "cook": 0.005,
+        "bread": 0.0038,
+        "hunt": 0.0038,
+        "farm": 0.0038,
+        "explore": 0.0038,
+        "wait": 0.0038,
+        "continue": 0.9685,
+        "stop": 0.0038
+      },
+      "truncated": false,
+      "latency_ms": 8.62
+    },
+    {
+      "id": "food-v1-eval-continue-7",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0019,
+        "cook": 0.0019,
+        "bread": 0.0019,
+        "hunt": 0.0019,
+        "farm": 0.0019,
+        "explore": 0.0019,
+        "wait": 0.0019,
+        "continue": 0.9849,
+        "stop": 0.0019
+      },
+      "truncated": false,
+      "latency_ms": 9.08
+    },
+    {
+      "id": "food-v1-eval-continue-8",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0053,
+        "cook": 0.0067,
+        "bread": 0.0053,
+        "hunt": 0.0053,
+        "farm": 0.0053,
+        "explore": 0.0053,
+        "wait": 0.0053,
+        "continue": 0.9566,
+        "stop": 0.0053
+      },
+      "truncated": false,
+      "latency_ms": 8.58
+    },
+    {
+      "id": "food-v1-eval-continue-9",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0021,
+        "cook": 0.0021,
+        "bread": 0.0021,
+        "hunt": 0.0021,
+        "farm": 0.0021,
+        "explore": 0.0022,
+        "wait": 0.0021,
+        "continue": 0.9832,
+        "stop": 0.0021
+      },
+      "truncated": false,
+      "latency_ms": 8.56
+    },
+    {
+      "id": "food-v1-eval-continue-10",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0015,
+        "cook": 0.0015,
+        "bread": 0.0015,
+        "hunt": 0.0015,
+        "farm": 0.0015,
+        "explore": 0.0015,
+        "wait": 0.0015,
+        "continue": 0.9878,
+        "stop": 0.0015
+      },
+      "truncated": false,
+      "latency_ms": 8.47
+    },
+    {
+      "id": "food-v1-eval-continue-11",
+      "expected": "continue",
+      "actual": "continue",
+      "probabilities": {
+        "eat": 0.0033,
+        "cook": 0.0035,
+        "bread": 0.0033,
+        "hunt": 0.0033,
+        "farm": 0.0033,
+        "explore": 0.0033,
+        "wait": 0.0033,
+        "continue": 0.9736,
+        "stop": 0.0033
+      },
+      "truncated": false,
+      "latency_ms": 9.04
+    },
+    {
+      "id": "food-v1-eval-stop-0",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0085,
+        "cook": 0.0007,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0014,
+        "stop": 0.9863
+      },
+      "truncated": false,
+      "latency_ms": 8.51
+    },
+    {
+      "id": "food-v1-eval-stop-1",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0006,
+        "cook": 0.0007,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0014,
+        "stop": 0.9944
+      },
+      "truncated": false,
+      "latency_ms": 8.62
+    },
+    {
+      "id": "food-v1-eval-stop-2",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.001,
+        "stop": 0.9953
+      },
+      "truncated": false,
+      "latency_ms": 8.78
+    },
+    {
+      "id": "food-v1-eval-stop-3",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0008,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0015,
+        "stop": 0.9939
+      },
+      "truncated": false,
+      "latency_ms": 8.78
+    },
+    {
+      "id": "food-v1-eval-stop-4",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0006,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0011,
+        "stop": 0.9947
+      },
+      "truncated": false,
+      "latency_ms": 8.56
+    },
+    {
+      "id": "food-v1-eval-stop-5",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.001,
+        "cook": 0.001,
+        "bread": 0.0008,
+        "hunt": 0.0008,
+        "farm": 0.0008,
+        "explore": 0.0009,
+        "wait": 0.0008,
+        "continue": 0.0008,
+        "stop": 0.9933
+      },
+      "truncated": false,
+      "latency_ms": 8.6
+    },
+    {
+      "id": "food-v1-eval-stop-6",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0009,
+        "bread": 0.0007,
+        "hunt": 0.0007,
+        "farm": 0.0007,
+        "explore": 0.0007,
+        "wait": 0.0007,
+        "continue": 0.0014,
+        "stop": 0.9937
+      },
+      "truncated": false,
+      "latency_ms": 8.64
+    },
+    {
+      "id": "food-v1-eval-stop-7",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0067,
+        "cook": 0.001,
+        "bread": 0.0007,
+        "hunt": 0.0007,
+        "farm": 0.0007,
+        "explore": 0.0007,
+        "wait": 0.0007,
+        "continue": 0.0007,
+        "stop": 0.9882
+      },
+      "truncated": false,
+      "latency_ms": 9.0
+    },
+    {
+      "id": "food-v1-eval-stop-8",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0008,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0015,
+        "stop": 0.9939
+      },
+      "truncated": false,
+      "latency_ms": 8.54
+    },
+    {
+      "id": "food-v1-eval-stop-9",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0007,
+        "cook": 0.0005,
+        "bread": 0.0005,
+        "hunt": 0.0005,
+        "farm": 0.0005,
+        "explore": 0.0005,
+        "wait": 0.0005,
+        "continue": 0.0012,
+        "stop": 0.9951
+      },
+      "truncated": false,
+      "latency_ms": 8.47
+    },
+    {
+      "id": "food-v1-eval-stop-10",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0009,
+        "cook": 0.0008,
+        "bread": 0.0008,
+        "hunt": 0.0008,
+        "farm": 0.0008,
+        "explore": 0.0012,
+        "wait": 0.0008,
+        "continue": 0.0015,
+        "stop": 0.9925
+      },
+      "truncated": false,
+      "latency_ms": 8.54
+    },
+    {
+      "id": "food-v1-eval-stop-11",
+      "expected": "stop",
+      "actual": "stop",
+      "probabilities": {
+        "eat": 0.0075,
+        "cook": 0.0006,
+        "bread": 0.0006,
+        "hunt": 0.0006,
+        "farm": 0.0006,
+        "explore": 0.0006,
+        "wait": 0.0006,
+        "continue": 0.0006,
+        "stop": 0.9881
+      },
+      "truncated": false,
+      "latency_ms": 8.93
+    }
+  ],
+  "truncated": 0,
+  "accuracy": 1.0
+}

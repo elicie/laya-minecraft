@@ -1,0 +1,46 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{Vec3}=require('vec3')
+const {createActivityPolicy,allowedActions,fallbackAction,questions,normalizeObservation}=require('../activity-policy'),{createActivityManager}=require('../activity-manager'),{correctActivity}=require('../activity-feedback'),{createMissions}=require('../missions')
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'mc-activity-')),registry=require('minecraft-data')('1.21.1')
+const base={domain:'build',health:20,hunger:20,siteKnown:false,toolReady:true,seedAvailable:true,farmPlaceKnown:true,weaponReady:true,checkDue:true,target:1}
+function policy(fetchImpl){const events=[];const agent=createActivityPolicy({fetchImpl,log:e=>{const id='event-'+events.length;events.push({...e,id});return id},experienceFile:path.join(temp,Math.random()+'.jsonl')});return {agent,events}}
+const response=(choice,confidence=.95,extra={})=>({ok:true,json:async()=>({model:'fixture',answers:{activity_action:{choice,probabilities:{[choice]:confidence}}},...extra})})
+function fixture(){
+ let inventory=[],site=false,built=false,farms=[],sources=[],generation=0,visits=0;const calls=[],events=[]
+ const bot={registry,health:20,food:20,inventory:{items:()=>inventory,slots:Array(46).fill(null)},game:{dimension:'overworld'},entity:{position:new Vec3(0,64,0)},entities:{},findBlocks:()=>sources}
+ const check=token=>assert.equal(token,generation,'cancelled'),add=(name,count)=>{const item=inventory.find(i=>i.name===name);if(item)item.count=count;else inventory.push({name,count})}
+ const hooks={check,token:()=>generation,isBusy:()=>false,run:fn=>fn(),sleep:async()=>{},log:()=>{},policy:{decide:async o=>({action:fallbackAction(o),source:'laya',observation:normalizeObservation(o)}),outcome:(...args)=>events.push(args)},acquire:async(name,count)=>{calls.push('gather '+name);add(name,count)},structures:{status:()=>({origin:site?{x:0,y:64,z:0}:null,built:built?98:0,complete:built}),pendingMaterials:()=>count('oak_planks')<12?[{item:'oak_planks',need:12,have:count('oak_planks'),missing:12-count('oak_planks')}]:[],site:async()=>{calls.push('survey');site=true},build:async()=>{calls.push('build');built=true;return {complete:true}}},world:{farmStatus:()=>({farms})},skills:{retreat:async e=>{assert.notEqual(e.type,'player');calls.push('retreat');bot.entities={}}},explorer:{status:()=>({visited:visits}),setFocus:()=>{}},explore:async()=>{calls.push('search');visits++},food:async()=>{calls.push('food');bot.food=20;return {}},execute:async g=>{calls.push(g.type);if(g.type==='build')built=true;if(g.type==='collect')add(g.resource,g.quantity);if(g.type==='farm')farms=[{crop:'wheat',complete:true,planted:24,ripe:0,harvested:0}];return true},campaign:{snapshot:()=>({stages:[]})}}
+ function count(name){return inventory.filter(i=>i.name===name).reduce((s,i)=>s+i.count,0)}
+ return {bot,hooks,calls,events,add,cancel:()=>generation++,setFarm:f=>farms=f,setSources:p=>sources=p,inspect:g=>createActivityManager(bot,hooks).observe(g)}
+}
+async function main(){try{
+ const valid=policy(async(url,request)=>{assert.deepEqual(JSON.parse(request.body).questions,questions);return response('survey')});const d=await valid.agent.decide(base);assert.equal(d.source,'laya');assert.equal(d.action,'survey');valid.agent.outcome(d,true,{...base,siteKnown:true});assert(!valid.events.at(-1).trainingEligible)
+ for(const fetchImpl of [async()=>{throw new Error('offline')},async()=>response('finish'),async()=>response('survey',.2),async()=>response('survey',.95,{state_truncated:true})]){const result=await policy(fetchImpl).agent.decide(base);assert.equal(result.source,'fallback');assert.equal(result.action,'survey')}
+ assert(!allowedActions({...base,goalDone:false}).includes('finish'));assert.deepEqual(allowedActions({...base,health:3}),['pause'])
+ assert.equal(fallbackAction({...base,health:6,threats:1,closeThreats:1}),'retreat');assert.equal(fallbackAction({...base,domain:'collect',sources:1,toolReady:false}),'gather');assert.equal(fallbackAction({...base,bagFull:true}),'pause')
+ assert.equal(fallbackAction({...base,domain:'farm',growing:true,checkDue:false}),'wait');assert.equal(fallbackAction({...base,domain:'fight',threats:0,closeThreats:3}),'retreat')
+ const f=fixture(),manager=createActivityManager(f.bot,f.hooks),goal={type:'build',design:'cabin',quantity:1}
+ for(let i=0;i<3;i++)await manager.step(goal,0);assert.deepEqual(f.calls,['survey','gather oak_planks','build']);assert(manager.observe(goal).goalDone)
+ const hungry=fixture();hungry.bot.food=12;await createActivityManager(hungry.bot,hungry.hooks).step(goal,0);assert.deepEqual(hungry.calls,['food'])
+ const invalid=fixture();invalid.hooks.policy.decide=async o=>({action:'finish',source:'laya',observation:o});await assert.rejects(()=>createActivityManager(invalid.bot,invalid.hooks).step(goal,0),/실행할 수 없/);assert.deepEqual(invalid.calls,[])
+ const stale=fixture();stale.hooks.policy.decide=async o=>{stale.bot.health=2;return {action:'survey',source:'laya',observation:o}};await assert.rejects(()=>createActivityManager(stale.bot,stale.hooks).step(goal,0),/관측 상태가 바뀌/);assert.deepEqual(stale.calls,[])
+ const gold=fixture();gold.add('golden_pickaxe',1);assert.equal(gold.inspect({type:'collect',resource:'raw_iron',quantity:3}).toolReady,false)
+ const worn=fixture();worn.bot.inventory.items=()=>[{name:'stone_pickaxe',count:1,maxDurability:131,durabilityUsed:130}];assert.equal(worn.inspect({type:'collect',resource:'raw_iron',quantity:3}).toolReady,false)
+ const replace=fixture();replace.add('stone_pickaxe',1);replace.bot.inventory.items=()=>[{name:'stone_pickaxe',count:1,maxDurability:131,durabilityUsed:130}];let replacementTarget;replace.hooks.acquire=async(name,target)=>{replacementTarget=target};await createActivityManager(replace.bot,replace.hooks).step({type:'collect',resource:'raw_iron',quantity:3},0);assert.equal(replacementTarget,2,'worn tools must request a new item, not count the existing one')
+ const neutral=fixture();neutral.bot.entities={1:{name:'zombie',type:'player',position:new Vec3(1,64,0)},2:{name:'piglin',type:'mob',position:new Vec3(1,64,0)}};assert.equal(neutral.inspect({type:'fight',mode:'continuous',quantity:1}).threats,0)
+ const cancelled=fixture();cancelled.hooks.structures.site=async()=>{cancelled.cancel()};await assert.rejects(()=>createActivityManager(cancelled.bot,cancelled.hooks).step(goal,0),/cancelled/);assert.equal(cancelled.events.length,0,'interruption must not become a failed policy example')
+ await missions();feedback()
+ console.log('PASS mission policy schema/fallback/safety, build survey->supplies->build, real completion guard, changed-state/cancellation rejection, iron tool tiers/durability, player/neutral exclusion, persisted goals, growth waiting/threat wakeup and human corrections with evaluation isolation')
+ }finally{fs.rmSync(temp,{recursive:true,force:true})}}
+async function missions(){
+ const f=fixture(),m=createMissions(f.bot,{...f.hooks,activityPolicy:f.hooks.policy},path.join(temp,'mission.json'));await m.start('작은 집 지어줘');await m.tick();assert.equal(m.view().index,0);await m.tick();assert.equal(m.view().index,0);await m.tick();assert.equal(m.view().phase,'목표 완료');assert.equal(m.view().index,1)
+ const loaded=createMissions(f.bot,{...f.hooks,activityPolicy:f.hooks.policy},path.join(temp,'mission.json'));assert.equal(loaded.view().enabled,false)
+ const waiting=fixture();waiting.add('stone_hoe',1);waiting.add('wheat_seeds',16);waiting.setFarm([{crop:'wheat',complete:true,planted:24,ripe:0,harvested:0}]);waiting.hooks.world.farm=async()=>({title:'밀',complete:true,planted:24,plots:24,ripe:0,harvested:0,waiting:true,nextCheck:Date.now()+30000})
+ const farm=createMissions(waiting.bot,{...waiting.hooks,activityPolicy:waiting.hooks.policy},path.join(temp,'farm.json'));await farm.start('밀 농장 계속 관리해줘');await farm.tick();const before=waiting.calls.length;await farm.tick();assert.equal(waiting.calls.length,before);assert(farm.view().enabled)
+ waiting.bot.entities={1:{id:1,name:'creeper',type:'mob',position:new Vec3(2,64,0)}};await farm.tick();assert.equal(waiting.calls.at(-1),'retreat','a threat must wake a farm growth deadline');assert.equal(farm.view().index,0)
+}
+function feedback(){
+ const root=path.join(temp,'feedback');fs.mkdirSync(path.join(root,'logs'),{recursive:true});const event={id:'test',type:'activity_decision',state:'actual-state-fixture',observation:base,allowed:['survey','search','pause'],proposed:'survey'};fs.writeFileSync(path.join(root,'logs/events.jsonl'),JSON.stringify(event)+'\n');const events=[]
+ assert.equal(correctActivity('test','survey',{root,reviewer:'fixture-reviewer',logImpl:e=>events.push(e)}),'survey');const dir=path.join(root,'training/data/activity'),row=JSON.parse(fs.readFileSync(path.join(dir,'corrections.jsonl'),'utf8'));assert.equal(row.source,'human_correction');assert.equal(row.expected.activity_action,'survey')
+ assert.throws(()=>correctActivity('test','finish',{root}),/실행할 수 없는/);fs.writeFileSync(path.join(dir,'eval.jsonl'),JSON.stringify({state:event.state})+'\n');assert.throws(()=>correctActivity('test','survey',{root}),/고정 평가/);assert.equal(events.length,1)
+}
+main().catch(error=>{console.error(error);process.exit(1)})

@@ -1,0 +1,87 @@
+{
+  "task": "activity_action",
+  "method": "supervised soft cross-entropy; no reinforcement learning",
+  "checkpoint": "/home/elicie/Dev/minecraft/checkpoints/minecraft-activity-v1",
+  "base": "/home/elicie/Dev/minecraft/checkpoints/upstream/multilingual",
+  "epochs": 8,
+  "training_rows": 720,
+  "eval_rows": 180,
+  "before_accuracy": 0.3611111111111111,
+  "after_accuracy": 0.9833333333333333,
+  "per_class": {
+    "food": [
+      15,
+      15
+    ],
+    "farm": [
+      15,
+      15
+    ],
+    "wait": [
+      15,
+      15
+    ],
+    "survey": [
+      15,
+      15
+    ],
+    "gather": [
+      12,
+      15
+    ],
+    "build": [
+      15,
+      15
+    ],
+    "collect": [
+      15,
+      15
+    ],
+    "search": [
+      15,
+      15
+    ],
+    "fight": [
+      15,
+      15
+    ],
+    "retreat": [
+      15,
+      15
+    ],
+    "finish": [
+      15,
+      15
+    ],
+    "pause": [
+      15,
+      15
+    ]
+  },
+  "per_domain": {
+    "fight": [
+      30,
+      33
+    ],
+    "farm": [
+      42,
+      42
+    ],
+    "explore": [
+      21,
+      21
+    ],
+    "collect": [
+      32,
+      32
+    ],
+    "build": [
+      52,
+      52
+    ]
+  },
+  "truncated": 0,
+  "training_sha256": "3c0e741f7024e997e43e9f1a032a8a516af74aa32d71dd6c89b40721d21c8483",
+  "eval_sha256": "a312bd279f259e31e29ae6e7eb84cf7ea6374f308ad819a56d305ab123980be3",
+  "note": "Authored synthetic state-action evaluation; not autonomous Minecraft completion or survival success rate."
+}
