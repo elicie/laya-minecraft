@@ -241,15 +241,25 @@ for (const nativeUuid of [true, false]) {
             ),
           JSON.stringify(state),
         );
-        return route.fulfill({
-          json: {
-            id: `viewer-${operations.length}`,
-            type: "viewer",
-            state: "applied",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          },
-        });
+        if (start) await expect(page.locator("iframe")).toHaveCount(0);
+        const receipt: CommandReceipt = {
+          id: `viewer-${operations.length}`,
+          type: "viewer",
+          state: start ? "applying" : "applied",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        await route.fulfill({ json: receipt });
+        if (start)
+          await page.evaluate(
+            (value) =>
+              (window as unknown as BrowserHarness).sendFleet(
+                "command",
+                JSON.parse(value),
+              ),
+            JSON.stringify({ ...receipt, state: "applied" }),
+          );
+        return;
       }
       return route.fulfill({ json: {} });
     });
@@ -277,6 +287,11 @@ for (const nativeUuid of [true, false]) {
       "/viewer/Farmer/",
     );
     expect(operations).toEqual(["POST:Hunter", "DELETE:Hunter", "POST:Farmer"]);
+    await page
+      .getByRole("button", { name: "요청 알림 닫기", exact: true })
+      .last()
+      .click();
+    await expect(page.locator("iframe")).toHaveCount(1);
     state = {
       ...state,
       revision: state.revision + 1,
