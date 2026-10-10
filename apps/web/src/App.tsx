@@ -6,6 +6,7 @@ import type {
   FleetSnapshot,
 } from "../../../packages/contracts/src";
 import { BotDetail } from "./components/BotDetail";
+import { BlueprintManager } from "./components/BlueprintManager";
 import { Events } from "./components/Events";
 import { BotForm, GoalForm, RulesForm, VillageForm } from "./components/Forms";
 import { VillageMap } from "./components/VillageMap";
@@ -15,6 +16,7 @@ import { errorMessage, patch, post, request } from "./lib/api";
 import { createRequestId } from "./lib/uuid";
 import {
   actionLabels,
+  goalBlueprintTitle,
   isReportStale,
   label,
   localTime,
@@ -25,7 +27,7 @@ import {
 } from "./lib/display";
 
 type Modal = {
-  kind: "bot" | "goal" | "village" | "rules";
+  kind: "bot" | "goal" | "village" | "rules" | "blueprints";
   snapshot: FleetSnapshot;
   bot?: Agent;
   preferredBotId?: string;
@@ -300,6 +302,13 @@ export function App() {
             <button
               className="quiet"
               disabled={!live || !snapshot}
+              onClick={() => open("blueprints")}
+            >
+              설계도 관리
+            </button>
+            <button
+              className="quiet"
+              disabled={!live || !snapshot}
               onClick={() => open("rules")}
             >
               운영 규칙
@@ -344,11 +353,13 @@ export function App() {
                   <span>
                     {receipt.type.includes("viewer")
                       ? "관전"
-                      : receipt.type.includes("goal")
-                        ? "목표"
-                        : receipt.type.includes("rule")
-                          ? "규칙"
-                          : "봇"}{" "}
+                      : receipt.type.includes("blueprint")
+                        ? "설계도"
+                        : receipt.type.includes("goal")
+                          ? "목표"
+                          : receipt.type.includes("rule")
+                            ? "규칙"
+                            : "봇"}{" "}
                     요청
                   </span>
                   <span
@@ -466,6 +477,11 @@ export function App() {
                             </span>
                           )}
                         </div>
+                        {goalBlueprintTitle(goal) && (
+                          <p className="goal-meta">
+                            설계 · {goalBlueprintTitle(goal)}
+                          </p>
+                        )}
                         {progress !== undefined && (
                           <div
                             className="progress-track"
@@ -782,10 +798,34 @@ export function App() {
       )}
       {modal?.kind === "goal" && (
         <GoalForm
-          snapshot={modal.snapshot}
+          snapshot={snapshot ?? modal.snapshot}
           preferredBotId={modal.preferredBotId}
           onClose={() => setModal(null)}
           onSave={(goal) => mutate(() => post("/goals", goal))}
+        />
+      )}
+      {modal?.kind === "blueprints" && (
+        <BlueprintManager
+          snapshot={snapshot ?? modal.snapshot}
+          receipts={receipts}
+          online={live}
+          onClose={() => setModal(null)}
+          onRefresh={fleet.refreshSnapshot}
+          onSave={async (input, id) =>
+            fleet.receiveReceipt(
+              await (id
+                ? patch(`/blueprints/${encodeURIComponent(id)}`, input)
+                : post("/blueprints", input)),
+            )
+          }
+          onDelete={async (id) =>
+            fleet.receiveReceipt(
+              await request(`/blueprints/${encodeURIComponent(id)}`, {
+                method: "DELETE",
+                body: "{}",
+              }),
+            )
+          }
         />
       )}
       {modal?.kind === "village" && (

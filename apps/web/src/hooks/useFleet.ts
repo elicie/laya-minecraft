@@ -50,6 +50,12 @@ export function useFleet() {
     return receipt;
   }, []);
 
+  const refreshSnapshot = useCallback(async () => {
+    const data = await request<unknown>("/snapshot");
+    receiveSnapshot(data);
+    return FleetSnapshotSchema.parse(data);
+  }, [receiveSnapshot]);
+
   useEffect(() => {
     let disposed = false;
     const polling = new Set<string>();
@@ -134,6 +140,7 @@ export function useFleet() {
     now,
     receipts,
     receiveReceipt,
+    refreshSnapshot,
     dismissReceipt,
   };
 }

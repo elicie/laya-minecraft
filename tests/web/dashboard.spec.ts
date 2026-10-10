@@ -9,6 +9,11 @@ import {
   type Goal,
   type Task,
 } from "../../packages/contracts/src";
+import {
+  BlueprintInputSchema,
+  type BlueprintDefinition,
+  type BlueprintInput,
+} from "../../packages/contracts/src/blueprint-catalog";
 
 function agent(id: string, role: string): Agent {
   const now = Date.now();
@@ -66,6 +71,7 @@ function snapshot(): FleetSnapshot {
         position: { x: 2, y: 64, z: 2 },
       },
     },
+    blueprints: [],
     agents: [agent("Hunter", "hunter"), agent("Farmer", "farmer")],
     goals: [],
     tasks: [],
@@ -1304,4 +1310,405 @@ test("site preparation reports real edits and materials before a separate wareho
   builder.session!.report!.reason = "창고 건물의 완성 상태를 확인했습니다.";
   await sendState();
   await expect(goalCard.locator(".goal-row-top .tag")).toHaveText("완료");
+});
+
+test("a copied blueprint is saved after application, selected for a goal, edited and deleted without changing the registered goal", async ({
+  page,
+}) => {
+  let state = snapshot();
+  const blueprintId = "11111111-1111-4111-8111-111111111111";
+  let submitted: BlueprintInput | undefined;
+  let submittedGoal: GoalDefinition | undefined;
+  let created: BlueprintDefinition | undefined;
+  let applied = false;
+  const mutations: string[] = [];
+  const now = Date.now();
+  const createReceipt: CommandReceipt = {
+    id: "blueprint-create",
+    type: "blueprint.create",
+    state: "accepted",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const touch = () => {
+    state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+  };
+  async function send(kind: string, value: unknown) {
+    await page.evaluate(
+      ({ kind, value }) =>
+        (window as unknown as BrowserHarness).sendFleet(kind, value),
+      { kind, value },
+    );
+  }
+  await installStream(page);
+  await page.route("**/api/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    if (method !== "GET") {
+      expect(route.request().headers()["x-laya-control"]).toBe("1");
+      expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    }
+    if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
+    if (path.endsWith("/commands/blueprint-create"))
+      return route.fulfill({
+        json: applied
+          ? {
+              ...createReceipt,
+              state: "applied",
+              result: { blueprintId, version: 1 },
+            }
+          : createReceipt,
+      });
+    if (path.endsWith("/blueprints") && method === "POST") {
+      submitted = BlueprintInputSchema.parse(route.request().postDataJSON());
+      mutations.push(path);
+      created = {
+        ...submitted,
+        id: blueprintId,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return route.fulfill({ json: createReceipt });
+    }
+    if (path.endsWith(`/blueprints/${blueprintId}`) && method === "PATCH") {
+      const input = BlueprintInputSchema.parse(route.request().postDataJSON());
+      mutations.push(path);
+      state.blueprints = [
+        { ...created!, ...input, version: 2, updatedAt: Date.now() },
+      ];
+      touch();
+      return route.fulfill({
+        json: {
+          ...createReceipt,
+          id: "blueprint-update",
+          type: "blueprint.update",
+          state: "applied",
+          result: { blueprintId, version: 2 },
+        },
+      });
+    }
+    if (path.endsWith(`/blueprints/${blueprintId}`) && method === "DELETE") {
+      expect(route.request().postDataJSON()).toEqual({});
+      mutations.push(path);
+      state.blueprints = [];
+      touch();
+      return route.fulfill({
+        json: {
+          ...createReceipt,
+          id: "blueprint-delete",
+          type: "blueprint.delete",
+          state: "applied",
+          result: { blueprintId },
+        },
+      });
+    }
+    if (path.endsWith("/goals/interpret"))
+      return route.fulfill({
+        json: {
+          source: "code",
+          warnings: [],
+          goal: GoalInputSchema.parse({
+            kind: "build",
+            title: "산책길 옆에 건물 짓기",
+            params: { blueprint: "unregistered-palace" },
+          }),
+        },
+      });
+    if (path.endsWith("/goals") && method === "POST") {
+      submittedGoal = GoalInputSchema.parse(route.request().postDataJSON());
+      state.goals = [
+        {
+          id: "custom-building",
+          input: {
+            ...submittedGoal,
+            params: {
+              ...submittedGoal.params,
+              blueprintDefinition: JSON.parse(JSON.stringify(created)),
+            },
+          },
+          title: submittedGoal.title!,
+          state: "queued",
+          generation: 1,
+          taskIds: [],
+          createdAt: now,
+          updatedAt: now,
+          progress: { current: 0, target: 1 },
+        },
+      ];
+      touch();
+      return route.fulfill({
+        json: {
+          ...createReceipt,
+          id: "custom-goal",
+          type: "goal.create",
+          state: "applied",
+        },
+      });
+    }
+    return route.fulfill({ json: { ...createReceipt, state: "applied" } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "설계도 관리", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "설계도 관리", exact: true });
+  await dialog
+    .getByRole("button", { name: "창고 건물 복제", exact: true })
+    .click();
+  await dialog.getByLabel("설계도 이름", { exact: true }).fill("산책길 창고");
+  await dialog.getByRole("spinbutton", { name: "세로", exact: true }).fill("7");
+  await dialog.getByRole("spinbutton", { name: "높이", exact: true }).fill("3");
+  await dialog
+    .getByRole("combobox", { name: "목재 종류", exact: true })
+    .selectOption("spruce");
+  await dialog
+    .getByRole("combobox", { name: "바닥", exact: true })
+    .selectOption("stone_bricks");
+  await dialog
+    .getByRole("combobox", { name: "창문", exact: true })
+    .selectOption("glass");
+  await dialog.getByRole("checkbox", { name: "화로", exact: true }).check();
+  await dialog.getByRole("checkbox", { name: "침대", exact: true }).check();
+  const preview = dialog.getByRole("region", {
+    name: "설계도 미리보기",
+    exact: true,
+  });
+  await expect(preview).toContainText("7 × 7 × 3칸");
+  await expect(
+    preview
+      .locator(".blueprint-materials > div")
+      .filter({ hasText: "석재 벽돌" }),
+  ).toHaveText("석재 벽돌49개");
+  await dialog
+    .getByRole("button", { name: "새 설계도 저장", exact: true })
+    .click();
+  await expect(
+    dialog.getByText("설계도 저장 · 요청 접수", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "적용 확인 중…", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByRole("button", { name: "산책길 창고 수정", exact: true }),
+  ).toHaveCount(0);
+  expect(submitted).toMatchObject({
+    title: "산책길 창고",
+    template: "warehouse",
+    width: 7,
+    depth: 7,
+    height: 3,
+    wood: "spruce",
+    materials: {
+      floor: "stone_bricks",
+      wall: "spruce_planks",
+      roof: "spruce_planks",
+      window: "glass",
+    },
+    furniture: { furnace: true, bed: true },
+  });
+  state.blueprints = [created!];
+  touch();
+  applied = true;
+  await send("command", {
+    ...createReceipt,
+    state: "applied",
+    updatedAt: Date.now(),
+    result: { blueprintId, version: 1 },
+  });
+  await expect(
+    dialog.getByRole("button", { name: "산책길 창고 수정", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "변경 저장", exact: true }),
+  ).toBeEnabled();
+  await dialog
+    .locator(".dialog-heading")
+    .getByRole("button", { name: "닫기", exact: true })
+    .click();
+  await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
+  await page.getByLabel("무엇을 할까요?").fill("산책길 옆에 건물 지어줘");
+  await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "해석된 설계도가 목록에 없습니다",
+  );
+  await expect(page.getByLabel("건물 설계", { exact: false })).toHaveValue("");
+  await page
+    .getByLabel("건물 설계", { exact: false })
+    .selectOption(blueprintId);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "목표 등록", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submittedGoal?.params.blueprint).toBe(blueprintId);
+  expect(submittedGoal?.params.blueprintDefinition).toBeUndefined();
+  await send("snapshot", state);
+  await expect(page.locator(".goal-row")).toContainText("설계 · 산책길 창고");
+  await page.getByRole("button", { name: "설계도 관리", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "설계도 관리", exact: true });
+  await dialog
+    .getByRole("button", { name: "산책길 창고 수정", exact: true })
+    .click();
+  await dialog.getByLabel("설계도 이름", { exact: true }).fill("확장한 창고");
+  await dialog.getByRole("spinbutton", { name: "가로", exact: true }).fill("9");
+  await dialog
+    .getByRole("combobox", { name: "벽", exact: true })
+    .selectOption("bricks");
+  await dialog.getByRole("button", { name: "변경 저장", exact: true }).click();
+  await expect(
+    dialog.getByRole("button", { name: "확장한 창고 수정", exact: true }),
+  ).toBeVisible();
+  expect(state.blueprints[0]).toMatchObject({
+    version: 2,
+    width: 9,
+    materials: { wall: "bricks" },
+  });
+  await expect(page.locator(".goal-row")).toContainText("설계 · 산책길 창고");
+  await dialog
+    .getByRole("button", { name: "설계도 삭제", exact: true })
+    .click();
+  await expect(
+    dialog.getByText("저장한 설계도가 없습니다.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "확장한 창고 수정", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "설계도 삭제", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".goal-row")).toContainText("설계 · 산책길 창고");
+  expect(mutations).toEqual([
+    "/api/v1/blueprints",
+    `/api/v1/blueprints/${blueprintId}`,
+    `/api/v1/blueprints/${blueprintId}`,
+  ]);
+  await dialog
+    .locator(".dialog-heading")
+    .getByRole("button", { name: "닫기", exact: true })
+    .click();
+  await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
+  await page.getByLabel("무엇을 할까요?").fill("건물 지어줘");
+  await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  await expect(
+    page
+      .getByLabel("건물 설계", { exact: false })
+      .locator(`option[value="${blueprintId}"]`),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("건물 설계", { exact: false })
+    .selectOption("warehouse");
+  await expect(page.getByLabel("건물 설계", { exact: false })).toHaveValue(
+    "warehouse",
+  );
+});
+
+test("builtin blueprints can only be copied and template size rules stay usable on a narrow screen", async ({
+  page,
+}) => {
+  const state = snapshot();
+  let mutations = 0;
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) => {
+    if (route.request().method() !== "GET") mutations++;
+    return route.fulfill({ json: state });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "설계도 관리", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "설계도 관리", exact: true });
+  for (const title of [
+    "작은 나무집",
+    "넓은 나무집",
+    "창고 건물",
+    "전망대",
+    "짧은 다리",
+    "성곽과 네 개의 탑",
+  ])
+    await expect(
+      dialog.getByRole("button", { name: `${title} 복제`, exact: true }),
+    ).toHaveCount(1);
+  await expect(
+    dialog.getByRole("button", { name: "설계도 삭제", exact: true }),
+  ).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "성곽과 네 개의 탑 복제", exact: true })
+    .click();
+  for (const name of ["가로", "세로", "높이"])
+    await expect(
+      dialog.getByRole("spinbutton", { name, exact: true }),
+    ).toBeDisabled();
+  await expect(dialog).toContainText("재료와 가구는 변경할 수 있습니다");
+  await dialog
+    .getByRole("button", { name: "짧은 다리 복제", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("spinbutton", { name: "높이", exact: true }),
+  ).toHaveValue("1");
+  await expect(
+    dialog.getByRole("checkbox", { name: "상자", exact: true }),
+  ).toBeDisabled();
+  for (const name of ["벽", "지붕", "창문"])
+    await expect(
+      dialog.getByRole("combobox", { name, exact: true }),
+    ).toBeDisabled();
+  await dialog.getByRole("spinbutton", { name: "가로", exact: true }).fill("4");
+  await expect(
+    dialog.getByRole("button", { name: "새 설계도 저장", exact: true }),
+  ).toBeDisabled();
+  await expect(dialog.getByRole("alert")).toContainText("홀수 폭");
+  await dialog
+    .getByRole("button", { name: "전망대 복제", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("spinbutton", { name: "높이", exact: true }),
+  ).toHaveAttribute("max", "16");
+  await dialog
+    .getByRole("button", { name: "작은 나무집 복제", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("spinbutton", { name: "높이", exact: true }),
+  ).toHaveAttribute("min", "3");
+  await expect(
+    dialog.getByRole("spinbutton", { name: "높이", exact: true }),
+  ).toHaveAttribute("max", "4");
+  await dialog.getByRole("spinbutton", { name: "높이", exact: true }).fill("5");
+  await expect(
+    dialog.getByRole("button", { name: "새 설계도 저장", exact: true }),
+  ).toBeDisabled();
+  await expect(dialog.getByRole("alert")).toContainText("높이 3~4");
+  await dialog.getByRole("spinbutton", { name: "높이", exact: true }).fill("3");
+  await dialog.getByRole("spinbutton", { name: "가로", exact: true }).fill("4");
+  await expect(
+    dialog.getByRole("button", { name: "새 설계도 저장", exact: true }),
+  ).toBeDisabled();
+  await dialog.getByRole("spinbutton", { name: "가로", exact: true }).fill("5");
+  await expect(
+    dialog.getByRole("button", { name: "새 설계도 저장", exact: true }),
+  ).toBeEnabled();
+  await dialog
+    .getByRole("combobox", { name: "목재 종류", exact: true })
+    .selectOption("cherry");
+  await dialog
+    .getByRole("combobox", { name: "지붕", exact: true })
+    .selectOption("stone_bricks");
+  await expect(
+    dialog.getByRole("region", { name: "설계도 미리보기" }),
+  ).toContainText("벚나무");
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await dialog.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  for (const element of await dialog.locator("input, select, button").all()) {
+    const rect = await element.boundingBox();
+    expect(rect?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((rect?.x ?? 0) + (rect?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+  expect(mutations).toBe(0);
 });

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
+  BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
   buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, sameContainer, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
-  type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
+  type BlueprintDefinition, type BlueprintInput, type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type GoalDefinition, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
 } from '../../contracts/src';
 import { containerKey, goalTitle, jsonObject, planGoal, roleFits } from './planning';
-import { BLUEPRINTS, blueprint, type BlueprintName } from '../../contracts/src/blueprints';
+import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 import { distance, footprintInside, freshObservations, positionKey, verifyCompletion } from './verification';
 
 export { planGoal, containerKey, roleFits } from './planning';
@@ -49,7 +49,7 @@ export class FleetController {
     this.controllerEpoch = options.controllerEpoch ?? randomUUID();
     this.state = options.checkpoint ? FleetCheckpointSchema.parse(options.checkpoint) : {
       schemaVersion: 1, controllerEpoch: this.controllerEpoch, revision: 0, updatedAt: this.now(), rules: RulesSchema.parse(options.rules ?? DEFAULT_RULES),
-      agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [], processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [],
+      blueprints: [], agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [], processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [],
     };
     this.state.pendingCommands ??= [];
     this.state.stoppedSessionIds ??= [];
@@ -78,6 +78,43 @@ export class FleetController {
     return clone(snapshot);
   }
   checkpoint(): FleetCheckpoint { return clone(this.state); }
+  createBlueprint(input: BlueprintInput, commandId?: string): BlueprintDefinition {
+    if (this.state.blueprints.length >= 1000) throw new Error('설계도는 최대 1000개까지 저장할 수 있습니다.');
+    const editable = this.validateBlueprintInput(input), definition = BlueprintDefinitionSchema.parse({ ...editable, id: randomUUID(), version: 1, createdAt: this.now(), updatedAt: this.now() });
+    blueprint(definition.id, { x: 0, y: 0, z: 0 }, definition.wood, definition);
+    this.state.blueprints.push(definition);
+    this.changed('blueprint.created', '사용자 설계도를 저장했습니다.', { commandId, data: { blueprintId: definition.id, version: definition.version } }); this.applied(commandId, { blueprintId: definition.id, version: definition.version });
+    return clone(definition);
+  }
+  updateBlueprint(id: string, input: BlueprintInput, commandId?: string): BlueprintDefinition {
+    const index = this.state.blueprints.findIndex(b => b.id === id); if (index < 0) throw new Error('수정할 사용자 설계도를 찾을 수 없습니다.');
+    const old = this.state.blueprints[index]!, editable = this.validateBlueprintInput(input, id), definition = BlueprintDefinitionSchema.parse({ ...editable, id, version: old.version + 1, createdAt: old.createdAt, updatedAt: this.now() });
+    blueprint(id, { x: 0, y: 0, z: 0 }, definition.wood, definition); this.state.blueprints[index] = definition;
+    this.changed('blueprint.updated', '설계도의 새 버전을 저장했습니다. 기존 작업은 고정한 버전을 유지합니다.', { commandId, data: { blueprintId: id, version: definition.version } }); this.applied(commandId, { blueprintId: id, version: definition.version });
+    return clone(definition);
+  }
+  deleteBlueprint(id: string, commandId?: string): void {
+    const index = this.state.blueprints.findIndex(b => b.id === id); if (index < 0) throw new Error('삭제할 사용자 설계도를 찾을 수 없습니다.');
+    this.state.blueprints.splice(index, 1);
+    this.changed('blueprint.deleted', '사용자 설계도를 삭제했습니다. 기존 작업은 고정한 버전을 유지합니다.', { commandId, data: { blueprintId: id } }); this.applied(commandId, { blueprintId: id });
+  }
+  private validateBlueprintInput(input: BlueprintInput, exceptId?: string): BlueprintInput {
+    const parsed = BlueprintInputSchema.parse(input), normalize = (title: string) => title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
+    if (this.state.blueprints.some(b => b.id !== exceptId && normalize(b.title) === normalize(parsed.title))) throw new Error('같은 이름의 설계도가 이미 있습니다. 다른 이름을 정해 주세요.');
+    return parsed;
+  }
+  private pinBlueprint(input: GoalDefinition, previous?: GoalDefinition): void {
+    if (input.kind !== 'build') return;
+    const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
+    if (Object.hasOwn(BLUEPRINTS, design)) { delete input.params.blueprintDefinition; return; }
+    const catalog = this.state.blueprints.find(b => b.id === design);
+    const existing = previous && String(previous.params.design ?? previous.params.blueprint ?? 'cabin') === design ? BlueprintDefinitionSchema.safeParse(previous.params.blueprintDefinition) : undefined;
+    const definition = catalog ?? (existing?.success ? existing.data : undefined);
+    if (!definition || definition.id !== design) throw new Error('선택한 사용자 설계도가 없거나 삭제되었습니다.');
+    input.params.blueprintDefinition = jsonObject(clone(definition));
+    delete input.params.requiredBlocks;
+    if (!input.params.siteSelection && !input.params.origin && !input.params.position) input.params.siteSelection = 'nearby';
+  }
   dispose(): void {
     this.disposed = true;
     for (const decision of this.decisions.values()) decision.abort.abort();
@@ -238,6 +275,7 @@ export class FleetController {
 
   createGoal(input: GoalInput, commandId?: string): Goal {
     const definition = GoalInputSchema.parse(input);
+    this.pinBlueprint(definition);
     if (['guard', 'follow', 'survive'].includes(definition.kind)) definition.mode = 'maintain';
     if (!definition.destination && this.state.rules.warehouse && (['collect', 'store', 'take'].includes(definition.kind) || (definition.kind === 'hunt' && definition.item) || (definition.kind === 'farm' && definition.params.mode === 'harvest'))) definition.destination = clone(this.state.rules.warehouse);
     if (definition.preferredBotId) this.agent(definition.preferredBotId);
@@ -258,7 +296,9 @@ export class FleetController {
     const goal = this.goal(goalId), parsed = GoalPatchSchema.parse(patch);
     if (terminalGoals.has(goal.state)) throw new Error('A finished goal cannot be edited');
     if (parsed.preferredBotId) this.agent(parsed.preferredBotId);
-    goal.input = GoalInputSchema.parse({ ...goal.input, ...parsed, preferredBotId: parsed.preferredBotId === null ? undefined : parsed.preferredBotId ?? goal.input.preferredBotId });
+    const updated = GoalInputSchema.parse({ ...goal.input, ...parsed, preferredBotId: parsed.preferredBotId === null ? undefined : parsed.preferredBotId ?? goal.input.preferredBotId });
+    if (parsed.params !== undefined) this.pinBlueprint(updated, goal.input);
+    goal.input = updated;
     goal.replanRequested = true;
     goal.title = goalTitle(goal.input);
     if (parsed.quantity !== undefined) goal.targetQuantity = goal.input.quantityMode === 'total' ? parsed.quantity : undefined;
@@ -443,11 +483,14 @@ export class FleetController {
     const parsed = BuildSiteSchema.safeParse(task.checkpoint.buildSite), near = PositionSchema.safeParse(task.params.near);
     const design = String(task.params.design ?? task.params.blueprint ?? 'cabin');
     const fail = (reason: string) => ({ reason });
-    if (!parsed.success || !near.success || !Object.hasOwn(BLUEPRINTS, design)) return fail('지원하는 설계도와 실제 부지 좌표 증거가 필요합니다.');
-    const site = parsed.data, size = BLUEPRINTS[design as BlueprintName];
+    if (!parsed.success || !near.success) return fail('지원하는 설계도와 실제 부지 좌표 증거가 필요합니다.');
+    let size: ReturnType<typeof resolveBlueprint>;
+    try { size = resolveBlueprint(design, task.params.blueprintDefinition); } catch { return fail('고정한 설계도와 실제 부지 증거가 필요합니다.'); }
+    const site = parsed.data;
+    if (!this.sameBlueprintDefinition(design, task.params.blueprintDefinition, site.blueprintDefinition)) return fail('부지 증거는 목표에 고정한 설계도 버전·크기·재료와 일치해야 합니다.');
     if (isPreparationTask(task)) {
       const preparation = BuildSitePreparationSchema.safeParse(task.params.preparation);
-      if (!preparation.success || positionKey(site.origin) !== positionKey(preparation.data.origin) || site.design !== preparation.data.design) return fail('예약하고 정리한 부지의 실제 완료 증거가 필요합니다.');
+      if (!preparation.success || positionKey(site.origin) !== positionKey(preparation.data.origin) || site.design !== preparation.data.design || !this.sameBlueprintDefinition(design, task.params.blueprintDefinition, preparation.data.blueprintDefinition)) return fail('예약하고 정리한 부지의 실제 완료 증거가 필요합니다.');
       const actual = this.attemptBlocks(attempt), validated = validateBuildSitePreparation(preparation.data, actual, { allowCompletedEdits: true });
       const names = new Map(actual.map(b => [positionKey(b.position), b.name]));
       if (!validated.ok || preparation.data.edits.some(e => !matchesPreparationTarget(e, names.get(positionKey(e.position)) ?? 'unknown'))) return fail(validated.ok ? '모든 예약한 지형 변경의 실제 결과를 확인해야 합니다.' : validated.reason);
@@ -457,8 +500,8 @@ export class FleetController {
     if (Math.hypot(center.x - near.data.x, center.z - near.data.z) > 32 || Math.abs(site.origin.y - near.data.y) > 8) return fail('부지는 탐색한 봇 주변의 확인 가능한 범위 안에 있어야 합니다.');
     const entrance = { x: site.origin.x + Math.floor(size.width / 2), y: site.origin.y, z: site.origin.z - 1 };
     if (positionKey(site.entrance) !== positionKey(entrance)) return fail('설계도의 실제 출입 경로 위치를 확인해야 합니다.');
-    const blocks = blueprint(design, site.origin, typeof task.params.wood === 'string' ? task.params.wood : 'oak');
-    const cells = buildSiteCells(site.origin, size.width, size.depth, Math.max(...blocks.map(b => b.position.y - site.origin.y)));
+    const blocks = blueprint(design, site.origin, typeof task.params.wood === 'string' ? task.params.wood : 'oak', task.params.blueprintDefinition);
+    const cells = buildSiteCells(site.origin, size.width, size.depth, Math.max(size.height, ...blocks.map(b => b.position.y - site.origin.y)));
     const goal = this.goal(task.goalId);
     if (goal.input.source === 'autonomous' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, cells))) return fail('부지와 출입 경로 전체가 설정한 마을 범위 안에 있어야 합니다.');
     const observations = freshObservations({ observations: this.state.observations.filter(o => o.controllerEpoch === this.controllerEpoch), now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
@@ -493,6 +536,8 @@ export class FleetController {
     if (task.params.allowPreparation === false) return { reason: '이 목표는 지형 정리를 허용하지 않습니다.' };
     const near = PositionSchema.safeParse(task.params.near);
     if (!near.success) return { reason: '탐색한 봇의 실제 위치 증거가 필요합니다.' };
+    const proposed = BuildSitePreparationSchema.safeParse(task.checkpoint.buildSitePreparation);
+    if (!proposed.success || !this.sameBlueprintDefinition(String(task.params.design ?? task.params.blueprint), task.params.blueprintDefinition, proposed.data.blueprintDefinition)) return { reason: '정리 계획은 목표에 고정한 설계도 버전·크기·재료와 일치해야 합니다.' };
     const validated = validateBuildSitePreparation(task.checkpoint.buildSitePreparation, this.attemptBlocks(attempt), { near: near.data });
     if (!validated.ok) return { reason: validated.reason };
     const preparation = validated.plan;
@@ -510,11 +555,17 @@ export class FleetController {
   private preparationApproved(goal: Goal, taskPlan: unknown = goal.input.params.sitePreparation): boolean {
     if (goal.input.kind !== 'build' || goal.input.params.siteSelection !== 'preparing') return false;
     const marker = PreparationVerificationSchema.safeParse(goal.input.params.preparationVerification), plan = BuildSitePreparationSchema.safeParse(goal.input.params.sitePreparation), assignedPlan = BuildSitePreparationSchema.safeParse(taskPlan);
-    if (!marker.success || !plan.success || !assignedPlan.success || plan.data.design !== String(goal.input.params.design ?? goal.input.params.blueprint ?? 'cabin') || JSON.stringify(plan.data) !== JSON.stringify(assignedPlan.data) || marker.data.observedAt !== plan.data.observedAt) return false;
+    if (!marker.success || !plan.success || !assignedPlan.success || plan.data.design !== String(goal.input.params.design ?? goal.input.params.blueprint ?? 'cabin') || !this.sameBlueprintDefinition(plan.data.design, goal.input.params.blueprintDefinition, plan.data.blueprintDefinition) || JSON.stringify(plan.data) !== JSON.stringify(assignedPlan.data) || marker.data.observedAt !== plan.data.observedAt) return false;
     const attempt = this.state.attempts.find(a => a.id === marker.data.attemptId && a.botId === marker.data.botId && a.sessionId === marker.data.sessionId && a.controllerEpoch === marker.data.controllerEpoch && a.state === 'completed');
     const survey = this.state.tasks.find(t => t.id === attempt?.taskId && t.goalId === goal.id && isBuildSiteTask(t) && t.state === 'completed' && t.attemptId === attempt?.id && t.generation < goal.generation);
     const reported = BuildSitePreparationSchema.safeParse(attempt?.result?.checkpoint.buildSitePreparation), checkpoint = BuildSitePreparationSchema.safeParse(survey?.checkpoint.buildSitePreparation);
     return !!survey && attempt?.result?.outcome === 'completed' && reported.success && checkpoint.success && JSON.stringify(plan.data) === JSON.stringify(reported.data) && JSON.stringify(plan.data) === JSON.stringify(checkpoint.data);
+  }
+  private sameBlueprintDefinition(design: string, expected: unknown, actual: unknown): boolean {
+    try {
+      const resolved = resolveBlueprint(design, expected);
+      return resolved.definition ? JSON.stringify(resolved.definition) === JSON.stringify(BlueprintDefinitionSchema.parse(actual)) : actual === undefined;
+    } catch { return false; }
   }
   private buildWaitFingerprint(condition: BuildWaitingFor, botId: string, previous?: string): string {
     let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string> } = {};

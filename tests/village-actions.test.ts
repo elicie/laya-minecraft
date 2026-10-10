@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
-import { DEFAULT_RULES, buildSiteCells, isBuildSiteAir, isBuildSiteGround, type ExpectedBlock, type Position, type TaskSpec } from '../packages/contracts/src';
+import { DEFAULT_RULES, BlueprintDefinitionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, type ExpectedBlock, type Position, type TaskSpec } from '../packages/contracts/src';
 import { blueprint } from '../packages/contracts/src/blueprints';
 import { executeVillageTask, exploreBuildSite } from '../packages/minecraft/src/village-actions';
 import { ActionFailure, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
@@ -84,6 +85,69 @@ function siteTask(): TaskSpec {
 function flatGround(f: ReturnType<typeof fixture>, y = 0) {
   for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) f.set({ x, y, z }, 'grass_block');
 }
+
+function customDefinition() {
+  return BlueprintDefinitionSchema.parse({ id: randomUUID(), version: 1, createdAt: 1, updatedAt: 1, title: '편집한 돌집', template: 'cabin', width: 6, depth: 5, height: 3, wood: 'birch',
+    materials: { floor: 'polished_andesite', wall: 'deepslate_bricks', roof: 'birch_planks', window: 'glass' }, furniture: { chest: false, craftingTable: false, furnace: false, bed: false, lighting: false } });
+}
+
+test('saved custom design explores its changed dimensions and builds the pinned materials with safe access', async () => {
+  const f = fixture(); flatGround(f); const definition = customDefinition();
+  const explore: TaskSpec = { ...siteTask(), params: { mode: 'build-site', design: definition.id, blueprintDefinition: definition, near: { x: 0, y: 1, z: 0 }, searchRadius: 8 } };
+  const siteResult = await exploreBuildSite(explore, f.service); assert.equal(siteResult.outcome, 'completed');
+  const site = siteResult.checkpoint.buildSite as { origin: Position; design: string; blueprintDefinition: typeof definition };
+  assert.equal(site.design, definition.id); assert.deepEqual(site.blueprintDefinition, definition);
+  const blocks = blueprint(definition.id, site.origin, 'oak', definition);
+  assert.ok(blocks.some(b => b.name === 'deepslate_bricks')); assert.ok(blocks.some(b => b.name === 'polished_andesite'));
+  assert.ok(!blocks.some(b => ['chest', 'crafting_table', 'furnace', 'white_bed', 'wall_torch'].includes(b.name)));
+  const build: TaskSpec = { ...task('build', blocks), source: 'user', params: { design: definition.id, blueprintDefinition: definition, origin: site.origin } };
+  const result = await executeVillageTask(build, f.service); assert.equal(result.outcome, 'completed', result.reason);
+  for (const block of blocks) assert.equal(f.bot.blockAt(new Vec3(block.position.x, block.position.y, block.position.z))?.name, block.name);
+  assert.equal(f.bot.entity.position.y, site.origin.y);
+  assert.ok(f.bot.entity.position.x < site.origin.x || f.bot.entity.position.x >= site.origin.x + 6 || f.bot.entity.position.z < site.origin.z || f.bot.entity.position.z >= site.origin.z + 5);
+});
+
+test('custom design identity, pinned geometry and complete interior protection are checked before effects', async () => {
+  const definition = customDefinition(), origin = { x: 0, y: 1, z: 0 }, blocks = blueprint(definition.id, origin, 'oak', definition);
+  for (const mismatch of ['identity', 'blocks', 'interior']) {
+    const f = fixture(); flatGround(f);
+    const work: TaskSpec = { ...task('build', blocks), source: 'user', params: { design: definition.id, blueprintDefinition: definition } };
+    if (mismatch === 'identity') work.params.blueprintDefinition = { ...definition, id: randomUUID() };
+    if (mismatch === 'blocks') work.completion = { kind: 'blocks', blocks: blocks.slice(1) };
+    if (mismatch === 'interior') f.set({ x: 2, y: 2, z: 2 }, 'chest');
+    const result = await executeVillageTask(work, f.service); assert.equal(result.outcome, 'condition-wait', mismatch);
+    assert.deepEqual(f.placed, []); assert.deepEqual(f.digged, []);
+  }
+});
+
+test('custom construction waits for the actual landing after navigation finishes during a descent', async () => {
+  const f = fixture(); flatGround(f); const definition = customDefinition(), origin = { x: 0, y: 1, z: 0 };
+  const blocks = blueprint(definition.id, origin, 'oak', definition);
+  const near = f.service.near; let landing: Vec3 | undefined, inFlight = false, descents = 0;
+  f.service.near = async (p, radius) => {
+    await near(p, radius);
+    if (radius === 0 && p.y > origin.y && p.y <= origin.y + 2) { landing = new Vec3(f.bot.entity.position.x, f.bot.entity.position.y, f.bot.entity.position.z); f.bot.entity.position.y += 0.4; inFlight = true; descents++; }
+  };
+  f.service.pause = async () => { if (landing) { f.bot.entity.position = landing; landing = undefined; inFlight = false; } };
+  const place = f.service.place;
+  f.service.place = async (p, item, expected, face) => { assert.equal(inFlight, false, 'never close the stair while the bot is still descending'); await place(p, item, expected, face); };
+  const result = await executeVillageTask({ ...task('build', blocks), source: 'user', params: { design: definition.id, blueprintDefinition: definition } }, f.service);
+  assert.equal(result.outcome, 'completed', result.reason); assert.ok(descents > 0);
+});
+
+test('a stair foothold changed during landing is checked again before closing the next cell', async () => {
+  const f = fixture(); flatGround(f); const definition = customDefinition(), origin = { x: 0, y: 1, z: 0 };
+  const blocks = blueprint(definition.id, origin, 'oak', definition);
+  let countAtChange = -1;
+  f.service.pause = async () => {
+    if (countAtChange >= 0) return;
+    countAtChange = f.placed.length;
+    const feet = f.bot.entity.position.floored(); f.set(feet.offset(0, -1, 0), 'air');
+  };
+  const result = await executeVillageTask({ ...task('build', blocks), source: 'user', params: { design: definition.id, blueprintDefinition: definition } }, f.service);
+  assert.equal(result.outcome, 'condition-wait'); assert.ok(countAtChange > 0); assert.equal(f.placed.length, countAtChange);
+  assert.equal((result.checkpoint.waitingFor as { causeCode: string }).causeCode, 'BUILD_ACCESS');
+});
 
 test('build-site search observes the whole empty volume, foundation and exits before selecting nearby ground', async () => {
   const f = fixture(); flatGround(f);

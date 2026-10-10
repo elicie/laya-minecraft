@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Vec3 } from 'vec3';
-import { BLUEPRINTS } from '../../contracts/src/blueprints';
+import { resolveBlueprint } from '../../contracts/src/blueprints';
 import { BuildSitePreparationSchema, preparationProofPositions, preparationSiteCells, validateBuildSitePreparation, matchesPreparationTarget, isPreparationTerrain, isPreparationVegetation, isBuildSiteAir, isBuildSiteGround, type BuildSitePreparation, type ExpectedBlock, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 
@@ -35,8 +35,9 @@ function protectedCoordinates(s: ActionServices): Set<string> {
 /** Bounded, read-only terrain proposal. No movement, digging or placement. */
 export function findBuildSitePreparation(task: TaskSpec, s: ActionServices): { plan: BuildSitePreparation; blocks: ExpectedBlock[] } | undefined {
   const design = String(task.params.design ?? task.params.blueprint ?? '');
-  if (!Object.hasOwn(BLUEPRINTS, design)) return;
-  const dimensions = BLUEPRINTS[design as keyof typeof BLUEPRINTS];
+  let dimensions;
+  try { dimensions = resolveBlueprint(design, task.params.blueprintDefinition); }
+  catch { return; }
   const startedAt = Date.now(), deadline = startedAt + 750;
   const rejected: { reason: string; position: Position; actual: string }[] = [];
   let lastRejected: { reason: string; position: Position; actual: string } | undefined;
@@ -82,7 +83,7 @@ export function findBuildSitePreparation(task: TaskSpec, s: ActionServices): { p
     if (Date.now() >= deadline) break;
     s.check(); evaluated++;
     const entrance = { x: origin.x + Math.floor(dimensions.width / 2), y: origin.y, z: origin.z - 1 };
-    const initial: BuildSitePreparation = { origin, design, entrance, near, observedAt: Date.now(), edits: [], path: [start] };
+    const initial: BuildSitePreparation = { origin, design, entrance, near, observedAt: Date.now(), edits: [], path: [start], ...(dimensions.definition ? { blueprintDefinition: dimensions.definition } : {}) };
     const cells = preparationSiteCells(initial), edits = new Map<string, Edit>();
     if (task.source !== 'user' && cells.some(c => !inVillage(c.position, s.rules))) continue;
     let possible = true;
@@ -274,7 +275,7 @@ export async function prepareBuildSite(task: TaskSpec, s: ActionServices): Promi
   if (missing) wait(s, '정리 후 전체 부지의 실제 상태가 준비 기준을 충족하지 않습니다.', [missing.position]);
   if (s.bot.entity.position.distanceTo(new Vec3(plan.entrance.x + 0.5, plan.entrance.y, plan.entrance.z + 0.5)) > 1.5) wait(s, '정리 후 실제 출입 위치에 도착해야 합니다.', [plan.entrance], 'BUILD_ACCESS');
   facts(s, blocks); s.observations.push(s.observeInventory());
-  const observedAt = Date.now(); s.checkpoint.buildSite = { origin: plan.origin, design: plan.design, entrance: plan.entrance, observedAt };
+  const observedAt = Date.now(); s.checkpoint.buildSite = { origin: plan.origin, design: plan.design, entrance: plan.entrance, observedAt, ...(plan.blueprintDefinition ? { blueprintDefinition: plan.blueprintDefinition } : {}) };
   s.observations.push({ id: randomUUID(), kind: 'exploration', observedAt, world: s.rules.world, dimension: s.rules.dimension, data: { position: { x: s.bot.entity.position.x, y: s.bot.entity.position.y, z: s.bot.entity.position.z }, resources: blocks.filter(b => isBuildSiteGround(b.name)).slice(0, 64) } });
   delete s.checkpoint.waitingFor;
   return { outcome: 'completed', checkpoint: s.checkpoint, observations: s.observations, evidence: s.evidence, reason: '평탄한 부지와 지지 지반, 실제 접근로를 확인했습니다. 건설 단계로 이어갈 수 있습니다.' };

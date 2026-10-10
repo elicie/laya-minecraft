@@ -1,5 +1,5 @@
 import { BuildSitePreparationSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, type BuildSiteCell, type BuildSitePreparation, type ExpectedBlock, type Position } from './index';
-import { BLUEPRINTS, blueprint, type BlueprintName } from './blueprints';
+import { blueprint, resolveBlueprint } from './blueprints';
 
 const key = (p: Position) => `${p.x},${p.y},${p.z}`;
 const shift = (p: Position, x: number, y: number, z: number): Position => ({ x: p.x + x, y: p.y + y, z: p.z + z });
@@ -10,9 +10,8 @@ export function isPreparationTerrain(name: string): boolean { return terrain.has
 export function isPreparationVegetation(name: string): boolean { return vegetation.has(name); }
 export function matchesPreparationTarget(edit: BuildSitePreparation['edits'][number], name: string): boolean { return edit.after === 'air' ? isBuildSiteAir(name) : name === 'dirt' || name === 'grass_block'; }
 export function preparationSiteCells(plan: BuildSitePreparation): BuildSiteCell[] {
-  if (!Object.hasOwn(BLUEPRINTS, plan.design)) throw new Error('지원하는 건축 설계도가 필요합니다.');
-  const size = BLUEPRINTS[plan.design as BlueprintName];
-  const height = Math.max(size.height, ...blueprint(plan.design, { x: 0, y: 0, z: 0 }).map(b => b.position.y));
+  const size = resolveBlueprint(plan.design, plan.blueprintDefinition);
+  const height = Math.max(size.height, ...blueprint(plan.design, { x: 0, y: 0, z: 0 }, size.wood, plan.blueprintDefinition).map(b => b.position.y));
   return buildSiteCells(plan.origin, size.width, size.depth, height);
 }
 export function preparationProofPositions(plan: BuildSitePreparation): Position[] {
@@ -30,8 +29,9 @@ export function validateBuildSitePreparation(value: unknown, observedBlocks: rea
   const fail = (reason: string, position?: Position): PreparationValidation => ({ ok: false, reason, ...(position ? { position } : {}) });
   if (!parsed.success) return fail('부지 정리 계획의 좌표·변경 수량·경로 형식을 확인해야 합니다.');
   const plan = parsed.data;
-  if (!Object.hasOwn(BLUEPRINTS, plan.design)) return fail('지원하는 건축 설계도가 필요합니다.');
-  const size = BLUEPRINTS[plan.design as BlueprintName], near = options.near ?? plan.near;
+  let size: ReturnType<typeof resolveBlueprint>;
+  try { size = resolveBlueprint(plan.design, plan.blueprintDefinition); } catch { return fail('등록한 설계도의 ID와 고정한 버전을 확인해야 합니다.'); }
+  const near = options.near ?? plan.near;
   if (Math.hypot(plan.near.x - near.x, plan.near.y - near.y, plan.near.z - near.z) > 1.5 || Math.hypot(plan.origin.x + (size.width - 1) / 2 - near.x, plan.origin.z + (size.depth - 1) / 2 - near.z) > 32 || Math.abs(plan.origin.y - near.y) > 8) return fail('정리 부지는 관측한 봇 주변의 허용 범위 안에 있어야 합니다.');
   const entrance = { x: plan.origin.x + Math.floor(size.width / 2), y: plan.origin.y, z: plan.origin.z - 1 };
   if (key(entrance) !== key(plan.entrance) || key(plan.path.at(-1)!) !== key(entrance)) return fail('정리 경로는 설계도의 실제 출입 위치까지 이어져야 합니다.');

@@ -18,7 +18,7 @@ import { reconcileCommandReceipts } from '../apps/server/src/reconciliation';
 function fixture(options: Partial<ControlServerOptions> = {}) {
   const store = new ControlStore(':memory:');
   const snapshot: FleetSnapshot = { schemaVersion: 1, controllerEpoch: 'epoch', revision: 0, updatedAt: 0,
-    rules: structuredClone(DEFAULT_RULES), agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [] };
+    rules: structuredClone(DEFAULT_RULES), blueprints: [], agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [] };
   let observe: (snapshot: FleetSnapshot, event: CoreEvent) => void = () => {};
   let creations = 0;
   const pendingViewers = new Map<string, string>();
@@ -45,6 +45,7 @@ function fixture(options: Partial<ControlServerOptions> = {}) {
       snapshot.goals.push(goal); emit('command.applied', commandId); return goal;
     },
     updateGoal() {}, cancelGoal() {},
+    createBlueprint() {}, updateBlueprint() {}, deleteBlueprint() {},
     updateRules(patch, _mode, commandId) { Object.assign(snapshot.rules, patch); emit('rules.requested', commandId); },
     updateAgent(id) { return snapshot.agents.find(agent => agent.id === id)!; },
     removeAgent(id, commandId) {

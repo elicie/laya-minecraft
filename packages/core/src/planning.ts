@@ -1,6 +1,6 @@
 import { BuildSitePreparationSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
 import { footprintInside, positionKey } from './verification';
-import { BLUEPRINTS, blueprint, type BlueprintName } from '../../contracts/src/blueprints';
+import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 
 export interface PlanResult { tasks: TaskSpec[]; waiting?: string; }
 export function containerKey(container: ContainerRef): string { return `container:${container.world}:${container.dimension}:${positionKey(container.position)}`; }
@@ -68,37 +68,45 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     if (input.params.siteSelection === 'preparing') {
       if (!PreparationVerificationSchema.safeParse(input.params.preparationVerification).success) return { tasks, waiting: '중앙에서 실제 탐색 관측으로 승인한 부지 정리 계획이 필요합니다.' };
       const parsed = BuildSitePreparationSchema.safeParse(input.params.sitePreparation);
-      if (!parsed.success || !Object.hasOwn(BLUEPRINTS, parsed.data.design)) return { tasks, waiting: '검증한 부지 정리 계획이 필요합니다.' };
-      const preparation = parsed.data, reserved = preparationProofPositions(preparation);
+      if (!parsed.success) return { tasks, waiting: '검증한 부지 정리 계획이 필요합니다.' };
+      const preparation = parsed.data;
+      let reserved: Position[];
+      try { resolveBlueprint(preparation.design, preparation.blueprintDefinition); reserved = preparationProofPositions(preparation); }
+      catch { return { tasks, waiting: '검증한 설계도 버전과 부지 정리 계획이 필요합니다.' }; }
       if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, reserved.map(position => ({ position }))))) return { tasks, waiting: '전체 정리 부지와 접근로가 마을 범위 안에 있어야 합니다.' };
-      add('build', { mode: 'prepare-site', design: preparation.design, near: jsonObject(preparation.near), preparation: jsonObject(preparation) }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], reserved.map(position => `block:${rules.world}:${rules.dimension}:${positionKey(position)}`));
+      add('build', { mode: 'prepare-site', design: preparation.design, ...(preparation.blueprintDefinition ? { blueprintDefinition: jsonObject(preparation.blueprintDefinition) } : {}), near: jsonObject(preparation.near), preparation: jsonObject(preparation) }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], reserved.map(position => `block:${rules.world}:${rules.dimension}:${positionKey(position)}`));
       return { tasks };
     }
     let blocks = asBlocks(input.params.requiredBlocks);
+    const selectedDesign = String(input.params.design ?? input.params.blueprint ?? 'cabin');
+    if (!Object.hasOwn(BLUEPRINTS, selectedDesign)) {
+      try { resolveBlueprint(selectedDesign, input.params.blueprintDefinition); } catch { return { tasks, waiting: '등록한 설계도와 고정한 버전을 확인해야 합니다.' }; }
+      blocks = undefined; // A catalog goal always generates its own immutable placement.
+    }
     if (input.params.siteSelection === 'nearby' && !asPosition(input.params.origin) && !asPosition(input.params.position)) {
       const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
-      if (blocks || !Object.hasOwn(BLUEPRINTS, design)) return { tasks, waiting: '부지 탐색에는 지원하는 건축 설계도가 필요합니다.' };
+      if (blocks) return { tasks, waiting: '부지 탐색에는 지원하는 건축 설계도가 필요합니다.' };
       if (!nearbyPosition) return { tasks, waiting: '건축과 부지 탐색이 가능한 봇의 실제 위치를 기다립니다.' };
-      const size = BLUEPRINTS[design as BlueprintName];
+      let size: ReturnType<typeof resolveBlueprint>;
       let height: number;
-      try { height = Math.max(...blueprint(design, { x: 0, y: 0, z: 0 }, typeof input.params.wood === 'string' ? input.params.wood : 'oak').map(b => b.position.y)); }
+      try { size = resolveBlueprint(design, input.params.blueprintDefinition); height = Math.max(size.height, ...blueprint(design, { x: 0, y: 0, z: 0 }, typeof input.params.wood === 'string' ? input.params.wood : 'oak', input.params.blueprintDefinition).map(b => b.position.y)); }
       catch { return { tasks, waiting: '지원하는 건축 설계와 재료를 선택해야 합니다.' }; }
       add('explore', { ...input.params, mode: 'build-site', design, allowPreparation: input.params.allowPreparation !== false, near: jsonObject(nearbyPosition), searchRadius: 32, siteWidth: size.width, siteDepth: size.depth, siteHeight: height }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], [`build-site:${rules.world}:${rules.dimension}`]);
       return { tasks };
     }
     const origin = asPosition(input.params.origin) ?? asPosition(input.params.position) ?? rules.center ?? undefined;
     if (!blocks && origin) {
-      if (!Object.hasOwn(BLUEPRINTS, String(input.params.design ?? input.params.blueprint ?? 'cabin'))) return { tasks, waiting: '지원하는 건축 설계를 선택해야 합니다.' };
-      try { blocks = blueprint(String(input.params.design ?? input.params.blueprint ?? 'cabin'), origin, typeof input.params.wood === 'string' ? input.params.wood : 'oak'); }
+      try { blocks = blueprint(String(input.params.design ?? input.params.blueprint ?? 'cabin'), origin, typeof input.params.wood === 'string' ? input.params.wood : 'oak', input.params.blueprintDefinition); }
       catch { return { tasks, waiting: '지원하는 건축 설계를 선택해야 합니다.' }; }
     }
     if (!blocks) return { tasks, waiting: '건축 설계와 전체 블록 배치를 확인해야 합니다.' };
     if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, blocks))) return { tasks, waiting: '자율 건축의 전체 배치가 설정한 마을 범위 안에 있어야 합니다.' };
     let reserved: { position: Position }[] = blocks;
     const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
-    if (origin && input.params.siteSelection === 'fixed' && input.params.siteVerification && Object.hasOwn(BLUEPRINTS, design)) {
-      const size = BLUEPRINTS[design as BlueprintName];
-      const height = Math.max(...blocks.map(b => b.position.y - origin.y));
+    if (origin && input.params.siteSelection === 'fixed' && input.params.siteVerification) {
+      let size: ReturnType<typeof resolveBlueprint>;
+      try { size = resolveBlueprint(design, input.params.blueprintDefinition); } catch { return { tasks, waiting: '고정한 건축 설계도를 확인해야 합니다.' }; }
+      const height = Math.max(size.height, ...blocks.map(b => b.position.y - origin.y));
       if (![origin.x, origin.y, origin.z, height].every(Number.isInteger) || height < 0 || height > 32) return { tasks, waiting: '관측한 부지의 정수 좌표와 건축 범위를 확인해야 합니다.' };
       reserved = buildSiteCells(origin, size.width, size.depth, height);
     }

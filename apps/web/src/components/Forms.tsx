@@ -371,6 +371,14 @@ export function GoalForm({
       const params = { ...goal.params };
       if (goal.kind === "build") {
         params.blueprint ??= "cabin";
+        if (
+          !Object.keys(BLUEPRINTS).includes(String(params.blueprint)) &&
+          !(snapshot.blueprints ?? []).some(
+            (blueprint) => blueprint.id === params.blueprint,
+          )
+        )
+          throw new Error("등록된 설계도를 선택하세요.");
+        delete params.blueprintDefinition;
         params.siteSelection = buildSiteSelection;
         delete params.position;
         if (buildSiteSelection === "nearby") {
@@ -425,6 +433,7 @@ export function GoalForm({
       const params = { ...previous.params, [key]: value };
       if (previous.kind === "build" && ["blueprint", "origin"].includes(key)) {
         delete params.requiredBlocks;
+        delete params.blueprintDefinition;
         delete params.design;
         delete params.position;
       }
@@ -481,6 +490,17 @@ export function GoalForm({
     (["collect", "store", "take"].includes(goal.kind) ||
       (goal.kind === "hunt" && !!goal.item) ||
       (goal.kind === "farm" && goal.params.mode === "harvest"));
+  const blueprintOptions = [
+    ...Object.entries(BLUEPRINTS).map(([id, design]) => ({
+      id,
+      title: design.title,
+    })),
+    ...(snapshot.blueprints ?? []).map(({ id, title }) => ({ id, title })),
+  ];
+  const selectedBlueprint = String(goal?.params.blueprint ?? "cabin");
+  const registeredBlueprint = blueprintOptions.some(
+    ({ id }) => id === selectedBlueprint,
+  );
   return (
     <Dialog title="목표 등록" onClose={onClose}>
       <form onSubmit={(event) => void interpret(event)}>
@@ -645,15 +665,34 @@ export function GoalForm({
                 <label>
                   건물 설계
                   <select
-                    value={String(goal.params.blueprint ?? "cabin")}
+                    value={registeredBlueprint ? selectedBlueprint : ""}
                     onChange={(event) => param("blueprint", event.target.value)}
+                    required
                   >
-                    {Object.entries(BLUEPRINTS).map(([id, design]) => (
-                      <option key={id} value={id}>
-                        {design.title}
-                      </option>
-                    ))}
+                    <option value="" disabled>
+                      등록된 설계도를 선택하세요
+                    </option>
+                    <optgroup label="기본 설계도">
+                      {Object.entries(BLUEPRINTS).map(([id, design]) => (
+                        <option key={id} value={id}>
+                          {design.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="내 설계도">
+                      {(snapshot.blueprints ?? []).map(({ id, title }) => (
+                        <option key={id} value={id}>
+                          {title}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
+                  {!registeredBlueprint && (
+                    <small className="form-error" role="alert">
+                      해석된 설계도가 목록에 없습니다. 등록된 설계도를
+                      선택하세요.
+                    </small>
+                  )}
                 </label>
                 <label>
                   건설 위치
