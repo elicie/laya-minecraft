@@ -1040,6 +1040,39 @@ test("an idle bot shows its latest construction wait reason instead of completed
   await expect(detail.locator(".current-action")).toHaveText("생존 유지");
   await expect(detail).toContainText(hunter.session!.report!.reason);
   await expect(detail).not.toContainText("건설 보류");
+  hunter.session!.report!.mode = "idle";
+  delete hunter.session!.report!.currentAttemptId;
+  hunter.session!.report!.action = "식량 확보 · 자원 탐색";
+  hunter.session!.report!.reason = "안전한 지상 이동 2/5 → 새 식량을 재관측합니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("식량 확보 · 자원 탐색");
+  await expect(detail).toContainText(hunter.session!.report!.reason);
+  await expect(detail).toContainText("등록된 목표 · 공동 창고 건설");
+  await expect(detail).not.toContainText(task.reason);
+  await expect(detail).not.toContainText("대기 중 작업");
+  await expect(detail).not.toContainText("생존 유지 중");
+  task.state = "condition-wait";
+  task.reason = "조약돌 자원으로 가는 안전한 접근 경로가 없습니다.";
+  hunter.session!.report!.health = 20;
+  hunter.session!.report!.food = 17;
+  hunter.session!.report!.action = "식량 대기";
+  hunter.session!.report!.reason = "안전한 이동 5회를 마쳤습니다. 실제 식량이나 작물의 변화를 기다립니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("건설 조건 대기");
+  await expect(detail).toContainText("대기 중 목표 · 공동 창고 건설");
+  await expect(detail).toContainText(task.reason);
+  await expect(detail.locator(".local-food-wait")).toHaveText(
+    `식량 대기 · ${hunter.session!.report!.reason}`,
+  );
+  await expect(detail).not.toContainText("식량 확보 · 자원 탐색");
+  hunter.session!.report!.mode = "survival";
+  hunter.session!.report!.food = 6;
+  hunter.session!.report!.reason = "허기가 낮아 기본 생존을 위한 식량 조건을 기다립니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("식량 대기");
+  await expect(detail).toContainText(hunter.session!.report!.reason);
+  await expect(detail).not.toContainText(task.reason);
+  await expect(detail.locator(".local-food-wait")).toHaveCount(0);
   hunter.session!.report!.mode = "emergency";
   hunter.session!.report!.action = "counterattack";
   hunter.session!.report!.reason =

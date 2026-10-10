@@ -3,6 +3,7 @@ import { BlueprintDefinitionSchema, type BlueprintDefinition } from './blueprint
 import { InventoryViewSchema } from './inventory';
 export * from './blueprint-catalog';
 export * from './inventory';
+export * from './resource-wait';
 
 export const PROTOCOL_VERSION = 1 as const;
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -84,7 +85,7 @@ export type BuildSitePreparation = z.infer<typeof BuildSitePreparationSchema>;
 export const PreparationVerificationSchema = z.object({ controllerEpoch: IdSchema, sessionId: IdSchema, attemptId: IdSchema, botId: IdSchema, observedAt: time }).strict();
 export const BuildWaitingForSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('blocks'), causeCode: z.enum(['BUILD_SUPPORT', 'BUILD_SITE', 'BUILD_ACCESS', 'BUILD_OBSERVATION']), positions: z.array(BlockPositionSchema).min(1).max(10000), watchPosition: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('inventory'), causeCode: z.literal('BUILD_MATERIAL'), item: z.string().min(1), minimum: z.number().int().positive(), watchPosition: z.boolean().optional(), resourceNames: z.array(z.string().min(1)).max(100).optional() }).strict(),
+  z.object({ kind: z.literal('inventory'), causeCode: z.enum(['BUILD_MATERIAL', 'RESOURCE_MISSING']), item: z.string().min(1), minimum: z.number().int().positive(), watchPosition: z.boolean().optional(), resourceNames: z.array(z.string().min(1)).max(100).optional(), resourcePositions: z.array(BlockPositionSchema).max(64).optional(), failedCause: z.string().min(1).max(500).optional() }).strict(),
 ]);
 export type BuildWaitingFor = z.infer<typeof BuildWaitingForSchema>;
 export const BuildWaitStateSchema = z.object({ waitingFor: BuildWaitingForSchema.optional(), botId: IdSchema, sessionId: IdSchema, fingerprint: z.string(), repeatCount: z.number().int().nonnegative() }).strict();
@@ -125,15 +126,19 @@ export interface TaskSpec { id: string; goalId: string; kind: ActionKind; source
 export const TaskSpecSchema = z.object({ id: IdSchema, goalId: IdSchema, kind: ActionKindSchema, source: z.enum(['user', 'autonomous']).optional(), params: JsonObjectSchema, dependencies: z.array(IdSchema), completion: CompletionSchema, reservationKeys: z.array(z.string()), affinityBotId: IdSchema.optional() }).strict();
 
 const observationBase = { id: IdSchema, observedAt: time, world: z.string().min(1), dimension: z.string().min(1) };
+// World observations can describe a crop's actual age/state. Goal block
+// requirements remain name-only so a state update cannot redefine a blueprint.
+export const ObservedBlockSchema = ExpectedBlockSchema.extend({ stateId: z.number().int().nonnegative().optional() });
+export type ObservedBlock = z.infer<typeof ObservedBlockSchema>;
 export const ObservationInputSchema = z.discriminatedUnion('kind', [
   z.object({ ...observationBase, kind: z.literal('inventory'), data: z.object({ items: z.array(ItemStackSchema), position: PositionSchema.optional() }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('container'), data: z.object({ container: ContainerRefSchema, items: z.array(ItemStackSchema) }).strict() }).strict(),
-  z.object({ ...observationBase, kind: z.literal('blocks'), data: z.object({ blocks: z.array(ExpectedBlockSchema).max(10000) }).strict() }).strict(),
+  z.object({ ...observationBase, kind: z.literal('blocks'), data: z.object({ blocks: z.array(ObservedBlockSchema).max(10000) }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('entity-death'), data: z.object({ entityId: IdSchema, entityName: z.string().min(1), position: PositionSchema.optional() }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('position'), data: z.object({ position: PositionSchema }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('farm'), data: z.object({ id: IdSchema, crop: z.string().min(1), plots: z.number().int().nonnegative(), planted: z.number().int().nonnegative(), watered: z.number().int().nonnegative(), ripe: z.number().int().nonnegative(), harvested: z.number().int().nonnegative().default(0) }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('breeding'), data: z.object({ animal: z.string().min(1), entityId: IdSchema, position: PositionSchema.optional() }).strict() }).strict(),
-  z.object({ ...observationBase, kind: z.literal('exploration'), data: z.object({ position: PositionSchema, resources: z.array(ExpectedBlockSchema) }).strict() }).strict(),
+  z.object({ ...observationBase, kind: z.literal('exploration'), data: z.object({ position: PositionSchema, resources: z.array(ObservedBlockSchema) }).strict() }).strict(),
   z.object({ ...observationBase, kind: z.literal('sleep'), data: z.object({ isSleeping: z.boolean() }).strict() }).strict(),
 ]);
 export type ObservationInput = z.infer<typeof ObservationInputSchema>;
