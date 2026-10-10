@@ -460,6 +460,9 @@ export function App() {
                               ? "계속 유지"
                               : "한 번 완료"}
                           </span>
+                          {goal.completionLocation && (
+                            <span>{goal.completionLocation === "inventory" ? "완료 기준 · 봇 인벤토리 합산" : "완료 기준 · 공동 창고"}</span>
+                          )}
                           {goal.progress.target !== undefined && (
                             <span>
                               {goal.progress.current} / {goal.progress.target}

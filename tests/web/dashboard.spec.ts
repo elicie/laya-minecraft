@@ -202,6 +202,44 @@ test("natural language is previewed and edited before registration; applied rece
   await expect(page.getByText("요청 접수", { exact: true })).toHaveCount(0);
 });
 
+test("collection without a warehouse shows its inventory completion basis and preserves the verified one-time total", async ({ page }) => {
+  const state = snapshot(), now = Date.now(); state.rules.warehouse = null;
+  let submitted: GoalDefinition | undefined;
+  const goal: Goal = { id: "inventory-goal", input: GoalInputSchema.parse({ kind: "collect", item: "oak_log", quantity: 32 }), title: "창고 없이 원목 32개", state: "active", completionLocation: "inventory", targetQuantity: 32, taskIds: [], createdAt: now, updatedAt: now, progress: { current: 10, target: 32 }, generation: 0 };
+  state.goals = [goal];
+  await installStream(page);
+  await page.route("**/api/v1/snapshot", route => route.fulfill({ json: state }));
+  await page.route("**/api/v1/goals/interpret", route => route.fulfill({ json: { source: "code", warnings: [], goal: goal.input } }));
+  await page.route("**/api/v1/goals", route => {
+    submitted = route.request().postDataJSON() as GoalDefinition;
+    return route.fulfill({ json: { id: "inventory-register", type: "goal.create", state: "applied", createdAt: now, updatedAt: now } });
+  });
+  await page.goto("/");
+  const row = page.locator(".goal-row").filter({ has: page.getByRole("heading", { name: goal.title, exact: true }) });
+  await expect(row).toContainText("완료 기준 · 봇 인벤토리 합산");
+  await expect(row).toContainText("10 / 32");
+  goal.state = "completed"; goal.progress.current = 32;
+  goal.completionSnapshot = { location: "inventory", item: "oak_log", quantity: 32, observedAt: now, inventories: [{ botId: "Hunter", sessionId: "Hunter-session", count: 32, observedAt: now }] };
+  state.agents[0]!.session!.report!.inventory = [{ name: "oak_log", count: 31 }];
+  state.rules.warehouse = snapshot().rules.warehouse; state.revision++;
+  await page.evaluate(value => (window as unknown as BrowserHarness).sendFleet("snapshot", JSON.parse(value)), JSON.stringify(state));
+  await expect(row).toContainText("완료 기준 · 봇 인벤토리 합산");
+  await expect(row).toContainText("32 / 32");
+  await expect(row.getByText("완료", { exact: true })).toBeVisible();
+  state.rules.warehouse = null; state.revision++;
+  await page.evaluate(value => (window as unknown as BrowserHarness).sendFleet("snapshot", JSON.parse(value)), JSON.stringify(state));
+  await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
+  await page.getByLabel("무엇을 할까요?").fill("원목 32개 모아");
+  await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  await expect(page.getByLabel("물품 목적지")).toHaveValue("warehouse");
+  await expect(page.getByRole("dialog")).toContainText("봇 인벤토리 합산 · 창고 미지정");
+  await expect(page.getByRole("dialog")).toContainText("창고가 없으면 활성 봇의 인벤토리를 합산");
+  await page.getByRole("dialog").getByRole("button", { name: "목표 등록", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted?.destination).toBeUndefined();
+  expect(submitted?.quantity).toBe(32);
+});
+
 test("death recovery shows confirmed partial items, unavailable support and the preserved construction without masking urgent safety", async ({ page }) => {
   let state = snapshot();
   const now = Date.now(), hunter = state.agents[0]!, report = hunter.session!.report!;

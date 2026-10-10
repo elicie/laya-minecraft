@@ -33,7 +33,7 @@ function asBlocks(value: unknown): ExpectedBlock[] | undefined {
   }
   return result;
 }
-export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehouseCount?: number, nearbyPosition?: Position): PlanResult {
+export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehouseCount?: number, nearbyPosition?: Position, inventoryCollectors = 1): PlanResult {
   const input = goal.input, tasks: TaskSpec[] = [];
   const add = (kind: ActionKind, params: JsonObject, completion: CompletionCondition, dependencies: string[] = [], reservationKeys: string[] = []): TaskSpec => {
     const task: TaskSpec = { id: newId(), goalId: goal.id, kind, source: input.source, params, dependencies, completion, reservationKeys };
@@ -42,6 +42,19 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
   };
   const destination = input.destination ?? rules.warehouse ?? undefined;
   if (input.kind === 'collect' || (input.kind === 'hunt' && input.item)) {
+    if (goal.completionLocation === 'inventory' || !destination) {
+      if (warehouseCount === undefined || goal.targetQuantity === undefined) return { tasks, waiting: '같은 월드에 있는 봇의 실제 인벤토리 수량을 기다립니다.' };
+      const missing = Math.max(0, goal.targetQuantity - warehouseCount);
+      if (!missing) return { tasks };
+      if (!inventoryCollectors) return { tasks, waiting: '수집이 허용된 봇과 인벤토리 공간을 기다립니다. 창고 없이 봇 인벤토리에서 완료합니다.' };
+      const count = Math.min(missing, inventoryCollectors, 64), share = Math.min(64, Math.ceil(missing / count));
+      let remaining = missing;
+      for (let i = 0; i < count && remaining > 0; i++) {
+        const quota = Math.min(share, remaining); remaining -= quota;
+        add(input.kind, { ...input.params, item: input.item!, quantity: quota, inventoryGoal: true, inventoryQuota: quota }, { kind: 'inventory', item: input.item!, minimum: quota }, [], [`goal:${goal.id}:inventory:${i}`]);
+      }
+      return { tasks };
+    }
     if (!destination) return { tasks, waiting: '공동 창고를 설정해야 합니다.' };
     if (warehouseCount === undefined || goal.targetQuantity === undefined) return { tasks, waiting: '공동 창고의 실제 재고를 관측해야 합니다.' };
     const missing = Math.max(0, goal.targetQuantity - warehouseCount);

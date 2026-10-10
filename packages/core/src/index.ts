@@ -8,6 +8,7 @@ import {
 } from '../../contracts/src';
 import { containerKey, goalTitle, jsonObject, planGoal, roleFits } from './planning';
 import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
+import { inventoryCapacity, inventoryStocks, type InventoryStock } from './inventory-stock';
 import { distance, footprintInside, freshObservations, positionKey, verifyCompletion } from './verification';
 
 export { planGoal, containerKey, roleFits } from './planning';
@@ -284,6 +285,7 @@ export class FleetController {
     if (!definition.destination && this.state.rules.warehouse && (['collect', 'store', 'take'].includes(definition.kind) || (definition.kind === 'hunt' && definition.item) || (definition.kind === 'farm' && definition.params.mode === 'harvest'))) definition.destination = clone(this.state.rules.warehouse);
     if (definition.preferredBotId) this.agent(definition.preferredBotId);
     const goal: Goal = { id: randomUUID(), input: definition, title: goalTitle(definition), state: 'queued', taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: definition.quantity }, generation: 0 };
+    if (isStockGoal(goal)) goal.completionLocation = definition.destination ? 'warehouse' : 'inventory';
     if (definition.quantityMode === 'total') goal.targetQuantity = definition.quantity;
     this.state.goals.push(goal);
     if (definition.executionMode === 'immediate' && definition.preferredBotId) {
@@ -829,6 +831,28 @@ export class FleetController {
     this.finishCommands(goal.id, ['goal-cancel']);
   }
 
+  private inventoryProof(goal: Goal): InventoryStock[] { return goal.input.item ? inventoryStocks(this.state, goal.input.item, this.now()) : []; }
+  private inventoryStock(goal: Goal): number | undefined { const proof = this.inventoryProof(goal); return proof.length ? proof.reduce((count, row) => count + row.count, 0) : undefined; }
+  private inventoryCollectors(goal: Goal): Agent[] {
+    const known = new Set(this.inventoryProof(goal).map(p => p.botId));
+    return this.state.agents.filter(agent => known.has(agent.id) && agent.config.allowedActions.includes(goal.input.kind) && agent.session!.report!.capabilities.includes(goal.input.kind) && agent.session!.rulesVersion === this.state.rules.version && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session!.report!.mode) && agent.session!.report!.health > this.state.rules.combat.retreatHealth && agent.session!.report!.food > 6 && inventoryCapacity(agent, goal.input.item!) > 0);
+  }
+  private reserveInventoryQuota(task: Task, agent: Agent): boolean {
+    if (task.completion.kind !== 'inventory') return false;
+    const goal = this.goal(task.goalId), proof = this.inventoryProof(goal), own = proof.find(p => p.botId === agent.id), total = proof.reduce((n, p) => n + p.count, 0);
+    if (!own || goal.targetQuantity === undefined) return false;
+    let reserved = 0;
+    for (const other of this.currentTasks(goal)) {
+      if (other.id === task.id || other.params.inventoryGoal !== true || other.completion.kind !== 'inventory' || !this.taskHasActor(other)) continue;
+      const attempt = this.state.attempts.find(a => a.id === other.attemptId), stock = proof.find(p => p.botId === attempt?.botId && p.sessionId === attempt?.sessionId);
+      // Unknown ownership keeps the entire allocation reserved until actual stop/reconciliation.
+      reserved += stock ? Math.max(0, other.completion.minimum - stock.count) : Number(other.params.inventoryAllocated ?? other.params.inventoryQuota ?? 64);
+    }
+    const quota = Math.min(Number(task.params.inventoryQuota ?? 64), inventoryCapacity(agent, goal.input.item!), Math.max(0, goal.targetQuantity - total - reserved));
+    if (quota <= 0) return false;
+    task.completion.minimum = own.count + quota; task.params.inventoryAllocated = quota; task.params.inventoryBaseline = own.count; task.params.quantity = quota;
+    return true;
+  }
   private warehouseCount(goal: Goal): number | undefined {
     const container = goal.input.destination ?? this.state.rules.warehouse;
     if (!container || !goal.input.item) return undefined;
@@ -839,8 +863,9 @@ export class FleetController {
   private reconcileAndPlan(goal: Goal): void {
     if (goal.state === 'cancelling') { this.finishGoalCancellation(goal); return; }
     if (terminalGoals.has(goal.state)) return;
-    if (!goal.input.destination && this.state.rules.warehouse && (isStockGoal(goal) || ['store', 'take'].includes(goal.input.kind) || (goal.input.kind === 'farm' && goal.input.params.mode === 'harvest'))) goal.input.destination = clone(this.state.rules.warehouse);
-    let tasks = this.currentTasks(goal), stock = this.warehouseCount(goal);
+    if (!goal.input.destination && goal.completionLocation !== 'inventory' && this.state.rules.warehouse && (isStockGoal(goal) || ['store', 'take'].includes(goal.input.kind) || (goal.input.kind === 'farm' && goal.input.params.mode === 'harvest'))) goal.input.destination = clone(this.state.rules.warehouse);
+    if (isStockGoal(goal) && !goal.completionLocation) goal.completionLocation = goal.input.destination ? 'warehouse' : 'inventory';
+    let tasks = this.currentTasks(goal), stock = goal.completionLocation === 'inventory' ? this.inventoryStock(goal) : this.warehouseCount(goal);
     for (const task of tasks) this.refreshBuildWait(task);
     if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) { goal.state = 'condition-wait'; goal.reason = '자율 마을 발전이 꺼져 있습니다.'; return; }
     if (goal.input.source === 'autonomous' && tasks.some(t => t.completion.kind === 'blocks' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, t.completion.blocks))) && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '마을 범위에 맞는 전체 배치를 다시 확인합니다.'); tasks = []; }
@@ -849,9 +874,13 @@ export class FleetController {
         if (goal.targetQuantity === undefined) goal.targetQuantity = stock + goal.input.quantity;
         goal.progress = { current: stock, target: goal.targetQuantity };
         if (stock >= goal.targetQuantity) {
-          for (const task of tasks) if (this.taskHasActor(task)) this.cancelTask(task, '공동 창고 목표 수량 확인', false); else if (task.state !== 'completed') { task.state = 'cancelled'; this.release(task.attemptId); }
+          for (const task of tasks) if (this.taskHasActor(task)) this.cancelTask(task, goal.completionLocation === 'inventory' ? '봇 인벤토리 합산 목표 수량 확인' : '공동 창고 목표 수량 확인', false); else if (task.state !== 'completed') { task.state = 'cancelled'; this.release(task.attemptId); }
           const nextState = goal.input.mode === 'maintain' ? 'maintaining' : 'completed';
-          if (goal.state !== nextState) { goal.state = nextState; goal.updatedAt = this.now(); this.changed('goal.verified', '공동 창고에서 목표 총수량을 확인했습니다.', { goalId: goal.id }); }
+          if (goal.state !== nextState) {
+            if (goal.completionLocation === 'inventory') goal.completionSnapshot = { location: 'inventory', item: goal.input.item!, quantity: stock, observedAt: this.now(), inventories: this.inventoryProof(goal).map(({ botId, sessionId, count, observedAt }) => ({ botId, sessionId, count, observedAt })) };
+            goal.state = nextState; goal.updatedAt = this.now(); goal.reason = goal.completionLocation === 'inventory' ? '봇들의 실제 인벤토리에서 목표 총수량을 확인했습니다.' : '공동 창고에서 목표 총수량을 확인했습니다.';
+            this.changed('goal.verified', goal.reason, { goalId: goal.id, data: { completionLocation: goal.completionLocation ?? 'warehouse' } });
+          }
           return;
         }
         if (goal.state === 'maintaining' && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '재고가 줄어 보충합니다.'); tasks = []; }
@@ -880,7 +909,7 @@ export class FleetController {
     if (goal.input.kind === 'build' && goal.input.params.siteSelection === 'preparing' && !tasks.some(t => this.taskHasActor(t)) && !this.preparationApproved(goal)) { goal.state = 'held'; goal.reason = '같은 목표의 실제 탐색 결과로 중앙에서 승인한 부지 정리 계획이 필요합니다.'; return; }
     if (tasks.length && tasks.every(t => t.state === 'completed' || t.state === 'cancelled')) {
       if (goal.input.kind === 'build' && ['nearby', 'preparing'].includes(String(goal.input.params.siteSelection)) && tasks.some(isBuildStageTask) && !goalEdit) { goal.state = 'held'; goal.reason = '부지 탐색과 정리는 건설 완료가 아닙니다. 실제 부지 확인이 필요합니다.'; return; }
-      if (isStockGoal(goal) && stock === undefined) { goal.state = 'condition-wait'; goal.reason = '최종 창고 재고 관측이 필요합니다.'; return; }
+      if (isStockGoal(goal) && stock === undefined) { goal.state = 'condition-wait'; goal.reason = goal.completionLocation === 'inventory' ? '최종 봇 인벤토리의 실제 합산 수량을 기다립니다.' : '최종 창고 재고 관측이 필요합니다.'; return; }
       const ongoing = goal.input.mode === 'maintain' || ['guard', 'follow', 'survive'].includes(goal.input.kind);
       if (!isStockGoal(goal) && !ongoing) {
         goal.state = 'completed'; goal.progress.current = goal.targetQuantity ?? goal.input.quantity; goal.progress.target = goal.targetQuantity ?? goal.input.quantity; goal.updatedAt = this.now();
@@ -896,7 +925,9 @@ export class FleetController {
     if (!tasks.length) {
       const builders = this.state.agents.filter(a => a.config.enabled && a.status !== 'removed' && a.status !== 'removing' && a.session?.state === 'ready' && a.session.report?.ready && a.session.report.world === this.state.rules.world && a.session.report.dimension === this.state.rules.dimension && this.now() - a.session.lastReportAt < this.state.rules.statusTimeoutMs && ['build', 'explore'].every(kind => a.config.allowedActions.includes(kind as 'build' | 'explore') && a.session!.report!.capabilities.includes(kind as 'build' | 'explore'))).sort((a, b) => Number(b.id === goal.input.preferredBotId) - Number(a.id === goal.input.preferredBotId));
       const nearbyPosition = builders.find(a => a.session?.report?.position)?.session?.report?.position;
-      const plan = planGoal(goal, this.state.rules, randomUUID, stock, nearbyPosition);
+      const collectors = goal.completionLocation === 'inventory' ? this.inventoryCollectors(goal) : [];
+      const collectorCount = collectors.some(a => a.id === goal.input.preferredBotId) ? 1 : collectors.length;
+      const plan = planGoal(goal, this.state.rules, randomUUID, stock, nearbyPosition, collectorCount);
       if (plan.waiting) { goal.state = 'condition-wait'; goal.reason = plan.waiting; return; }
       for (const spec of plan.tasks) {
         if (typeof goal.input.params.supportHelperId === 'string') spec.affinityBotId = goal.input.params.supportHelperId;
@@ -905,6 +936,8 @@ export class FleetController {
       }
       if (plan.tasks.length) { goal.state = 'queued'; goal.reason = undefined; this.changed('goal.planned', '실행 단계와 선행 조건을 계획했습니다.', { goalId: goal.id, data: { tasks: plan.tasks.length } }); }
     }
+    if (goal.completionLocation === 'inventory' && stock === undefined) { goal.state = 'condition-wait'; goal.reason = '같은 월드의 활성 봇이 보고한 실제 인벤토리 수량을 기다립니다.'; return; }
+    if (goal.completionLocation === 'inventory' && stock! < (goal.targetQuantity ?? Infinity) && !this.currentTasks(goal).some(t => this.taskHasActor(t)) && !this.inventoryCollectors(goal).length) { goal.state = 'condition-wait'; goal.reason = '수집이 허용된 봇과 인벤토리 공간을 기다립니다. 창고 없이 봇 인벤토리에서 완료합니다.'; return; }
     const frontier = this.currentTasks(goal).filter(t => !['completed', 'cancelled'].includes(t.state) && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed'));
     if (frontier.length && frontier.every(t => t.state === 'condition-wait')) { goal.state = 'condition-wait'; goal.reason = frontier[0].reason; goal.updatedAt = this.now(); }
     else if (frontier.some(t => isPreparationTask(t) && !this.taskHasActor(t) && this.protectedPositions(t).length > 10000)) { goal.state = 'condition-wait'; goal.reason = '보호할 건축·농장 좌표가 너무 많아 먼저 진행 중인 작업을 기다립니다.'; }
@@ -926,6 +959,7 @@ export class FleetController {
       if (task.affinityBotId && task.affinityBotId !== agent.id) return false;
       if (pinned && task.affinityBotId !== agent.id) return false;
       if (!task.dependencies.every(id => this.state.tasks.find(t => t.id === id)?.state === 'completed')) return false;
+      if (task.params.inventoryGoal === true && inventoryCapacity(agent, String(task.params.item)) <= 0) return false;
       if (!agent.config.allowedActions.includes(task.kind) || !agent.session!.report!.capabilities.includes(task.kind)) return false;
       if (isBuildSiteTask(task) && (!agent.session!.report!.position || !agent.config.allowedActions.includes('build') || !agent.session!.report!.capabilities.includes('build'))) return false;
       if (task.reservationKeys.some(key => this.state.reservations.some(r => r.key === key && r.attemptId !== task.attemptId))) return false;
@@ -987,7 +1021,8 @@ export class FleetController {
     if (protectedPositions.length > 10000) { task.reason = '보호할 건축·농장 좌표가 너무 많아 먼저 진행 중인 작업을 기다립니다.'; return; }
     task.params.protectedPositions = protectedPositions.map(jsonObject);
     if (isBuildSiteTask(task)) task.params.near = jsonObject(agent.session!.report!.position!);
-    if (task.kind === 'collect' && task.completion.kind === 'inventory') task.params.quantity = Math.max(0, task.completion.minimum - itemCount(agent.session!.report!.inventory, task.completion.item));
+    if (task.params.inventoryGoal === true && !this.reserveInventoryQuota(task, agent)) return;
+    if (task.kind === 'collect' && task.completion.kind === 'inventory' && task.params.inventoryGoal !== true) task.params.quantity = Math.max(0, task.completion.minimum - itemCount(agent.session!.report!.inventory, task.completion.item));
     const goal = this.goal(task.goalId);
     if ((task.kind === 'craft' || task.kind === 'smelt') && task.completion.kind === 'inventory' && goal.input.quantityMode === 'additional') {
       if (goal.targetQuantity === undefined) { goal.targetQuantity = itemCount(agent.session!.report!.inventory, task.completion.item) + goal.input.quantity; task.params.additionalBaseline = goal.targetQuantity - goal.input.quantity; }
