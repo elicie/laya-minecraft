@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
-  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, sameContainer, validateBuildSitePreparation,
+  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
   type BlueprintDefinition, type BlueprintInput, type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type GoalDefinition, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
@@ -472,7 +472,8 @@ export class FleetController {
     } else {
       attempt.state = 'interrupted'; this.release(attempt.id); this.reducePartialTransfer(task, attempt, result.evidence);
       task.state = 'condition-wait'; task.retryAt = this.now() + 5000; task.resumeCount++; task.reason = result.reason ?? verification.reason;
-      if (result.outcome === 'condition-wait' && (task.kind === 'build' || isBuildSiteTask(task))) this.recordBuildWait(task, attempt, verification.current);
+      const resourceWait = BuildWaitingForSchema.safeParse(task.checkpoint.waitingFor);
+      if (result.outcome === 'condition-wait' && (task.kind === 'build' || isBuildSiteTask(task) || resourceWait.success && resourceWait.data.kind === 'inventory')) this.recordBuildWait(task, attempt, verification.current);
     }
     task.updatedAt = this.now();
     this.changed(verification.complete ? 'task.completed' : `task.${task.state}`, task.reason ?? '실제 결과를 검증했습니다.', { taskId: task.id, attemptId: attempt.id, botId: agent.id });
@@ -568,29 +569,42 @@ export class FleetController {
     } catch { return false; }
   }
   private buildWaitFingerprint(condition: BuildWaitingFor, botId: string, previous?: string): string {
-    let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string> } = {};
+    let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string>; resourceStates?: Record<string, number> } = {};
     try { if (previous) saved = JSON.parse(previous); } catch { /* An absent legacy fingerprint has no known values. */ }
     const observations = freshObservations({ observations: this.state.observations.filter(o => o.controllerEpoch === this.controllerEpoch), now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension }).sort((a, b) => a.observedAt - b.observedAt || a.receivedAt - b.receivedAt);
-    const actual = new Map<string, string>();
-    for (const observation of observations) if (observation.kind === 'blocks') for (const block of observation.data.blocks) actual.set(positionKey(block.position), block.name);
+    const actual = new Map<string, { name: string; stateId?: number }>();
+    for (const observation of observations) {
+      const blocks = observation.kind === 'blocks' ? observation.data.blocks : observation.kind === 'exploration' ? observation.data.resources : [];
+      for (const block of blocks) {
+        const key = positionKey(block.position), stateId = block.stateId ?? actual.get(key)?.stateId;
+        actual.set(key, { name: block.name, ...(stateId === undefined ? {} : { stateId }) });
+      }
+    }
     const agent = this.state.agents.find(a => a.id === botId), report = agent?.session?.report;
     const validReport = report && report.world === this.state.rules.world && report.dimension === this.state.rules.dimension && this.now() - agent!.session!.lastReportAt < this.state.rules.statusTimeoutMs;
     const fingerprint: typeof saved = {};
-    if (condition.kind === 'blocks') fingerprint.blocks = Object.fromEntries([...new Set(condition.positions.map(positionKey))].sort().map(key => [key, actual.get(key) ?? saved.blocks?.[key] ?? null]));
+    if (condition.kind === 'blocks') fingerprint.blocks = Object.fromEntries([...new Set(condition.positions.map(positionKey))].sort().map(key => [key, actual.get(key)?.name ?? saved.blocks?.[key] ?? null]));
     else {
       fingerprint.inventory = validReport ? itemCount(report.inventory, condition.item) : saved.inventory ?? 0;
-      if (condition.resourceNames?.length) {
+      const probed = new Set(condition.resourcePositions?.map(positionKey));
+      if (probed.size) fingerprint.blocks = Object.fromEntries([...probed].sort().map(key => [key, actual.get(key)?.name ?? saved.blocks?.[key] ?? null]));
+      const resourceNames = resourceNamesFor(condition.item, condition.resourceNames);
+      if (resourceNames.length) {
         const resources = { ...saved.resources };
-        for (const [key, name] of actual) if (condition.resourceNames.includes(name) || key in resources) resources[key] = name;
+        for (const [key, block] of actual) if (resourceNames.includes(block.name) || key in resources) resources[key] = block.name;
         fingerprint.resources = Object.fromEntries(Object.entries(resources).sort(([a], [b]) => a.localeCompare(b)).slice(0, 2048));
       }
+      const states = { ...saved.resourceStates };
+      for (const [key, block] of actual) if (block.stateId !== undefined && (probed.has(key) || key in (fingerprint.resources ?? {}))) states[key] = block.stateId;
+      if (Object.keys(states).length) fingerprint.resourceStates = Object.fromEntries(Object.entries(states).sort(([a], [b]) => a.localeCompare(b)).slice(0, 2112));
     }
     if (condition.watchPosition) fingerprint.position = validReport && report.position ? positionKey({ x: Math.floor(report.position.x), y: Math.floor(report.position.y), z: Math.floor(report.position.z) }) : saved.position;
     return JSON.stringify(fingerprint);
   }
   private recordBuildWait(task: Task, attempt: TaskAttempt, verified: number): void {
     const parsed = BuildWaitingForSchema.safeParse(task.checkpoint.waitingFor), previous = task.waitState;
-    const waitingFor = parsed.success ? parsed.data : undefined;
+    const waitingFor = parsed.success ? parsed.data.kind === 'inventory' ? { ...parsed.data, resourceNames: resourceNamesFor(parsed.data.item, parsed.data.resourceNames) } : parsed.data : undefined;
+    if (waitingFor) task.checkpoint.waitingFor = jsonObject(waitingFor);
     const sameCondition = JSON.stringify(waitingFor) === JSON.stringify(previous?.waitingFor);
     const fingerprint = waitingFor ? this.buildWaitFingerprint(waitingFor, attempt.botId, sameCondition ? previous?.fingerprint : undefined) : JSON.stringify({ reason: task.reason, verified, build: task.checkpoint.build, inventory: [...(this.state.agents.find(a => a.id === attempt.botId)?.session?.report?.inventory ?? [])].sort((a, b) => a.name.localeCompare(b.name)) });
     const repeatCount = previous && sameCondition && previous.fingerprint === fingerprint ? previous.repeatCount + 1 : 0;
@@ -601,6 +615,13 @@ export class FleetController {
   private refreshBuildWait(task: Task): void {
     const wait = task.waitState;
     if (task.state !== 'condition-wait' || !wait?.waitingFor) return;
+    if (wait.waitingFor.kind === 'inventory') {
+      const normalized = resourceNamesFor(wait.waitingFor.item, wait.waitingFor.resourceNames);
+      if (JSON.stringify(normalized) !== JSON.stringify(wait.waitingFor.resourceNames)) {
+        wait.waitingFor.resourceNames = normalized;
+        task.checkpoint.waitingFor = jsonObject(wait.waitingFor);
+      }
+    }
     const agent = this.state.agents.find(a => a.id === wait.botId);
     // The old worker owned the passive block watch. A confirmed replacement
     // session must inspect the preserved conditions once to restore that watch.

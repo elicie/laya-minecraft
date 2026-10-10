@@ -7,6 +7,7 @@ import type {
 import {
   actionLabels,
   isReportStale,
+  isLocalFoodRecovery,
   label,
   localTime,
   percent,
@@ -53,11 +54,12 @@ export function BotDetail({
 }) {
   const report = bot.session?.report;
   const survival = report?.mode === "survival";
+  const localFood = isLocalFoodRecovery(report);
   const waiting =
     !!task &&
     waitingTaskStates.has(task.state) &&
     report?.mode !== "emergency" &&
-    !survival;
+    !survival && !localFood;
   const action = waiting
     ? `${task.params.mode === "prepare-site" ? "부지 정리 " : goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
     : report
@@ -74,6 +76,10 @@ export function BotDetail({
   const reason = waiting
     ? task.reason || goal?.reason || "작업 조건이 충족되기를 기다립니다."
     : report?.reason || "연결되면 행동과 판단 이유를 표시합니다.";
+  const foodWaitReason = waiting && report?.mode === "idle" &&
+    !report.currentAttemptId && report.action === "식량 대기"
+    ? report.reason
+    : undefined;
   const stale = !live || isReportStale(bot.session?.lastReportAt, now);
   const viewerUrl = safeViewerUrl(bot.viewer.prefix, bot.id);
   const viewing =
@@ -182,7 +188,7 @@ export function BotDetail({
             <h3>현재 하는 일</h3>
             {goal && (
               <p className="reason" style={{ marginBottom: 7 }}>
-                {survival ? "등록된 목표" : waiting ? "대기 중 목표" : "목표"} ·{" "}
+                {survival || localFood ? "등록된 목표" : waiting ? "대기 중 목표" : "목표"} ·{" "}
                 {goal.title}
               </p>
             )}
@@ -194,6 +200,11 @@ export function BotDetail({
               </p>
             )}
             <p className="reason">{reason}</p>
+            {foodWaitReason && (
+              <p className="reason local-food-wait" style={{ fontSize: 11, marginTop: 7 }}>
+                식량 대기 · {foodWaitReason}
+              </p>
+            )}
             {task && !survival && report?.mode !== "emergency" && (
               <PreparationProgress task={task} />
             )}

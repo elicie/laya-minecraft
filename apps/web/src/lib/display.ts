@@ -1,5 +1,6 @@
 import type {
   Agent,
+  BotReport,
   FleetSnapshot,
   Goal,
   Task,
@@ -18,6 +19,11 @@ export const waitingTaskStates = new Set([
   "held",
   "retry-wait",
 ]);
+
+export function isLocalFoodRecovery(report: BotReport | undefined): boolean {
+  return !!report && report.mode === "idle" && !report.currentAttemptId &&
+    /^(식량 확보|자원 탐색)/.test(report.action);
+}
 
 export function taskActionLabel(
   task: Pick<Task, "kind" | "params">,
@@ -77,7 +83,7 @@ export function selectedBotWork(
       : undefined;
   };
   const work = (task: Task) => ({
-    ...(bot.session?.report?.mode === "survival" ? {} : { task }),
+    ...(bot.session?.report?.mode === "survival" || isLocalFoodRecovery(bot.session?.report) ? {} : { task }),
     goal: current(task),
   });
   const attemptId =

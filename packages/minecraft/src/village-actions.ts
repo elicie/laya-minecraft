@@ -7,6 +7,7 @@ import { blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 import { BUILD_MATERIALS } from '../../contracts/src/blueprint-catalog';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 import { findBuildSitePreparation, prepareBuildSite } from './terrain';
+import { preserveMaterialWait } from './material-wait';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
 const BUILD_SUPPORT = new Set<string>(BUILD_MATERIALS);
@@ -61,12 +62,7 @@ function buildWait(s: ActionServices, causeCode: string, message: string, positi
 async function buildMaterial(s: ActionServices, item: string): Promise<void> {
   try { await s.ensureItem(item, 1); }
   catch (error) {
-    if (error instanceof ConditionWait) {
-      const missing = typeof error.checkpoint.missingResource === 'string' ? error.checkpoint.missingResource : typeof error.checkpoint.missingItem === 'string' ? error.checkpoint.missingItem : item;
-      s.checkpoint.waitingFor = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: missing, minimum: typeof error.checkpoint.minimum === 'number' ? error.checkpoint.minimum : 1,
-        watchPosition: true, resourceNames: Array.isArray(error.checkpoint.resourceNames) ? error.checkpoint.resourceNames : [missing] };
-      s.checkpoint.buildCause = { stage: 'materials', item, missingItem: missing };
-    }
+    if (error instanceof ConditionWait) throw preserveMaterialWait(s, item, error);
     throw error;
   }
 }

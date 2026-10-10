@@ -12,6 +12,27 @@ function options() {
   return { config: launch.config, rules: launch.rules, world: launch.rules.world, dimension: () => 'overworld' };
 }
 
+function navigation(bot: object, sources: Vec3[] = []) {
+  const b = bot as { entity: { position: Vec3 }; blockAt(p: Vec3): { name: string; boundingBox?: string }; };
+  Object.assign(bot, { canSeeBlock: () => true, findBlocks: (request: { matching(block: unknown): boolean }) => sources.filter(p => request.matching(b.blockAt(p))), pathfinder: {
+    movements: { canDig: false, allow1by1towers: false }, getPathTo(_movements: unknown, goal: { x: number; y: number; z: number }) {
+      const start = b.entity.position.floored(), target = new Vec3(goal.x, goal.y, goal.z), queue = [start], previous = new Map<string, Vec3 | null>([[start.toString(), null]]);
+      let found: Vec3 | undefined;
+      for (let index = 0; index < queue.length && index < 10000; index++) {
+        const current = queue[index]; if (current.equals(target)) { found = current; break; }
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const next = current.offset(dx!, 0, dz!);
+          if (previous.has(next.toString()) || Math.abs(next.x - start.x) > 50 || Math.abs(next.z - start.z) > 50 || b.blockAt(next).boundingBox !== 'empty' || b.blockAt(next.offset(0, 1, 0)).boundingBox !== 'empty' || b.blockAt(next.offset(0, -1, 0)).boundingBox !== 'block') continue;
+          previous.set(next.toString(), current); queue.push(next);
+        }
+      }
+      const path = [];
+      while (found && !found.equals(start)) { path.unshift({ x: found.x, y: found.y, z: found.z, toBreak: [], toPlace: [], parkour: false }); found = previous.get(found.toString())!; }
+      return { status: previous.has(target.toString()) ? 'success' : 'noPath', path };
+    },
+  } });
+}
+
 function woodRecipeFixture(observed: string[], initial: Record<string, number> = {}) {
   const woods = ['cherry', 'oak', 'birch'], names = [...woods.flatMap(wood => [`${wood}_log`, `${wood}_planks`]), 'stick', 'crafting_table', 'wooden_pickaxe'];
   const ids = Object.fromEntries(names.map((name, index) => [name, index + 1]));
@@ -50,9 +71,10 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
       crafted.push(names[r.result.id - 1]);
     },
   };
+  navigation(bot, locations);
   const executor = new MineflayerExecutor(bot as unknown as Bot, options()), services = executor.services(new AbortController().signal);
   services.pause = async () => {};
-  services.near = async p => { if (blockedWood && bot.blockAt(new Vec3(p.x, p.y, p.z)).name === `${blockedWood}_log`) throw new ConditionWait('NoPath'); bot.entity.position = new Vec3(p.x, p.y, p.z); };
+  services.near = async p => { if (blockedWood && locations.some(q => bot.blockAt(q).name === `${blockedWood}_log` && q.distanceTo(new Vec3(p.x, p.y, p.z)) < 4)) throw new ConditionWait('NoPath'); bot.entity.position = new Vec3(p.x, p.y, p.z); };
   return { executor, services, bot, stock, cells, locations, crafted, dug, get queries() { return queries; }, set blockedWood(value: string) { blockedWood = value; }, set failCraft(value: boolean) { failCraft = value; } };
 }
 
@@ -104,16 +126,17 @@ test('unknown crafting results and collect restrictions do not cause alternative
 test('food preparation uses actual mature potatoes or beetroots and verifies their consumption', async () => {
   for (const [crop, item, age] of [['potatoes', 'potato', 7], ['beetroots', 'beetroot', 3]] as const) {
     let count = 0, held = '', digCount = 0;
-    const cropBlock = { name: crop, position: new Vec3(2, 64, 0), canHarvest: () => true, getProperties: () => ({ age }) };
+    const cropBlock = { name: crop, position: new Vec3(2, 64, 0), boundingBox: 'empty', canHarvest: () => true, getProperties: () => ({ age }) };
     const bot = {
       health: 5, food: 17, entity: { position: new Vec3(0, 64, 0) }, entities: {},
       inventory: { items: () => count ? [{ name: item, count }] : [], emptySlotCount: () => 36 },
       registry: { itemsByName: { carrot: { id: 1 }, potato: { id: 2 }, beetroot: { id: 3 } }, items: {} },
       findBlock(request: { matching: (b: unknown) => boolean; useExtraInfo?: (b: unknown) => boolean }) { return !digCount && request.matching(cropBlock) && (!request.useExtraInfo || request.useExtraInfo(cropBlock)) ? cropBlock : null; },
-      blockAt(p: Vec3) { return p.equals(cropBlock.position) && !digCount ? cropBlock : { name: 'air' }; },
+      blockAt(p: Vec3) { return p.equals(cropBlock.position) && !digCount ? cropBlock : { name: p.y === 63 ? 'dirt' : 'air', position: p, boundingBox: p.y === 63 ? 'block' : 'empty' }; },
       recipesAll: () => [], async dig() { digCount++; count++; },
       async equip(i: { name: string }) { held = i.name; }, async consume() { assert.equal(held, item); count--; bot.food++; },
     };
+    navigation(bot, [cropBlock.position]);
     const executor = new MineflayerExecutor(bot as unknown as Bot, options()), services = executor.services(new AbortController().signal);
     services.near = async () => {}; services.pause = async () => {};
     await executor.ensureFood(services); assert.equal(digCount, 1); assert.equal(count, 1);
@@ -137,7 +160,7 @@ test('food availability probes do not hunt at critical health or swallow unknown
 test('resource matching handles palette blocks without positions and checks protection on full blocks', async () => {
   let stock = 0;
   let positionChecks = 0;
-  const log = { name: 'oak_log', position: new Vec3(2, 64, 0), canHarvest: () => true, getProperties: () => ({}) };
+  const log = { name: 'oak_log', position: new Vec3(2, 64, 0), boundingBox: 'block', canHarvest: () => true, getProperties: () => ({}) };
   const bot = {
     inventory: { items: () => stock ? [{ name: 'oak_log', count: stock }] : [], emptySlotCount: () => 36 },
     entity: { position: new Vec3(0, 64, 0) }, entities: {}, players: {}, registry: { itemsByName: { oak_log: { id: 1 } } },
@@ -145,9 +168,10 @@ test('resource matching handles palette blocks without positions and checks prot
       assert.equal(request.matching({ name: 'oak_log', position: null }), true);
       assert.equal(request.useExtraInfo(log), true); positionChecks += 1; return log;
     },
-    blockAt(p: Vec3) { return p.y === 65 ? { name: 'oak_leaves' } : p.y === 64 && p.x === 2 ? log : { name: 'air' }; },
+    blockAt(p: Vec3) { return p.equals(log.position.offset(0, 1, 0)) ? { name: 'oak_leaves', boundingBox: 'block' } : p.equals(log.position) ? log : { name: p.y === 63 ? 'dirt' : 'air', position: p, boundingBox: p.y === 63 ? 'block' : 'empty' }; },
     async dig() { stock += 1; }, async equip() {},
   } as unknown as Bot;
+  navigation(bot, [log.position]);
   const executor = new MineflayerExecutor(bot, options());
   const services = executor.services(new AbortController().signal); services.pause = async () => {}; services.near = async () => {};
   const task: TaskSpec = { id: 'task', goalId: 'goal', kind: 'collect', params: { item: 'oak_log' }, dependencies: [], reservationKeys: [], completion: { kind: 'inventory', item: 'oak_log', minimum: 1 } };
@@ -169,10 +193,11 @@ test('collection reobserves falling upper-log drops before navigating and confir
     findBlock: () => broken ? null : blockAt(source),
     async dig() { broken = true; falling = true; bot.entities[2] = drop; },
   };
+  navigation(bot, [source]);
   const executor = new MineflayerExecutor(bot as unknown as Bot, options()), services = executor.services(new AbortController().signal);
   services.pause = async () => { if (falling) { descent++; if (descent >= 4) drop.position.y = 64.15; } };
   services.near = async (_p, radius) => {
-    if (radius === 0) { assert.equal(Math.floor(drop.position.y), 64, 'a floating item must never be used as a stand target'); pickups++; stock++; delete bot.entities[2]; }
+    if (radius === 0 && broken) { assert.equal(Math.floor(drop.position.y), 64, 'a floating item must never be used as a stand target'); pickups++; stock++; delete bot.entities[2]; }
   };
   await executor.ensureItem('oak_log', 1, services);
   assert.equal(stock, 1); assert.equal(pickups, 1); assert.ok(descent >= 4);
@@ -180,18 +205,19 @@ test('collection reobserves falling upper-log drops before navigating and confir
 
 test('recursive construction gathering preserves the selected foundation and exit ground', async () => {
   let stock = 0;
-  const block = (x: number) => ({ name: 'stone', position: new Vec3(x, 63, 0), canHarvest: () => true, getProperties: () => ({}) });
+  const block = (x: number) => ({ name: 'stone', boundingBox: 'block', position: new Vec3(x, 63, 0), canHarvest: () => true, getProperties: () => ({}) });
   const protectedStone = block(0), outsideStone = block(4);
   const bot = {
     inventory: { items: () => stock ? [{ name: 'cobblestone', count: stock }] : [], emptySlotCount: () => 36 },
     entity: { position: new Vec3(0, 64, 0) }, entities: {}, registry: { itemsByName: { cobblestone: { id: 1 } } },
     findBlock(request: { useExtraInfo: (b: unknown) => boolean }) { assert.equal(request.useExtraInfo(protectedStone), false); assert.equal(request.useExtraInfo(outsideStone), true); return outsideStone; },
-    blockAt(p: Vec3) { return p.equals(outsideStone.position) ? outsideStone : { name: 'air' }; },
+    blockAt(p: Vec3) { return p.equals(outsideStone.position) ? outsideStone : { name: p.y === 63 ? 'dirt' : 'air', position: p, boundingBox: p.y === 63 ? 'block' : 'empty' }; },
     async equip() {}, async dig(b: unknown) { assert.equal(b, outsideStone); stock++; },
   } as unknown as Bot;
+  navigation(bot, [outsideStone.position]);
   const executor = new MineflayerExecutor(bot, options());
   const services = executor.services(new AbortController().signal, { buildProtection: { origin: { x: 0, y: 64, z: 0 }, width: 2, depth: 2, height: 4 } });
-  services.near = async () => {}; services.pause = async () => {};
+  services.near = async p => { bot.entity.position = new Vec3(p.x, p.y, p.z); }; services.pause = async () => {};
   await executor.ensureItem('cobblestone', 1, services);
   assert.equal(stock, 1);
 });
@@ -258,11 +284,12 @@ test('collection returns to a fresh resource after recursively gathering and cra
         if (recipe.result.id === ids.wooden_pickaxe && lavaAfterCraft) lava = true;
       },
       async dig(b: { name: string; position: Vec3 }) {
-        assert.ok(bot.entity.position.distanceTo(b.position) <= 2, 'missing tool acquisition must return to the resource');
+        assert.ok(bot.entity.position.distanceTo(b.position) <= 4.5, 'missing tool acquisition must return to an actually reachable resource');
         if (b.name === 'stone') { assert.equal(lava, false, 'a hazard appearing during tool preparation must prevent mining'); assert.equal(heldType, ids.wooden_pickaxe); stock.set('cobblestone', 1); cells.set(resource.toString(), 'air'); }
         else { stock.set('oak_log', (stock.get('oak_log') ?? 0) + 1); cells.set(b.position.toString(), 'air'); }
       },
     };
+    navigation(bot, [resource, ...logs]);
     const executor = new MineflayerExecutor(bot as unknown as Bot, options());
     const services = executor.services(new AbortController().signal);
     services.near = async p => { bot.entity.position = new Vec3(p.x, p.y, p.z); }; services.pause = async () => {};

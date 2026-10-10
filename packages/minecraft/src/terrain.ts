@@ -3,6 +3,7 @@ import { Vec3 } from 'vec3';
 import { resolveBlueprint } from '../../contracts/src/blueprints';
 import { BuildSitePreparationSchema, preparationProofPositions, preparationSiteCells, validateBuildSitePreparation, matchesPreparationTarget, isPreparationTerrain, isPreparationVegetation, isBuildSiteAir, isBuildSiteGround, type BuildSitePreparation, type ExpectedBlock, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
+import { preserveMaterialWait } from './material-wait';
 
 const key = (p: Position) => `${p.x},${p.y},${p.z}`;
 const shift = (p: Position, x: number, y: number, z: number): Position => ({ x: p.x + x, y: p.y + y, z: p.z + z });
@@ -165,9 +166,7 @@ export async function prepareBuildSite(task: TaskSpec, s: ActionServices): Promi
     try { await s.ensureItem(item, 1); }
     catch (error) {
       if (!(error instanceof ConditionWait)) throw error;
-      const missing = typeof error.checkpoint.missingResource === 'string' ? error.checkpoint.missingResource : typeof error.checkpoint.missingItem === 'string' ? error.checkpoint.missingItem : item;
-      s.checkpoint.waitingFor = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: missing, minimum: typeof error.checkpoint.minimum === 'number' ? error.checkpoint.minimum : 1, watchPosition: true, resourceNames: Array.isArray(error.checkpoint.resourceNames) ? error.checkpoint.resourceNames : [missing] };
-      throw new ConditionWait(error.message, s.checkpoint);
+      throw preserveMaterialWait(s, item, error);
     }
   };
   const intermediate = (edit: Edit, name: string | undefined) => edit.after === 'dirt' && isPreparationVegetation(edit.before) && isBuildSiteAir(name ?? '');

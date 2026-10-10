@@ -8,6 +8,7 @@ import { ActionFailure, ConditionWait, checkAbort, pause, type ActionServices } 
 import { inventory, inventoryObservation, observationBase, position, vector } from './observations';
 import { HUNTABLE, HOSTILES } from './combat-policy';
 import { exploreBuildSite } from './village-actions';
+import { ResourceRecovery, safeResourceStand } from './resource-recovery';
 
 export const EXECUTABLE_ACTIONS: ActionKind[] = ['collect', 'store', 'take', 'craft', 'smelt', 'build', 'farm', 'hunt', 'fight', 'guard', 'explore', 'follow', 'home', 'sleep', 'survive', 'breed'];
 const unsafeBlocks = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'cactus', 'campfire', 'soul_campfire']);
@@ -78,6 +79,7 @@ export class MineflayerExecutor {
       if (this.bot.entity.position.distanceTo(target) > radius + 1.5) throw new ConditionWait('목표 위치에 접근할 경로를 확인해야 합니다.');
     } catch (error) {
       checkAbort(signal);
+      if (error instanceof ActionFailure) throw error;
       if (timedOut) throw new ConditionWait(`20초 동안 목표 위치 ${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}에 접근하지 못해 이동을 중단했습니다.`);
       throw error instanceof ConditionWait ? error : new ConditionWait(`현재 지형에서 접근 가능한 경로를 찾지 못했습니다: ${error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300)}`);
     } finally { clearTimeout(timer); signal.removeEventListener('abort', cancel); }
@@ -248,20 +250,58 @@ export class MineflayerExecutor {
     if (!origin || !Number.isFinite(area?.width) || !Number.isFinite(area?.depth) || !Number.isFinite(area?.height)) return false;
     return p.x >= origin.x - 1 && p.x <= origin.x + area!.width! && p.z >= origin.z - 1 && p.z <= origin.z + area!.depth! && p.y >= origin.y - 1 && p.y <= origin.y + Math.max(2, area!.height!);
   }
+  private resourceRecovery(item: string, names: string[], s: ActionServices): ResourceRecovery {
+    return new ResourceRecovery(this.bot, s, item, names, this.options.config.allowedActions.includes('explore') && (s.checkpoint.resourceRecoveryScope !== '$food' || item === '$food'), p => this.protectedBuildPosition(p, s));
+  }
+  private resourceStands(block: Block, s: ActionServices): Position[] {
+    if (!block.boundingBox) return [];
+    const feet = vector(this.bot.entity.position).floored();
+    if (block.position.equals(feet) || block.position.equals(feet.offset(0, -1, 0))) return [];
+    if (![new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].some(d => ['air', 'cave_air', 'void_air'].includes(this.bot.blockAt(block.position.plus(d))?.name ?? ''))) return [];
+    const candidates = [feet];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) for (const dy of [-2, -1, 0, 1, 2]) candidates.push(block.position.offset(dx!, dy, dz!));
+    return [...new Map(candidates.map(p => [`${p.x},${p.y},${p.z}`, p])).values()].filter(p => p.distanceTo(block.position) <= 4 && Math.abs(p.y - feet.y) <= 3 && safeResourceStand(this.bot, p, q => this.protectedBuildPosition(q, s)))
+      .sort((a, b) => a.distanceTo(feet) - b.distanceTo(feet)).slice(0, 3);
+  }
+  private currentSupport(block: Block): boolean {
+    const feet = vector(this.bot.entity.position).floored();
+    return block.position.equals(feet) || block.position.equals(feet.offset(0, -1, 0));
+  }
   private async collect(itemName: string, minimum: number, s: ActionServices): Promise<void> {
     if (!this.options.config.allowedActions.includes('collect')) throw new ConditionWait('이 봇에는 수집 작업이 허용되지 않았습니다.');
+    const recovery = this.resourceRecovery(itemName, dropBlocks[itemName] ?? [itemName], s);
     const skipped = new Set<string>();
     let attempts = 0;
     while (this.count(itemName) < minimum) {
       s.check(); s.progress('수집', `${itemName} ${this.count(itemName)}/${minimum}`);
       if (this.bot.inventory.emptySlotCount() === 0 && !this.bot.inventory.items().some((i) => i.name === itemName && i.count < i.stackSize)) throw new ConditionWait('인벤토리 공간을 확보해야 합니다.');
       const block = this.bot.findBlock({ matching: (b) => this.collectMatches(itemName, b.name), useExtraInfo: (b) =>
-        !skipped.has(`${b.position}`) && this.collectible(b, s), maxDistance: 48 });
-      if (!block) throw new ConditionWait(`관측한 범위에 수집 가능한 ${itemName} 자원이 없습니다.`, { missingResource: itemName, minimum, resourceNames: dropBlocks[itemName] ?? [itemName] });
-      if (++attempts > 128) throw new ConditionWait('자원 확보를 계속하기 전에 주변 상태를 다시 확인해야 합니다.');
-      try { await s.near(block.position, 2); } catch (error) { s.check(); skipped.add(`${block.position}`); if (skipped.size >= 8) throw error; continue; }
+        !skipped.has(`${b.position}`) && !recovery.failed(b.position) && recovery.within(b.position) && this.collectible(b, s), maxDistance: 48 });
+      if (!block || !recovery.canApproach()) {
+        if (await recovery.move()) continue;
+        throw recovery.wait(`관측된 자원과 안전한 지상 탐색을 확인했지만 ${itemName}을 확보하지 못했습니다. ${recovery.state.reason || '새 자원이나 접근 지형의 실제 변화를 기다립니다.'}`, minimum);
+      }
+      if (++attempts > 128) {
+        if (await recovery.move()) { attempts = 0; continue; }
+        throw recovery.wait('현재 위치의 자원 후보 128개를 확인했지만 접근 가능한 노출면을 찾지 못했습니다. 실제 자원이나 접근 지형의 변화를 기다립니다.', minimum);
+      }
+      recovery.sample(block.position);
+      const stands = this.resourceStands(block, s);
+      if (!stands.length) { skipped.add(`${block.position}`); recovery.reject(block.position, block.name, '자원까지 노출된 면과 안전하게 설 수 있는 지상 발판을 확인하지 못했습니다.'); continue; }
+      let stand: Position | undefined, approachReason = '';
+      for (const candidate of stands) {
+        if (!recovery.canApproach()) break;
+        try {
+          await recovery.approach(vector(candidate).offset(0.5, 0, 0.5), 0);
+          const actual = this.bot.blockAt(block.position);
+          if (!actual || typeof this.bot.canSeeBlock !== 'function' || !this.bot.canSeeBlock(actual)) { approachReason = '안전한 발판에서 자원까지 실제 시야를 확인하지 못했습니다.'; continue; }
+          stand = candidate; break;
+        } catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; approachReason = error.message; }
+      }
+      if (!stand) { skipped.add(`${block.position}`); recovery.reject(block.position, block.name, approachReason); continue; }
+      const approach = async () => recovery.approach(vector(stand!).offset(0.5, 0, 0.5), 0);
       let current = this.bot.blockAt(block.position);
-      if (!current || !this.collectMatches(itemName, current.name) || this.protectedBuildPosition(current.position, s)) { skipped.add(`${block.position}`); continue; }
+      if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current)) { skipped.add(`${block.position}`); continue; }
       if (this.bot.blockAt(current.position.offset(0, 1, 0))?.name === 'lava' || unsafeBlocks.has(this.bot.blockAt(current.position.offset(0, -1, 0))?.name ?? '')) { skipped.add(`${block.position}`); continue; }
       if (!current.canHarvest(this.bot.heldItem?.type ?? null)) {
         const tool = this.harvestTool(current.name);
@@ -269,9 +309,10 @@ export class MineflayerExecutor {
         const available = this.bot.inventory.items().find((i) => i.name === tool);
         if (!available) throw new ConditionWait(`${tool} 도구를 확보해야 합니다.`);
         // Tool ingredients and the crafting table may be far from this resource.
-        await s.near(block.position, 2);
+        try { await approach(); }
+        catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; skipped.add(`${block.position}`); recovery.reject(block.position, block.name, error.message); continue; }
         current = this.bot.blockAt(block.position);
-        if (!current || !this.collectMatches(itemName, current.name) || this.protectedBuildPosition(current.position, s)) { skipped.add(`${block.position}`); continue; }
+        if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current)) { skipped.add(`${block.position}`); continue; }
         if (this.bot.blockAt(current.position.offset(0, 1, 0))?.name === 'lava' || unsafeBlocks.has(this.bot.blockAt(current.position.offset(0, -1, 0))?.name ?? '')) { skipped.add(`${block.position}`); continue; }
         await this.bot.equip(available, 'hand');
         if (!current.canHarvest(available.type)) throw new ConditionWait('이 블록을 수확할 수 있는 도구가 필요합니다.');
@@ -280,12 +321,16 @@ export class MineflayerExecutor {
         const tool = this.bot.inventory.items().find((i) => blockName.endsWith('_log') ? i.name.endsWith('_axe') : /stone|ore/.test(blockName) ? i.name.endsWith('_pickaxe') : i.name.endsWith('_shovel'));
         if (tool) await this.bot.equip(tool, 'hand');
       }
+      current = this.bot.blockAt(block.position);
+      if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current) || !safeResourceStand(this.bot, vector(this.bot.entity.position).floored(), p => this.protectedBuildPosition(p, s))) { skipped.add(`${block.position}`); continue; }
+      if (typeof this.bot.canSeeBlock !== 'function' || !this.bot.canSeeBlock(current)) { skipped.add(`${current.position}`); recovery.reject(current.position, current.name, '현재 안전한 발판에서 자원까지 실제 시야를 확보하지 못했습니다.'); continue; }
       s.check(); const before = this.count(itemName);
       await this.bot.dig(current); await s.pause(150);
       await this.pickup(current.position, s, itemName, before + 1);
       this.recordInventory(s);
       s.checkpoint.lastResourcePosition = position(current.position);
-      if (this.count(itemName) <= before) { skipped.add(`${current.position}`); if (skipped.size >= 8) throw new ConditionWait('채굴 후 실제 아이템 획득을 확인해야 합니다.'); }
+      if (this.count(itemName) <= before) { skipped.add(`${current.position}`); recovery.reject(current.position, current.name, '채굴 후 실제 아이템 획득을 확인하지 못했습니다.'); }
+      else recovery.progress();
     }
     this.recordInventory(s);
   }
@@ -363,6 +408,7 @@ export class MineflayerExecutor {
       }
     }
     if (!Number.isFinite(cost) && item in huntDrops && this.options.config.allowedActions.includes('hunt')) {
+      evaluation.resourceNames.add(huntDrops[item]!);
       const seen = Object.values(this.bot.entities).some(e => e.name === huntDrops[item] && e.position.distanceTo(this.bot.entity.position) <= 40 &&
         !(s.rules.center && Math.hypot(e.position.x - s.rules.center.x, e.position.z - s.rules.center.z) <= s.rules.radius));
       if (seen) cost = missing;
@@ -441,8 +487,11 @@ export class MineflayerExecutor {
       await this.hunt(huntDrops[itemName], s, itemName, minimum); return;
     }
     if (this.recipes(itemName, evaluation).length) {
-      throw new ConditionWait(preparationWait?.message ?? `${itemName}에 필요한 재료를 실제 인벤토리나 주변 자연 자원에서 확보할 수 있는 제작 경로가 필요합니다.`,
-        { missingItem: itemName, minimum, resourceNames: [...evaluation.resourceNames].slice(0, 100) });
+      const recovery = this.resourceRecovery(itemName, [...evaluation.resourceNames].slice(0, 100), s);
+      if (await recovery.move()) return this.ensureItem(itemName, minimum, s, chain);
+      const error = recovery.wait(preparationWait?.message ?? `${itemName}에 필요한 재료를 실제 인벤토리나 주변 자연 자원에서 확보할 수 있는 제작 경로가 필요합니다.`, minimum);
+      delete error.checkpoint.missingResource; error.checkpoint.missingItem = itemName;
+      throw error;
     }
     await this.collect(itemName, minimum, s);
   }
@@ -496,25 +545,38 @@ export class MineflayerExecutor {
   async ensureFood(s: ActionServices): Promise<void> {
     s.check();
     if (this.bot.inventory.items().some(i => foodNames.has(i.name))) return;
-    const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
-    const evaluation: RecipeEvaluation = { remaining: 1024, table, recipes: new Map(), sources: new Map(), costs: new Map(), resourceNames: new Set() };
-    const candidates = [...foodNames].filter(item => {
-      if (!this.bot.registry.itemsByName[item]) return false;
-      // Combat already withdraws at this health. Do not plan a new hunt as
-      // a recovery path unless its meat is already in the inventory.
-      const raw = smeltInputs[item] ?? item;
-      return this.bot.health > s.rules.combat.retreatHealth || !(raw in huntDrops) || this.count(raw) > 0;
-    }).map(item => ({ item, cost: this.acquisitionCost(item, 1, new Set(), s, evaluation) }))
-      .filter(candidate => Number.isFinite(candidate.cost)).sort((a, b) => a.cost - b.cost);
+    const scope = s.checkpoint.resourceRecoveryScope;
+    s.checkpoint.resourceRecoveryScope = '$food';
     let waiting: ConditionWait | undefined;
-    for (const { item } of candidates.slice(0, 5)) {
-      try { await this.ensureItem(item, 1, s); if (this.count(item) > 0) return; }
-      catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; waiting = error; }
-    }
-    throw new ConditionWait('현재 관측한 범위에서 확보 가능한 식량이나 재료를 확인하지 못했습니다.', {
-      missingFood: true, resourceNames: [...evaluation.resourceNames].slice(0, 100),
-      ...(waiting ? { foodCause: waiting.message } : {}),
-    });
+    try {
+      for (let round = 0; round <= 5; round++) {
+        s.check();
+        const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
+        const evaluation: RecipeEvaluation = { remaining: 1024, table, recipes: new Map(), sources: new Map(), costs: new Map(), resourceNames: new Set() };
+        const candidates = [...foodNames].filter(item => {
+          if (!this.bot.registry.itemsByName[item]) return false;
+          // Critical health cannot authorize a new hunt during food recovery.
+          const raw = smeltInputs[item] ?? item;
+          return this.bot.health > s.rules.combat.retreatHealth || !(raw in huntDrops) || this.count(raw) > 0;
+        }).map(item => ({ item, cost: this.acquisitionCost(item, 1, new Set(), s, evaluation) }))
+          .filter(candidate => Number.isFinite(candidate.cost)).sort((a, b) => a.cost - b.cost);
+        const recovery = this.resourceRecovery('$food', [...evaluation.resourceNames].slice(0, 100), s);
+        for (const { item } of candidates.slice(0, 5)) {
+          const started = Date.now();
+          try { await this.ensureItem(item, 1, s); if (this.count(item) > 0) { recovery.progress(); return; } }
+          catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; waiting = error; }
+          finally { recovery.state.elapsedMs = Math.min(80000, recovery.state.elapsedMs + Math.max(0, Date.now() - started)); }
+          if (recovery.state.elapsedMs >= 60000) break;
+        }
+        if (await recovery.move()) continue;
+        const error = recovery.wait('현재 관측한 범위에서 확보 가능한 식량이나 재료를 확인하지 못했습니다.');
+        delete error.checkpoint.missingResource;
+        Object.assign(error.checkpoint, { missingFood: true, ...(waiting ? { foodCause: waiting.message } : {}) });
+        const candidatePositions = waiting?.checkpoint.resourcePositions;
+        if (Array.isArray(candidatePositions)) error.checkpoint.resourcePositions = [...new Map([...error.checkpoint.resourcePositions as Position[], ...candidatePositions as Position[]].map(p => [`${p.x},${p.y},${p.z}`, p])).values()].slice(-64);
+        throw error;
+      }
+    } finally { if (scope === undefined) delete s.checkpoint.resourceRecoveryScope; else s.checkpoint.resourceRecoveryScope = scope; }
   }
 
   async eat(s: ActionServices): Promise<boolean> {
