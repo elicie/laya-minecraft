@@ -15,7 +15,12 @@ import {
 } from "../../../../packages/contracts/src";
 import { BLUEPRINTS } from "../../../../packages/contracts/src/blueprints";
 import { errorMessage, post } from "../lib/api";
-import { actionLabels, label, roleLabels } from "../lib/display";
+import {
+  actionLabels,
+  finitePosition,
+  label,
+  roleLabels,
+} from "../lib/display";
 import { Dialog } from "./Dialog";
 
 const roles = [
@@ -270,6 +275,14 @@ export function GoalForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [customDestination, setCustomDestination] = useState(false);
+  const [buildSiteSelection, setBuildSiteSelection] = useState<
+    "nearby" | "fixed"
+  >(snapshot.rules.center ? "fixed" : "nearby");
+  const [buildCoordinates, setBuildCoordinates] = useState({
+    x: snapshot.rules.center ? String(snapshot.rules.center.x) : "",
+    y: snapshot.rules.center ? String(snapshot.rules.center.y) : "",
+    z: snapshot.rules.center ? String(snapshot.rules.center.z) : "",
+  });
   const [destination, setDestination] = useState<ContainerRef>(
     snapshot.rules.warehouse ?? {
       id: "warehouse",
@@ -295,6 +308,27 @@ export function GoalForm({
           parsed.params.origin = parsed.params.position;
         delete parsed.params.design;
         delete parsed.params.position;
+        const explicit = finitePosition(parsed.params.origin)
+          ? parsed.params.origin
+          : undefined;
+        const site =
+          parsed.params.siteSelection === "nearby"
+            ? "nearby"
+            : explicit || snapshot.rules.center
+              ? "fixed"
+              : "nearby";
+        const point = explicit ?? snapshot.rules.center;
+        setBuildSiteSelection(site);
+        setBuildCoordinates({
+          x: point ? String(point.x) : "",
+          y: point ? String(point.y) : "",
+          z: point ? String(point.z) : "",
+        });
+        parsed.params.siteSelection = site;
+        if (site === "nearby") {
+          delete parsed.params.origin;
+          delete parsed.params.requiredBlocks;
+        }
       }
       if (parsed.kind === "farm") {
         const name = String(parsed.params.crop ?? "wheat");
@@ -337,7 +371,24 @@ export function GoalForm({
       const params = { ...goal.params };
       if (goal.kind === "build") {
         params.blueprint ??= "cabin";
-        params.origin ??= snapshot.rules.center ?? { x: 0, y: 64, z: 0 };
+        params.siteSelection = buildSiteSelection;
+        delete params.position;
+        if (buildSiteSelection === "nearby") {
+          delete params.origin;
+          delete params.requiredBlocks;
+        } else {
+          if (
+            !Object.values(buildCoordinates).every(
+              (value) => value.trim() && Number.isSafeInteger(Number(value)),
+            )
+          )
+            throw new Error("건물 시작 좌표 X, Y, Z에 정수를 모두 입력하세요.");
+          params.origin = {
+            x: Number(buildCoordinates.x),
+            y: Number(buildCoordinates.y),
+            z: Number(buildCoordinates.z),
+          };
+        }
       }
       if (goal.kind === "farm") {
         params.crop ??= "wheat";
@@ -379,6 +430,31 @@ export function GoalForm({
       }
       if (previous.kind === "farm" && ["origin", "plots"].includes(key))
         delete params.positions;
+      return { ...previous, params };
+    });
+  }
+  function changeBuildSite(site: "nearby" | "fixed") {
+    setBuildSiteSelection(site);
+    setGoal((previous) => {
+      if (!previous) return previous;
+      const params: GoalDefinition["params"] = {
+        ...previous.params,
+        siteSelection: site,
+      };
+      delete params.origin;
+      delete params.position;
+      delete params.requiredBlocks;
+      return { ...previous, params };
+    });
+  }
+  function changeBuildCoordinate(axis: "x" | "y" | "z", value: string) {
+    setBuildCoordinates((previous) => ({ ...previous, [axis]: value }));
+    setGoal((previous) => {
+      if (!previous) return previous;
+      const params = { ...previous.params };
+      delete params.origin;
+      delete params.position;
+      delete params.requiredBlocks;
       return { ...previous, params };
     });
   }
@@ -579,32 +655,44 @@ export function GoalForm({
                     ))}
                   </select>
                 </label>
-                <fieldset>
-                  <legend>건물 시작 좌표</legend>
-                  <div className="form-row three">
-                    {(["x", "y", "z"] as const).map((axis) => (
-                      <label key={axis}>
-                        {axis.toUpperCase()}
-                        <input
-                          type="number"
-                          value={
-                            origin?.[axis] ??
-                            snapshot.rules.center?.[axis] ??
-                            (axis === "y" ? 64 : 0)
-                          }
-                          onChange={(event) =>
-                            param("origin", {
-                              ...(origin ??
-                                snapshot.rules.center ?? { x: 0, y: 64, z: 0 }),
-                              [axis]: Number(event.target.value),
-                            })
-                          }
-                          required
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                <label>
+                  건설 위치
+                  <select
+                    value={buildSiteSelection}
+                    onChange={(event) =>
+                      changeBuildSite(event.target.value as "nearby" | "fixed")
+                    }
+                  >
+                    <option value="nearby">봇 주변에서 부지 찾기</option>
+                    <option value="fixed">고정 좌표 지정</option>
+                  </select>
+                  <small>
+                    {buildSiteSelection === "nearby"
+                      ? "봇 주변의 지면과 공간을 확인합니다. 건설 가능한 부지를 찾으면 건설을 시작합니다."
+                      : "지정한 좌표의 지면과 공간을 확인한 뒤 건설합니다."}
+                  </small>
+                </label>
+                {buildSiteSelection === "fixed" && (
+                  <fieldset>
+                    <legend>건물 시작 좌표</legend>
+                    <div className="form-row three">
+                      {(["x", "y", "z"] as const).map((axis) => (
+                        <label key={axis}>
+                          {axis.toUpperCase()}
+                          <input
+                            type="number"
+                            step={1}
+                            value={buildCoordinates[axis]}
+                            onChange={(event) =>
+                              changeBuildCoordinate(axis, event.target.value)
+                            }
+                            required
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                )}
               </>
             )}
             {goal.kind === "farm" && (

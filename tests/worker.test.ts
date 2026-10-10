@@ -9,15 +9,16 @@ import { Vec3 } from 'vec3';
 import { WorkerLaunchSchema, type CentralMessage, type ResultPayload, type TaskSpec, type WorkerMessage } from '../packages/contracts/src';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
-import { ActionFailure, pause, type ActionServices } from '../packages/minecraft/src/services';
+import { ActionFailure, ConditionWait, pause, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; unarmed?: boolean; shield?: boolean } = {}) {
+function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean } = {}) {
   const emitter = new EventEmitter();
   const messages: WorkerMessage[] = [];
   let executions = 0;
   let fights = 0;
   let retreats = 0;
   let foodAttempts = 0;
+  let mealAvailable = !!options.meal;
   const launch = WorkerLaunchSchema.parse({ botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch',
     config: { name: 'TestBot', role: 'gatherer', connection: { host: '127.0.0.1', port: 25566 } },
     rules: { world: '127.0.0.1:25566', center: { x: 0, y: 64, z: 0 } } });
@@ -38,8 +39,13 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; unarmed?
     }
     override async fightEntity(_target: Entity, s: ActionServices): Promise<void> { fights += 1; await s.pause(120_000); }
     override async retreat(_target: Entity, s: ActionServices): Promise<void> { retreats += 1; await s.pause(120_000); }
-    override async eat(): Promise<boolean> { return false; }
-    override async ensureItem(_item: string, _quantity: number, s: ActionServices): Promise<void> { foodAttempts += 1; if (options.foodWait) await s.pause(120_000); }
+    override async eat(): Promise<boolean> { if (!mealAvailable) return false; mealAvailable = false; bot.food = Math.min(20, bot.food + 4); return true; }
+    override async ensureFood(s: ActionServices): Promise<void> {
+      foodAttempts += 1;
+      if (options.foodWait) await s.pause(120_000);
+      if (options.foodFailure) throw new ActionFailure('섭취 효과를 다시 확인해야 합니다.', 'EAT_UNCERTAIN', false, false);
+      throw new ConditionWait('현재 관측한 범위에서 확보 가능한 식량이나 재료를 확인하지 못했습니다.');
+    }
   }
   const worker = new MinecraftWorker(launch, bot, message => messages.push(message), {
     timers: false, movementsFactory: () => ({}) as Movements,
@@ -52,6 +58,47 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; unarmed?
     get executions() { return executions; }, get fights() { return fights; }, get retreats() { return retreats; }, get foodAttempts() { return foodAttempts; } };
 }
 async function settle() { await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); }
+
+test('critical health waits for actual regeneration after a meal and resumes without requiring full health', async () => {
+  const f = fixture({ meal: true }); f.emitter.emit('spawn'); f.emitter.emit('health');
+  try {
+    f.bot.health = 5; f.bot.food = 17; f.worker.pollSafety();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(f.bot.food, 20); assert.equal(f.bot.health, 5); assert.equal(f.foodAttempts, 0);
+    const recovering = f.messages.filter(m => m.type === 'bot.status').at(-1);
+    assert.ok(recovering?.type === 'bot.status'); assert.equal(recovering.payload.mode, 'survival'); assert.equal(recovering.payload.action, '회복 대기');
+    await f.worker.receive(f.assign('critical')); assert.equal(f.executions, 0);
+    f.bot.health = f.launch.rules.combat.retreatHealth + 1; f.emitter.emit('health');
+    await new Promise(resolve => setTimeout(resolve, 1050));
+    await f.worker.receive(f.assign('recovered')); assert.equal(f.executions, 1);
+    assert.ok(f.bot.health < 20);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('critical health with sufficient hunger remains in recovery without unnecessary food acquisition', async () => {
+  const f = fixture(); f.emitter.emit('spawn'); f.emitter.emit('health');
+  try {
+    f.bot.health = 5; f.worker.pollSafety(); await settle();
+    assert.equal(f.foodAttempts, 0);
+    const recovering = f.messages.filter(m => m.type === 'bot.status').at(-1);
+    assert.ok(recovering?.type === 'bot.status'); assert.equal(recovering.payload.mode, 'survival'); assert.equal(recovering.payload.action, '회복 대기');
+    await f.worker.receive(f.assign('still-critical')); assert.equal(f.executions, 0);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('missing observed food and uncertain food effects keep critical recovery visible', async () => {
+  for (const foodFailure of [false, true]) {
+    const f = fixture({ foodFailure }); f.emitter.emit('spawn'); f.emitter.emit('health');
+    try {
+      f.bot.health = 5; f.bot.food = 17; f.worker.pollSafety(); await settle();
+      const waiting = f.messages.filter(m => m.type === 'bot.status').at(-1);
+      assert.ok(waiting?.type === 'bot.status'); assert.equal(waiting.payload.mode, 'survival'); assert.equal(waiting.payload.action, '식량 대기');
+      assert.match(waiting.payload.reason, foodFailure ? /섭취 효과/ : /현재 관측한 범위/);
+      assert.equal(f.foodAttempts, 1);
+      await f.worker.receive(f.assign('unsafe')); assert.equal(f.executions, 0);
+    } finally { await f.worker.shutdown(); }
+  }
+});
 
 test('viewer readiness cannot revive a viewer after the Minecraft session has ended', async () => {
   const f = fixture();

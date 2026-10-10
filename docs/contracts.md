@@ -36,11 +36,17 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 
 실행 결과는 completed, partial, condition-wait, failed, uncertain을 구분합니다. completed 보고는 중앙 검증을 시작하는 근거이며 목표 완료 여부는 완료 조건과 현재 관측으로 판단합니다.
 
+건축 목표의 `params.siteSelection: "nearby"`는 현재 봇 주변의 부지 탐색을 먼저 배정합니다. 워커는 실제 블록 관측으로 전체 건축 공간, 기초와 바깥 접근로를 확인하고 현장에 접근한 뒤 `checkpoint.buildSite`에 `origin`, `design`, `entrance`, `observedAt`을 보고합니다. 중앙은 현재 시도와 세션의 관측을 검증한 후 같은 목표에 확정 좌표를 반영하고 건설을 계획합니다. 부지 탐색 완료만으로 건축 목표를 완료하지 않습니다.
+
+건축의 조건 대기는 `checkpoint.waitingFor`로 필요한 블록 좌표 또는 재료 수량을 지정합니다. 중앙은 해당 조건의 실제 내용이 바뀌었을 때 재개를 판단합니다. 상태 보고 시간이나 관측 ID가 바뀌는 것만으로 같은 작업을 반복하지 않습니다. 워커는 지도 표본에 포함되지 않는 대기 좌표도 공개 `blockAt` API로 주기적으로 관측합니다.
+
 ## 브라우저 API
 
 API prefix는 /api/v1입니다. GET /snapshot과 SSE GET /stream이 동일한 전체 상태 형식을 사용합니다. SSE event 종류는 snapshot, event, command입니다. GET /events는 보존 중인 로그 조회입니다.
 
 명령 API는 봇 등록과 제거, 역할과 정지 상태 변경, 목표 해석과 등록·수정·취소, 마을과 규칙 변경을 제공합니다. 목표 해석은 실행을 시작하지 않고 구조화된 미리보기를 반환합니다. 목표 등록은 기본 예약이며 명시적인 executionMode로 즉시 전환할 수 있습니다.
+
+`PATCH /goals/:id`에서 `params`를 지정하면 기존 객체를 전체 교체합니다. 생략하면 기존 값을 보존합니다. 따라서 기존 고정 좌표를 제거하고 주변 부지 탐색으로 바꿀 때는 `{"params":{"blueprint":"warehouse","siteSelection":"nearby"}}`를 보냅니다. 목표 ID와 제목은 유지하고 변경된 조건으로 남은 작업을 다시 계획합니다.
 
 각 명령은 commandId를 반환합니다. 유효성 검증과 영속 기록 후 accepted, 적용 진행 중 applying, 실제 확인 후 applied, 실패 시 failed를 표시합니다. HTTP 응답이나 IPC send 반환만으로 applied를 표시하지 않습니다. GET /commands/:id로 상태를 확인합니다.
 

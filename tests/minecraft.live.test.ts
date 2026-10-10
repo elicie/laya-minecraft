@@ -108,6 +108,26 @@ test('disposable Minecraft validates real collection, delivery, crafting, farmin
       assert.equal(bot.blockAt(standing)?.boundingBox, 'empty');
       assert.equal(bot.blockAt(standing.offset(0, 1, 0))?.boundingBox, 'empty');
     });
+    await scenario('nearby-site warehouse construction selects observed ground and exits the completed footprint', async () => {
+      const explored = await executor.execute(task('explore', { mode: 'build-site', design: 'warehouse', near: { x: 1208, y: 80, z: 1218 }, searchRadius: 16 }, { kind: 'exploration', resourceNames: [], minVisits: 1 }), services());
+      assert.equal(explored.outcome, 'completed', JSON.stringify(explored));
+      const site = explored.checkpoint.buildSite as { origin: { x: number; y: number; z: number }; entrance: { x: number; y: number; z: number }; design: string };
+      assert.equal(site.design, 'warehouse'); assert.equal(site.origin.y, 80);
+      assert.ok(explored.observations.some(o => o.kind === 'exploration'));
+      assert.equal(bot.blockAt(new Vec3(1200, 80, 1200))?.name, 'chest', 'an existing warehouse must be preserved');
+      const blocks = blueprint('warehouse', site.origin);
+      for (const [item, amount] of Object.entries(materialRequirements(blocks))) rcon(`give LayaLiveCheck ${item} ${amount}`);
+      await sleep(250);
+      const result = await resumeWork(task('build', { design: 'warehouse', origin: site.origin, requiredBlocks: blocks }, { kind: 'blocks', blocks }));
+      assert.equal(result.outcome, 'completed');
+      for (const cell of blocks) assert.equal(bot.blockAt(new Vec3(cell.position.x, cell.position.y, cell.position.z))?.name, cell.name);
+      const feet = bot.entity.position;
+      assert.ok(Math.abs(feet.y - site.origin.y) < 0.1, `builder must finish on ground: ${feet}`);
+      assert.ok(feet.x < site.origin.x || feet.x >= site.origin.x + 7 || feet.z < site.origin.z || feet.z >= site.origin.z + 5, `builder must leave warehouse: ${feet}`);
+      assert.equal(bot.blockAt(feet.floored().offset(0, -1, 0))?.boundingBox, 'block');
+      assert.equal(bot.blockAt(feet.floored())?.boundingBox, 'empty');
+      assert.equal(bot.blockAt(feet.floored().offset(0, 1, 0))?.boundingBox, 'empty');
+    });
     await scenario('feeding is followed by a newly observed baby entity', async () => {
       rcon('fill 1203 80 1211 1209 80 1217 oak_fence outline');
       rcon('fill 1205 80 1211 1207 80 1211 air');

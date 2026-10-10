@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
-import { DEFAULT_RULES, type ExpectedBlock, type Position, type TaskSpec } from '../packages/contracts/src';
+import { DEFAULT_RULES, buildSiteCells, isBuildSiteAir, isBuildSiteGround, type ExpectedBlock, type Position, type TaskSpec } from '../packages/contracts/src';
 import { blueprint } from '../packages/contracts/src/blueprints';
-import { executeVillageTask } from '../packages/minecraft/src/village-actions';
-import { ActionFailure, type ActionServices } from '../packages/minecraft/src/services';
+import { executeVillageTask, exploreBuildSite } from '../packages/minecraft/src/village-actions';
+import { ActionFailure, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 
 interface FakeBlock { name: string; position: Vec3; boundingBox: 'block' | 'empty'; getProperties(): Record<string, unknown> }
 interface FakeEntity { id: number; uuid: string; name: string; position: Vec3; metadata: boolean[]; username?: string }
@@ -77,6 +77,137 @@ function task(kind: TaskSpec['kind'], blocks?: ExpectedBlock[]): TaskSpec {
   return { id: 'task', goalId: 'goal', kind, params: {}, dependencies: [], reservationKeys: [],
     completion: kind === 'build' ? { kind: 'blocks', blocks: blocks! } : kind === 'farm' ? { kind: 'farm', plots: 8, mode: 'setup', crop: 'wheat' } : { kind: 'breeding', animal: 'cow', minimum: 1 } };
 }
+
+function siteTask(): TaskSpec {
+  return { ...task('explore'), source: 'user', params: { mode: 'build-site', design: 'warehouse', near: { x: 0, y: 1, z: 0 }, searchRadius: 8 }, completion: { kind: 'exploration', resourceNames: [], minVisits: 1 } };
+}
+function flatGround(f: ReturnType<typeof fixture>, y = 0) {
+  for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) f.set({ x, y, z }, 'grass_block');
+}
+
+test('build-site search observes the whole empty volume, foundation and exits before selecting nearby ground', async () => {
+  const f = fixture(); flatGround(f);
+  f.set({ x: 0, y: 1, z: 0 }, 'chest'); // Preserve an existing facility even inside a design's empty interior.
+  f.set({ x: -3, y: 0, z: -2 }, 'water');
+  const selected = await exploreBuildSite(siteTask(), f.service);
+  assert.equal(selected.outcome, 'completed');
+  const site = selected.checkpoint.buildSite as { origin: Position; entrance: Position; design: string; observedAt: number };
+  assert.equal(site.design, 'warehouse'); assert.ok(site.observedAt > 0);
+  const proof = new Map(selected.observations.filter(o => o.kind === 'blocks').flatMap(o => o.data.blocks).map(b => [`${b.position.x},${b.position.y},${b.position.z}`, b.name]));
+  for (const cell of buildSiteCells(site.origin, 7, 5, 4)) {
+    const actual = proof.get(`${cell.position.x},${cell.position.y},${cell.position.z}`);
+    assert.ok(actual && (cell.requirement === 'ground' ? isBuildSiteGround(actual) : isBuildSiteAir(actual)));
+  }
+  assert.equal(f.bot.blockAt(new Vec3(0, 1, 0))?.name, 'chest');
+  assert.deepEqual(f.placed, []); assert.deepEqual(f.digged, []);
+  assert.ok(f.bot.entity.position.distanceTo(new Vec3(site.entrance.x + 0.5, 1, site.entrance.z + 0.5)) < 1.5);
+});
+
+test('build-site failure exposes observed coordinates and waits for terrain or position changes', async () => {
+  const f = fixture();
+  f.set({ x: -3, y: 0, z: -2 }, 'water');
+  const result = await exploreBuildSite(siteTask(), f.service);
+  assert.equal(result.outcome, 'condition-wait'); assert.equal(result.checkpoint.buildSite, undefined);
+  assert.match(result.reason!, /평지.*-?\d+,-?\d+,-?\d+=/);
+  const waiting = result.checkpoint.waitingFor as { causeCode: string; positions: Position[]; watchPosition: boolean };
+  assert.equal(waiting.causeCode, 'BUILD_SITE'); assert.equal(waiting.watchPosition, true); assert.ok(waiting.positions.length > 0);
+  assert.ok(result.observations.some(o => o.kind === 'blocks' && o.data.blocks.length));
+  assert.deepEqual(f.digged, []); assert.deepEqual(f.placed, []);
+});
+
+test('build-site proof is rechecked after movement and never completes when access failed', async () => {
+  const f = fixture(); flatGround(f);
+  let approaches = 0;
+  const near = f.service.near;
+  f.service.near = async (p, r) => { if (++approaches === 1) f.set({ x: -3, y: 1, z: -2 }, 'diamond_block'); await near(p, r); };
+  const result = await exploreBuildSite(siteTask(), f.service);
+  assert.equal(result.outcome, 'completed'); assert.ok(approaches > 1);
+  const site = result.checkpoint.buildSite as { origin: Position };
+  assert.ok(!(site.origin.x <= -3 && site.origin.x + 7 > -3 && site.origin.z <= -2 && site.origin.z + 5 > -2));
+  const blocked = fixture(); flatGround(blocked);
+  blocked.service.near = async () => { throw new ConditionWait('NoPath'); };
+  assert.equal((await exploreBuildSite(siteTask(), blocked.service)).outcome, 'condition-wait');
+  assert.equal(blocked.service.checkpoint.buildSite, undefined);
+});
+
+test('build-site NoPath stops after eight public approach attempts and preserves the latest blocked route', async () => {
+  const f = fixture(); flatGround(f);
+  let calls = 0, lastEntrance: Position | undefined;
+  f.service.near = async p => {
+    calls++; lastEntrance = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+    f.bot.entity.position = new Vec3(0.4, 1, -0.3);
+    throw new ConditionWait(`NoPath approach ${calls}`);
+  };
+  const result = await exploreBuildSite(siteTask(), f.service, () => 0);
+  assert.equal(calls, 8); assert.equal(result.outcome, 'condition-wait'); assert.equal(result.checkpoint.buildSite, undefined);
+  const search = result.checkpoint.buildSiteSearch as { accessAttempts: number; stoppedBecause: string; rejected: { actual: string }[]; lastAccessFailure: { position: Position; from: Position; actual: string } };
+  assert.equal(search.accessAttempts, 8); assert.equal(search.stoppedBecause, 'attempt-limit'); assert.equal(search.rejected.length, 6);
+  assert.equal(search.lastAccessFailure.actual, 'NoPath approach 8'); assert.deepEqual(search.lastAccessFailure.position, lastEntrance); assert.deepEqual(search.lastAccessFailure.from, { x: 0.4, y: 1, z: -0.3 });
+  assert.ok(search.rejected.some(entry => entry.actual === 'NoPath approach 8'), 'a full rejection list preserves the last navigation error');
+  assert.match(result.reason!, /8회.*NoPath approach 8/);
+  const wait = result.checkpoint.waitingFor as { kind: string; causeCode: string; positions: Position[]; watchPosition: boolean };
+  assert.equal(wait.kind, 'blocks'); assert.equal(wait.causeCode, 'BUILD_SITE'); assert.equal(wait.watchPosition, true);
+  for (const xz of [[0, -1], [1, -1], [-1, -1], [0, 0], [0, -2]]) for (const y of [0, 1, 2]) assert.ok(wait.positions.some(p => p.x === xz[0] && p.y === y && p.z === xz[1]), `the actual choke point neighborhood ${xz[0]},${y},${xz[1]} is watched`);
+  assert.deepEqual(f.placed, []); assert.deepEqual(f.digged, []);
+});
+
+for (const durationMs of [20000, 19000]) test(`build-site ${durationMs}ms approaches respect the sixty-second budget and finish the last bounded attempt`, async () => {
+  const f = fixture(); flatGround(f);
+  let now = 0, calls = 0;
+  f.service.near = async () => { calls++; now += durationMs; throw new ConditionWait(`NoPath after ${durationMs}ms`); };
+  const result = await exploreBuildSite(siteTask(), f.service, () => now);
+  assert.equal(calls, Math.ceil(60000 / durationMs)); assert.ok(calls < 8); assert.ok(now >= 60000 && now < 80000);
+  const search = result.checkpoint.buildSiteSearch as { stoppedBecause: string; accessElapsedMs: number; elapsedMs: number };
+  assert.equal(result.outcome, 'condition-wait'); assert.equal(search.stoppedBecause, 'time-limit'); assert.equal(search.accessElapsedMs, now); assert.equal(search.elapsedMs, now);
+  assert.match(result.reason!, /60초.*NoPath/); assert.equal(result.checkpoint.buildSite, undefined);
+});
+
+test('build-site cancellation propagates safely instead of becoming a retryable access failure', async () => {
+  const f = fixture(); flatGround(f);
+  f.service.near = async () => { throw new ActionFailure('안전 중단', 'CANCELLED', false, true); };
+  await assert.rejects(exploreBuildSite(siteTask(), f.service, () => 0), (error: unknown) => error instanceof ActionFailure && error.code === 'CANCELLED');
+  assert.equal((f.service.checkpoint.buildSiteSearch as { accessAttempts: number }).accessAttempts, 1);
+  assert.equal(f.service.checkpoint.buildSite, undefined); assert.equal(f.service.checkpoint.waitingFor, undefined);
+});
+
+test('build approaches loaded distant sites and returns after recursive material gathering before inspecting supports', async () => {
+  const f = fixture(), blocks = [{ position: { x: 5, y: 1, z: 0 }, name: 'oak_planks' }];
+  f.set({ x: 5, y: 0, z: 0 }, 'dirt'); f.bot.entity.position = new Vec3(50, 1, 0);
+  const calls: string[] = [], near = f.service.near, ensure = f.service.ensureItem, place = f.service.place;
+  f.service.near = async (p, radius) => { calls.push('approach'); await near(p, radius); };
+  f.service.ensureItem = async (item, quantity) => { calls.push('materials'); f.bot.entity.position = new Vec3(50, 1, 0); await ensure(item, quantity); };
+  f.service.place = async (p, item, expected, face) => { calls.push('place'); assert.ok(f.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) <= 3); await place(p, item, expected, face); };
+  assert.equal((await executeVillageTask(task('build', blocks), f.service)).outcome, 'completed');
+  assert.deepEqual(calls, ['approach', 'materials', 'approach', 'place']);
+  const changed = fixture(); changed.set({ x: 5, y: 0, z: 0 }, 'dirt');
+  changed.service.ensureItem = async () => { changed.set({ x: 5, y: 0, z: 0 }, 'air'); };
+  const wait = await executeVillageTask(task('build', blocks), changed.service);
+  assert.equal(wait.outcome, 'condition-wait'); assert.equal((wait.checkpoint.waitingFor as { causeCode: string }).causeCode, 'BUILD_SUPPORT');
+  assert.match(wait.reason!, /5,0,0/); assert.deepEqual(changed.placed, []);
+});
+
+test('blueprint foundations and interior occupied blocks are checked before any material work', async () => {
+  for (const obstruction of ['foundation', 'interior']) {
+    const f = fixture(); flatGround(f);
+    const origin = { x: 0, y: 1, z: 0 }, work = task('build', blueprint('warehouse', origin)); work.source = 'user'; work.params = { design: 'warehouse', origin };
+    if (obstruction === 'foundation') f.set({ x: 2, y: 0, z: 2 }, 'air');
+    else f.set({ x: 3, y: 2, z: 2 }, 'chest');
+    f.service.ensureItem = async () => { assert.fail('invalid sites must never gather materials'); };
+    const result = await executeVillageTask(work, f.service);
+    assert.equal(result.outcome, 'condition-wait'); assert.equal((result.checkpoint.waitingFor as { causeCode: string }).causeCode, 'BUILD_SITE');
+    assert.deepEqual(f.placed, []); assert.deepEqual(f.digged, []);
+  }
+});
+
+test('missing recursive build resources wait for inventory, actual resource observations or a changed position', async () => {
+  const f = fixture(), blocks = [{ position: { x: 0, y: 1, z: 0 }, name: 'oak_planks' }];
+  f.set({ x: 0, y: 0, z: 0 }, 'dirt');
+  f.service.ensureItem = async () => { throw new ConditionWait('나무가 관측되지 않았습니다.', { missingResource: 'oak_log', minimum: 2, resourceNames: ['oak_log'] }); };
+  const result = await executeVillageTask(task('build', blocks), f.service);
+  assert.equal(result.outcome, 'condition-wait');
+  assert.deepEqual(result.checkpoint.waitingFor, { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'oak_log', minimum: 2, resourceNames: ['oak_log'], watchPosition: true });
+  assert.deepEqual(f.placed, []); assert.ok(result.observations.some(o => o.kind === 'inventory'));
+});
 
 test('build protects existing blocks and validates the full footprint before placement', async () => {
   const f = fixture();

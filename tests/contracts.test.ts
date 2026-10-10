@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BotInputSchema, BotPatchSchema, CentralMessageSchema, GoalInputSchema, RulesPatchSchema, RulesSchema, WorkerMessageSchema, sameContainer } from '../packages/contracts/src';
+import { BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildWaitingForSchema, CentralMessageSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema, RulesSchema, WorkerMessageSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, sameContainer } from '../packages/contracts/src';
 
 const base = { protocolVersion: 1, messageId: 'message-1', controllerEpoch: 'epoch-1', botId: 'bot-1', sessionId: 'session-1', sentAt: 1000 };
 const report = { ready: true, world: 'local:25566', dimension: 'overworld', health: 20, food: 20, inventory: [], action: 'idle', reason: 'ready', mode: 'idle', capabilities: ['collect'], rulesVersion: 1 };
@@ -42,4 +42,28 @@ test('partial updates preserve omitted fields rather than injecting full configu
   assert.deepEqual(RulesPatchSchema.parse({ combat: { retreatHealth: 7 } }), { combat: { retreatHealth: 7 } });
   assert.deepEqual(RulesPatchSchema.parse({}), {});
   assert.deepEqual(BotPatchSchema.parse({ connection: { port: 25567 } }), { connection: { port: 25567 } });
+});
+
+test('goal params can be replaced without reintroducing a removed build origin', () => {
+  assert.deepEqual(GoalPatchSchema.parse({ params: { blueprint: 'warehouse', siteSelection: 'nearby' } }), { params: { blueprint: 'warehouse', siteSelection: 'nearby' } });
+  assert.deepEqual(GoalPatchSchema.parse({ title: '창고' }), { title: '창고' });
+  assert.equal(GoalPatchSchema.safeParse({ params: { origin: undefined } }).success, false);
+});
+
+test('site proof and typed waits use integer cells and full vacant ground clearance', () => {
+  const site = { origin: { x: 1, y: 64, z: 2 }, design: 'warehouse', entrance: { x: 4, y: 64, z: 1 }, observedAt: 1000 };
+  assert.deepEqual(BuildSiteSchema.parse(site), site);
+  assert.equal(BuildSiteSchema.safeParse({ ...site, origin: { ...site.origin, x: 1.5 } }).success, false);
+  assert.equal(BuildSiteSchema.safeParse({ ...site, entrance: undefined }).success, false);
+  const cells = buildSiteCells(site.origin, 7, 5, 4);
+  assert.equal(cells.length, 35 * 5 + 63 + 28 * 2);
+  assert.ok(cells.some(c => c.requirement === 'air' && c.position.x === 2 && c.position.y === 68 && c.position.z === 3), 'roof height is inclusive');
+  assert.ok(cells.some(c => c.requirement === 'ground' && c.position.x === 0 && c.position.y === 63 && c.position.z === 1), 'outside access ring has actual ground support');
+  assert.equal(isBuildSiteAir('oak_planks'), false);
+  for (const name of ['water', 'lava', 'magma_block', 'oak_leaves', 'oak_log', 'oak_planks', 'sand', 'gravel', 'ice', 'farmland', 'dirt_path']) assert.equal(isBuildSiteGround(name), false, name);
+  assert.equal(isBuildSiteGround('grass_block'), true);
+  const waiting = BuildWaitingForSchema.parse({ kind: 'blocks', causeCode: 'BUILD_SITE', positions: [site.origin], watchPosition: true });
+  assert.equal(waiting.kind, 'blocks'); if (waiting.kind === 'blocks') assert.deepEqual(waiting.positions, [site.origin]);
+  assert.equal(BuildWaitingForSchema.safeParse({ kind: 'blocks', causeCode: 'BUILD_SUPPORT', positions: [] }).success, false);
+  assert.equal(BuildWaitingForSchema.safeParse({ kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'oak_log', minimum: 0 }).success, false);
 });
