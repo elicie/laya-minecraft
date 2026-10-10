@@ -4,6 +4,7 @@ import type {
   Goal,
   Task,
 } from "../../../../packages/contracts/src";
+import { resolveBlueprint } from "../../../../packages/contracts/src/blueprints";
 
 const activeTaskStates = new Set([
   "assigned",
@@ -26,15 +27,40 @@ export function taskActionLabel(
     return "부지 정리";
   if (task.kind === "explore" && task.params.mode === "build-site")
     return "건설 부지 탐색";
-  if (
-    task.kind === "build" &&
-    (task.params.blueprint ??
+  if (task.kind === "build") {
+    const design =
       task.params.design ??
-      goal?.input.params.blueprint ??
-      goal?.input.params.design) === "warehouse"
-  )
-    return "창고 건축";
+      task.params.blueprint ??
+      goal?.input.params.design ??
+      goal?.input.params.blueprint;
+    try {
+      if (
+        resolveBlueprint(
+          String(design),
+          task.params.blueprintDefinition ??
+            goal?.input.params.blueprintDefinition,
+        ).template === "warehouse"
+      )
+        return "창고 건축";
+    } catch {
+      /* The registered design may still be awaiting confirmation. */
+    }
+  }
   return label(task.kind, actionLabels);
+}
+
+export function goalBlueprintTitle(goal: Goal): string | undefined {
+  if (goal.input.kind !== "build") return undefined;
+  try {
+    return resolveBlueprint(
+      String(
+        goal.input.params.design ?? goal.input.params.blueprint ?? "cabin",
+      ),
+      goal.input.params.blueprintDefinition,
+    ).title;
+  } catch {
+    return undefined;
+  }
 }
 
 export function selectedBotWork(

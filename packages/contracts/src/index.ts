@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { BlueprintDefinitionSchema, type BlueprintDefinition } from './blueprint-catalog';
+export * from './blueprint-catalog';
 
 export const PROTOCOL_VERSION = 1 as const;
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -73,7 +75,7 @@ export interface Interpretation { goal: GoalDefinition; source: 'qwen' | 'code';
 export const ExpectedBlockSchema = z.object({ position: PositionSchema, name: z.string().min(1) }).strict();
 export type ExpectedBlock = z.infer<typeof ExpectedBlockSchema>;
 const BlockPositionSchema = PositionSchema.refine(p => Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z), 'Integer block coordinates are required');
-export const BuildSiteSchema = z.object({ origin: BlockPositionSchema, design: z.string().min(1), entrance: BlockPositionSchema, observedAt: time }).strict();
+export const BuildSiteSchema = z.object({ origin: BlockPositionSchema, design: z.string().min(1), entrance: BlockPositionSchema, observedAt: time, blueprintDefinition: BlueprintDefinitionSchema.optional() }).strict();
 export type BuildSite = z.infer<typeof BuildSiteSchema>;
 export const BuildSitePreparationSchema = BuildSiteSchema.extend({ near: PositionSchema, edits: z.array(z.object({ position: BlockPositionSchema, before: z.string().min(1), after: z.enum(['air', 'dirt']) }).strict()).max(192), path: z.array(BlockPositionSchema).min(1).max(65) }).strict();
 export type BuildSitePreparation = z.infer<typeof BuildSitePreparationSchema>;
@@ -191,7 +193,7 @@ export interface Reservation { key: string; taskId: string; attemptId: string; b
 export interface AgentSession { id: string; state: 'starting' | 'ready' | 'abnormal' | 'stopped'; lastReportAt: number; report?: BotReport; activeAttemptId?: string; rulesVersion: number; pendingRulesVersion?: number; }
 export interface Agent { id: string; config: BotConfig; desiredConfig?: BotConfig; pendingCommandIds: string[]; session?: AgentSession; status: 'registered' | 'connecting' | 'ready' | 'paused' | 'removing' | 'removed' | 'abnormal'; viewer: { state: 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'; port?: number; prefix?: string }; createdAt: number; updatedAt: number; }
 export interface CoreEvent { id: string; time: number; revision: number; type: string; commandId?: string; botId?: string; goalId?: string; taskId?: string; attemptId?: string; message: string; data?: JsonObject; }
-export interface FleetSnapshot { schemaVersion: 1; controllerEpoch: string; revision: number; updatedAt: number; rules: Rules; agents: Agent[]; goals: Goal[]; tasks: Task[]; attempts: TaskAttempt[]; reservations: Reservation[]; observations: Observation[]; events: CoreEvent[]; }
+export interface FleetSnapshot { schemaVersion: 1; controllerEpoch: string; revision: number; updatedAt: number; rules: Rules; blueprints: BlueprintDefinition[]; agents: Agent[]; goals: Goal[]; tasks: Task[]; attempts: TaskAttempt[]; reservations: Reservation[]; observations: Observation[]; events: CoreEvent[]; }
 export interface PendingRuleCommand { commandId: string; version: number; awaitingBotIds: string[]; expected?: JsonObject; }
 export interface PendingCoreCommand { commandId: string; type: 'agent-update' | 'pause' | 'resume' | 'remove' | 'viewer-start' | 'viewer-stop' | 'goal-cancel' | 'goal-update'; targetId: string; expected?: JsonObject; }
 export interface FleetCheckpoint extends FleetSnapshot { processedMessageIds: string[]; pendingRuleCommands: PendingRuleCommand[]; pendingCommands: PendingCoreCommand[]; stoppedSessionIds: string[]; }
@@ -208,7 +210,7 @@ export const AgentSchema = z.object({ id: IdSchema, config: BotInputSchema.omit(
 export const CoreEventSchema = z.object({ id: IdSchema, time, revision: z.number().int().nonnegative(), type: z.string(), commandId: IdSchema.optional(), botId: IdSchema.optional(), goalId: IdSchema.optional(), taskId: IdSchema.optional(), attemptId: IdSchema.optional(), message: z.string(), data: JsonObjectSchema.optional() }).strict();
 // ObservationInput is strict at the wire boundary; the persisted form adds trusted envelope fields.
 export const ObservationSchema = z.union(ObservationInputSchema.options.map(option => option.extend({ botId: IdSchema, sessionId: IdSchema, receivedAt: time, attemptId: IdSchema.optional(), controllerEpoch: IdSchema }))) as z.ZodType<Observation>;
-export const FleetSnapshotSchema = z.object({ schemaVersion: z.literal(1), controllerEpoch: IdSchema, revision: z.number().int().nonnegative(), updatedAt: time, rules: RulesSchema, agents: z.array(AgentSchema), goals: z.array(GoalSchema), tasks: z.array(TaskSchema), attempts: z.array(TaskAttemptSchema), reservations: z.array(ReservationSchema), observations: z.array(ObservationSchema), events: z.array(CoreEventSchema) }).strict();
+export const FleetSnapshotSchema = z.object({ schemaVersion: z.literal(1), controllerEpoch: IdSchema, revision: z.number().int().nonnegative(), updatedAt: time, rules: RulesSchema, blueprints: z.array(BlueprintDefinitionSchema).max(1000).default([]), agents: z.array(AgentSchema), goals: z.array(GoalSchema), tasks: z.array(TaskSchema), attempts: z.array(TaskAttemptSchema), reservations: z.array(ReservationSchema), observations: z.array(ObservationSchema), events: z.array(CoreEventSchema) }).strict();
 export const FleetCheckpointSchema = FleetSnapshotSchema.extend({ processedMessageIds: z.array(IdSchema), pendingRuleCommands: z.array(z.object({ commandId: IdSchema, version: z.number().int().positive(), awaitingBotIds: z.array(IdSchema), expected: JsonObjectSchema.optional() }).strict()), pendingCommands: z.array(z.object({ commandId: IdSchema, type: z.enum(['agent-update', 'pause', 'resume', 'remove', 'viewer-start', 'viewer-stop', 'goal-cancel', 'goal-update']), targetId: IdSchema, expected: JsonObjectSchema.optional() }).strict()).default([]), stoppedSessionIds: z.array(IdSchema).default([]) }).strict();
 
 export function itemCount(items: readonly ItemStack[], item: string): number { return items.reduce((total, stack) => total + (stack.name === item ? stack.count : 0), 0); }
@@ -216,3 +218,4 @@ export function sameContainer(a: ContainerRef, b: ContainerRef): boolean { retur
 export function parseWorkerMessage(value: unknown): WorkerMessage { return WorkerMessageSchema.parse(value); }
 export function parseCentralMessage(value: unknown): CentralMessage { return CentralMessageSchema.parse(value); }
 export * from './build-site-preparation';
+export * from './blueprints';

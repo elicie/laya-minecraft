@@ -50,6 +50,10 @@ API prefix는 /api/v1입니다. GET /snapshot과 SSE GET /stream이 동일한 �
 
 명령 API는 봇 등록과 제거, 역할과 정지 상태 변경, 목표 해석과 등록·수정·취소, 마을과 규칙 변경을 제공합니다. 목표 해석은 실행을 시작하지 않고 구조화된 미리보기를 반환합니다. 목표 등록은 기본 예약이며 명시적인 executionMode로 즉시 전환할 수 있습니다.
 
+`GET /blueprints`는 저장한 설계도를 조회하고, `POST /blueprints`, `PATCH /blueprints/:id`, `DELETE /blueprints/:id`는 생성·수정·삭제를 요청합니다. 수정은 이름·템플릿·크기·목재·재료·가구를 포함한 전체 편집 정의를 받으며 버전과 식별자는 중앙이 부여합니다. 설계도 목록은 전체 상태의 `blueprints`에도 포함되고 기존 체크포인트에 목록이 없으면 빈 목록으로 복원합니다. 기본 템플릿은 수정하지 않습니다.
+
+사용자 설계의 건축 목표는 `params.blueprint`로 등록된 ID를 선택합니다. 중앙은 현재 정의를 `params.blueprintDefinition`에 보존하고, 이후 해당 목표의 탐색·정리·건축에 같은 정의를 전달합니다. 사용자나 모델이 제시한 임의 정의로 등록된 설계를 대체하지 않습니다. 부지·정리 결과의 선택적 `blueprintDefinition`도 배정한 정의와 일치해야 합니다. 저장한 설계의 이름을 포함한 자연어 건축 지시는 등록된 ID로 해석할 수 있습니다.
+
 `PATCH /goals/:id`에서 `params`를 지정하면 기존 객체를 전체 교체합니다. 생략하면 기존 값을 보존합니다. 따라서 기존 고정 좌표를 제거하고 주변 부지 탐색으로 바꿀 때는 `{"params":{"blueprint":"warehouse","siteSelection":"nearby"}}`를 보냅니다. 목표 ID와 제목은 유지하고 변경된 조건으로 남은 작업을 다시 계획합니다.
 
 각 명령은 commandId를 반환합니다. 유효성 검증과 영속 기록 후 accepted, 적용 진행 중 applying, 실제 확인 후 applied, 실패 시 failed를 표시합니다. HTTP 응답이나 IPC send 반환만으로 applied를 표시하지 않습니다. GET /commands/:id로 상태를 확인합니다.

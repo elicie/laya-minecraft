@@ -3,11 +3,13 @@ import { performance } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
 import { ExpectedBlockSchema, PositionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, type ExpectedBlock, type JsonObject, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
-import { BLUEPRINTS, blueprint } from '../../contracts/src/blueprints';
+import { blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
+import { BUILD_MATERIALS } from '../../contracts/src/blueprint-catalog';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 import { findBuildSitePreparation, prepareBuildSite } from './terrain';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
+const BUILD_SUPPORT = new Set<string>(BUILD_MATERIALS);
 const CROPS = {
   wheat: { seed: 'wheat_seeds', produce: 'wheat', age: 7 },
   carrots: { seed: 'carrot', produce: 'carrot', age: 7 },
@@ -85,9 +87,10 @@ const SUPPORT_FACES: Position[] = [{ x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, {
 /** Only observed natural ground and empty space are eligible; this never edits terrain. */
 export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: () => number = () => performance.now()): Promise<ResultPayload> {
   const design = String(task.params.design ?? task.params.blueprint ?? '');
-  if (!(design in BLUEPRINTS)) throw new ConditionWait('부지를 탐색할 건축 설계도를 선택해 주세요.');
-  const dimensions = BLUEPRINTS[design as keyof typeof BLUEPRINTS];
-  const height = Math.max(dimensions.height, ...blueprint(design, { x: 0, y: 0, z: 0 }).map(b => b.position.y));
+  let dimensions;
+  try { dimensions = resolveBlueprint(design, task.params.blueprintDefinition); }
+  catch { throw new ConditionWait('부지를 탐색할 유효한 건축 설계도를 선택해 주세요.'); }
+  const height = Math.max(dimensions.height, ...blueprint(design, { x: 0, y: 0, z: 0 }, dimensions.wood, dimensions.definition).map(b => b.position.y));
   const start = PositionSchema.parse(task.params.near ?? s.bot.entity.position);
   const proposal = task.params.allowPreparation === false ? undefined : findBuildSitePreparation(task, s);
   if (proposal && proposal.plan.edits.length) {
@@ -172,7 +175,7 @@ export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: (
     if (fresh.some(cell => !cell.block || (cell.requirement === 'ground' ? !isBuildSiteGround(cell.block.name) || cell.block.boundingBox !== 'block' : !isBuildSiteAir(cell.block.name)))) { cache.clear(); continue; }
     const observedAt = Date.now();
     const blocks = fresh.map(cell => ({ position: cell.position, name: cell.block!.name }));
-    s.checkpoint.buildSite = { origin, design, entrance, observedAt };
+    s.checkpoint.buildSite = { origin, design, entrance, observedAt, ...(dimensions.definition ? { blueprintDefinition: dimensions.definition } : {}) };
     delete s.checkpoint.buildSiteSearch; delete s.checkpoint.waitingFor;
     s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt, world: s.rules.world, dimension: s.rules.dimension, data: { blocks } });
     s.observations.push({ id: randomUUID(), kind: 'exploration', observedAt, world: s.rules.world, dimension: s.rules.dimension,
@@ -204,7 +207,12 @@ function footprint(blocks: ExpectedBlock[]): BuildFootprint {
 }
 function validateBuildSite(task: TaskSpec, s: ActionServices, blocks: ExpectedBlock[], area: BuildFootprint, planned: Map<string, string>): void {
   const design = String(task.params.design ?? task.params.blueprint ?? '');
-  if (design in BLUEPRINTS) {
+  let resolved;
+  if (design) {
+    try { resolved = resolveBlueprint(design, task.params.blueprintDefinition); }
+    catch { throw new ConditionWait('고정된 건축 설계도의 형식과 ID를 확인해야 합니다.', s.checkpoint); }
+  }
+  if (resolved) {
     for (const cell of buildSiteCells(area.origin, area.width, area.depth, area.height)) {
       const current = at(s, cell.position), expected = planned.get(key(cell.position));
       if (!current) buildWait(s, 'BUILD_OBSERVATION', '건축 부지의 실제 블록 관측이 필요합니다.', [cell.position]);
@@ -240,7 +248,7 @@ function constructionAccess(s: ActionServices, blocks: ExpectedBlock[]): BuildAc
     const stands = Array.from({ length: height }, (_, i) => ({ x, y: high - i, z: startZ + direction * i }));
     if (stands.some(stand => stand.z < minZ || stand.z > maxZ)) continue;
     const supports = stands.map(stand => byPosition.get(key(offset(stand, 0, -1, 0))));
-    if (supports.some(block => !block || !(block.name.endsWith('_planks') || ['cobblestone', 'stone', 'stone_bricks', 'bricks'].includes(block.name)))) continue;
+    if (supports.some(block => !block || !BUILD_SUPPORT.has(block.name))) continue;
     const columns = stands.map(stand => blocks.filter(block => block.position.x === stand.x && block.position.z === stand.z && block.position.y >= stand.y).sort((a, b) => b.position.y - a.position.y));
     if (columns.some(column => !column.length || column.some(block => block.name.endsWith('_door') || block.name.endsWith('_bed') || ['chest', 'furnace', 'crafting_table', 'ladder', 'wall_torch'].includes(block.name)))) continue;
     plans.push({ id: `${x},${startZ},${direction}`, columns, stands, exit: { x: outsideX, y: low, z: stands.at(-1)!.z } });
@@ -260,17 +268,23 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
   if (blocks.some(b => !position(b.position))) throw new ConditionWait('건축 좌표는 정수 블록 좌표여야 합니다.');
   if (new Set(blocks.map(b => key(b.position))).size !== blocks.length) throw new ConditionWait('건축 배치에 중복 좌표가 있습니다.');
   if ((task as TaskSpec & { source?: string }).source !== 'user') requireBounds(s, blocks.map(b => b.position));
+  const area = footprint(blocks), planned = new Map(blocks.map(block => [key(block.position), block.name]));
+  s.checkpoint.buildProtection = { ...area };
+  const design = String(task.params.design ?? task.params.blueprint ?? '');
+  let resolved;
+  if (design) { try { resolved = resolveBlueprint(design, task.params.blueprintDefinition); } catch { throw new ConditionWait('고정된 건축 설계도의 형식과 ID를 확인해야 합니다.', s.checkpoint); } }
+  if (resolved?.definition) {
+    const pinned = blueprint(design, area.origin, resolved.wood, resolved.definition);
+    if (pinned.length !== blocks.length || pinned.some(block => planned.get(key(block.position)) !== block.name)) throw new ConditionWait('고정된 설계도와 작업의 전체 블록 배치가 일치해야 합니다.', s.checkpoint);
+  }
   if (blocks.every(block => at(s, block.position)?.name === block.name)) {
     facts(s, task, observedBlocks(s, blocks)); recordInventory(s);
     return result(s, 'completed', '전체 설계도와 실제 블록 배치가 일치합니다.');
   }
-  const area = footprint(blocks), planned = new Map(blocks.map(block => [key(block.position), block.name]));
-  s.checkpoint.buildProtection = { ...area };
-  const design = String(task.params.design ?? task.params.blueprint ?? '');
-  const entrance = design in BLUEPRINTS ? { x: area.origin.x + Math.floor(area.width / 2), y: area.origin.y, z: area.origin.z - 1 } : blocks[0]!.position;
+  const entrance = resolved ? { x: area.origin.x + Math.floor(area.width / 2), y: area.origin.y, z: area.origin.z - 1 } : blocks[0]!.position;
   // Loaded chunks are evidence of visibility, not proof that the worker reached the site.
   if (blocks.every(block => !!at(s, block.position))) validateBuildSite(task, s, blocks, area, planned);
-  try { await s.near(offset(entrance, 0.5, 0, 0.5), design in BLUEPRINTS ? 1 : 3); }
+  try { await s.near(offset(entrance, 0.5, 0, 0.5), resolved ? 1 : 3); }
   catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]); throw error; }
   validateBuildSite(task, s, blocks, area, planned);
   const access = constructionAccess(s, blocks);
@@ -340,15 +354,33 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       await buildMaterial(s, expected.name);
       validateBuildSite(task, s, blocks, area, planned);
       const support = at(s, offset(stand, 0, -1, 0));
-      if (!support || !(support.name.endsWith('_planks') || ['cobblestone', 'stone', 'stone_bricks', 'bricks', 'dirt', 'grass_block'].includes(support.name)) ||
+      if (!support || !(BUILD_SUPPORT.has(support.name) || ['dirt', 'grass_block'].includes(support.name)) ||
         at(s, stand)?.boundingBox !== 'empty' || at(s, offset(stand, 0, 1, 0))?.boundingBox !== 'empty')
         buildWait(s, 'BUILD_ACCESS', '내려올 발판과 몸이 들어갈 빈 공간을 실제 관측으로 확인해야 합니다.', [offset(stand, 0, -1, 0), stand, offset(stand, 0, 1, 0)]);
       // Public placement may reposition for a high face; restore the step for every cell.
       await s.near(offset(stand, 0.5, 0, 0.5), 0);
-      const feet = s.bot.entity.position;
-      if (Math.floor(feet.x) !== stand.x || Math.floor(feet.z) !== stand.z || Math.abs(feet.y - stand.y) > 0.1)
-        throw new ConditionWait('다음 발판에 실제로 도착한 뒤 건축 접근로를 닫아야 합니다.', s.checkpoint);
+      // GoalNear can finish on entering the integer cell while a one-block
+      // descent is still in flight. Observe the actual landing before closing it.
+      let landed = false;
+      for (let sample = 0; sample < 20; sample++) {
+        s.check();
+        const feet = s.bot.entity.position;
+        if (Math.floor(feet.x) === stand.x && Math.floor(feet.z) === stand.z && Math.abs(feet.y - stand.y) <= 0.1) {
+          const before = { x: feet.x, y: feet.y, z: feet.z };
+          await s.pause(50);
+          const fresh = s.bot.entity.position;
+          if (Math.floor(fresh.x) === stand.x && Math.floor(fresh.z) === stand.z && Math.abs(fresh.y - stand.y) <= 0.1 && Math.abs(fresh.y - before.y) <= 0.02) { landed = true; break; }
+        } else await s.pause(50);
+      }
+      if (!landed) {
+        const feet = s.bot.entity.position;
+        buildWait(s, 'BUILD_ACCESS', `다음 발판에 실제로 안정된 뒤 건축 접근로를 닫아야 합니다. 목표 ${key(stand)}, 실제 ${feet.x.toFixed(3)},${feet.y.toFixed(3)},${feet.z.toFixed(3)}`,
+          [offset(stand, 0, -1, 0), stand, offset(stand, 0, 1, 0), { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) }]);
+      }
       s.check();
+      const landedSupport = at(s, offset(stand, 0, -1, 0));
+      if (!landedSupport || !(BUILD_SUPPORT.has(landedSupport.name) || ['dirt', 'grass_block'].includes(landedSupport.name)) || at(s, stand)?.boundingBox !== 'empty' || at(s, offset(stand, 0, 1, 0))?.boundingBox !== 'empty')
+        buildWait(s, 'BUILD_ACCESS', '이동 후 실제 발판과 머리 공간이 바뀌어 접근로를 닫지 않습니다.', [offset(stand, 0, -1, 0), stand, offset(stand, 0, 1, 0)]);
       const current = at(s, expected.position);
       if (!current || !AIR.has(current.name)) throw new ConditionWait('건축 접근로를 닫기 전에 실제 빈 부지를 확인해야 합니다.', s.checkpoint);
       await buildPlace(s, expected, expected.name);

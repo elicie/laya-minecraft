@@ -6,10 +6,10 @@ import { realpath, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
-  BotInputSchema, BotPatchSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema,
+  BotInputSchema, BotPatchSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema, BlueprintInputSchema,
   type Agent, type BotInput, type BotPatch, type CoreEvent, type ExecutionMode,
   type FleetCheckpoint, type FleetSnapshot, type GoalInput, type GoalPatch,
-  type Interpretation, type Rules, type RulesPatch,
+  type Interpretation, type Rules, type RulesPatch, type BlueprintInput, type BlueprintDefinition,
 } from '../../../packages/contracts/src';
 import { ControlStore, type CommandReceipt, type StoredEvent } from './store';
 import { proxyViewerHttp, proxyViewerUpgrade, type ViewerTarget } from './viewer-proxy';
@@ -19,6 +19,9 @@ export interface FleetControlPort {
   checkpoint(): FleetCheckpoint;
   addAgent(input: BotInput, commandId?: string): Agent;
   createGoal(input: GoalInput, commandId?: string): unknown;
+  createBlueprint(input: BlueprintInput, commandId?: string): unknown;
+  updateBlueprint(blueprintId: string, input: BlueprintInput, commandId?: string): unknown;
+  deleteBlueprint(blueprintId: string, commandId?: string): unknown;
   updateGoal(goalId: string, patch: GoalPatch, commandId?: string): unknown;
   cancelGoal(goalId: string, commandId?: string): unknown;
   updateRules(patch: RulesPatch, mode?: ExecutionMode, commandId?: string): unknown;
@@ -32,7 +35,7 @@ export interface ControlServerOptions {
   core: FleetControlPort;
   store: ControlStore;
   startBot?: (agent: Agent) => void | Promise<void>;
-  interpret?: (text: string, rules: Rules) => Promise<Interpretation>;
+  interpret?: (text: string, rules: Rules, blueprints?: readonly BlueprintDefinition[]) => Promise<Interpretation>;
   host?: string;
   port?: number;
   viewerPortBase?: number;
@@ -140,6 +143,7 @@ export function createControlServer(options: ControlServerOptions) {
         json(res, 200, { ok: true, controllerEpoch: core.getSnapshot().controllerEpoch }); return;
       }
       if (req.method === 'GET' && path === '/api/v1/snapshot') { json(res, 200, core.getSnapshot()); return; }
+      if (req.method === 'GET' && path === '/api/v1/blueprints') { json(res, 200, core.getSnapshot().blueprints); return; }
       if (req.method === 'GET' && path === '/api/v1/events') {
         const requestedLimit = Number(url.searchParams.get('limit') ?? 100);
         if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 1000) throw new HttpError(400, 'INVALID_LIMIT', '이벤트 수는 1~1000이어야 합니다.');
@@ -171,8 +175,12 @@ export function createControlServer(options: ControlServerOptions) {
       if (req.method === 'POST' && path === '/api/v1/goals/interpret') {
         const input = interpretRequest.parse(value);
         if (!options.interpret) throw new HttpError(503, 'INTERPRETER_UNAVAILABLE', '목표 해석 기능이 준비되지 않았습니다.');
-        const interpretation = await options.interpret(input.text, core.getSnapshot().rules);
+        const snapshot = core.getSnapshot();
+        const interpretation = await options.interpret(input.text, snapshot.rules, snapshot.blueprints);
         json(res, 200, { ...interpretation, goal: GoalInputSchema.parse(interpretation.goal) }); return;
+      } else if (req.method === 'POST' && path === '/api/v1/blueprints') {
+        const input = BlueprintInputSchema.parse(value);
+        receipt = await mutate(req, 'blueprint.create', input, id => core.createBlueprint(input, id));
       } else if (req.method === 'POST' && path === '/api/v1/bots') {
         const raw = z.record(z.string(), z.unknown()).parse(value);
         const connection = raw.connection && typeof raw.connection === 'object' ? raw.connection as Record<string, unknown> : {};
@@ -191,7 +199,17 @@ export function createControlServer(options: ControlServerOptions) {
       } else {
         const botPath = path.match(/^\/api\/v1\/bots\/([^/]+)(?:\/(remove|pause|resume|viewer))?$/);
         const goalPath = path.match(/^\/api\/v1\/goals\/([^/]+)(?:\/(cancel))?$/);
-        if (botPath) {
+        const blueprintPath = path.match(/^\/api\/v1\/blueprints\/([^/]+)$/);
+        if (blueprintPath) {
+          const blueprintId = decodeURIComponent(blueprintPath[1]!);
+          if (req.method === 'PATCH') {
+            const input = BlueprintInputSchema.parse(value);
+            receipt = await mutate(req, 'blueprint.update', { blueprintId, input }, id => core.updateBlueprint(blueprintId, input, id));
+          } else if (req.method === 'DELETE') {
+            emptyRequest.parse(value);
+            receipt = await mutate(req, 'blueprint.delete', { blueprintId }, id => core.deleteBlueprint(blueprintId, id));
+          } else throw new HttpError(404, 'NOT_FOUND', '요청한 설계도 기능을 찾을 수 없습니다.');
+        } else if (botPath) {
           const botId = decodeURIComponent(botPath[1]!);
           const action = botPath[2];
           if (req.method === 'PATCH' && !action) {

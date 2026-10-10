@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { FleetController } from '../packages/core/src';
+import { FleetController, planGoal } from '../packages/core/src';
 import { verifyCompletion } from '../packages/core/src/verification';
-import { FleetCheckpointSchema, FleetSnapshotSchema, buildSiteCells, preparationProofPositions, type BuildSitePreparation, type CentralMessage, type ContainerRef, type ExpectedBlock, type ObservationInput, type Position } from '../packages/contracts/src';
+import { FleetCheckpointSchema, FleetSnapshotSchema, PreparationVerificationSchema, blueprintPreset, buildSiteCells, preparationProofPositions, type BlueprintDefinition, type BuildSitePreparation, type CentralMessage, type ContainerRef, type ExpectedBlock, type ObservationInput, type Position } from '../packages/contracts/src';
 import { blueprint } from '../packages/contracts/src/blueprints';
 
 const world = '127.0.0.1:25566', dimension = 'overworld';
@@ -34,7 +34,7 @@ function siteResult(f: ReturnType<typeof fixture>, task = f.latest(), origin: Po
   const p = task.payload.task.params, design = String(p.design);
   const entrance = { x: origin.x + Math.floor(Number(p.siteWidth) / 2), y: origin.y, z: origin.z - 1 };
   const blocks = buildSiteCells(origin, Number(p.siteWidth), Number(p.siteDepth), Number(p.siteHeight)).map(cell => ({ position: cell.position, name: cell.requirement === 'ground' ? 'grass_block' : 'air' }));
-  return { outcome: 'completed', checkpoint: { buildSite: { origin, design, entrance, observedAt: f.now() } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...entrance, x: entrance.x + 0.5, z: entrance.z + 0.5 }, resources: [] })] };
+  return { outcome: 'completed', checkpoint: { buildSite: { origin, design, entrance, observedAt: f.now(), ...(p.blueprintDefinition ? { blueprintDefinition: p.blueprintDefinition as BlueprintDefinition } : {}) } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...entrance, x: entrance.x + 0.5, z: entrance.z + 0.5 }, resources: [] })] };
 }
 
 function preparationProposal(f: ReturnType<typeof fixture>, task = f.latest()) {
@@ -47,8 +47,64 @@ function preparationProposal(f: ReturnType<typeof fixture>, task = f.latest()) {
 function preparedResult(f: ReturnType<typeof fixture>, proposal: ReturnType<typeof preparationProposal>) {
   const edits = new Map(proposal.plan.edits.map(e => [`${e.position.x},${e.position.y},${e.position.z}`, e.after]));
   const blocks = proposal.blocks.map(b => ({ ...b, name: edits.get(`${b.position.x},${b.position.y},${b.position.z}`) ?? b.name }));
-  return { outcome: 'completed', checkpoint: { buildSite: { origin: proposal.plan.origin, design: proposal.plan.design, entrance: proposal.plan.entrance, observedAt: f.now() } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...proposal.plan.entrance, x: proposal.plan.entrance.x + 0.5, z: proposal.plan.entrance.z + 0.5 }, resources: [] })] };
+  return { outcome: 'completed', checkpoint: { buildSite: { origin: proposal.plan.origin, design: proposal.plan.design, entrance: proposal.plan.entrance, observedAt: f.now(), ...(proposal.plan.blueprintDefinition ? { blueprintDefinition: proposal.plan.blueprintDefinition } : {}) } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...proposal.plan.entrance, x: proposal.plan.entrance.x + 0.5, z: proposal.plan.entrance.z + 0.5 }, resources: [] })] };
 }
+
+test('custom blueprint mutations persist versions and reject ambiguous normalized catalog titles', () => {
+  const f = fixture(0), input = { ...blueprintPreset('cabin'), title: '  내  집  ' }, created = f.core.createBlueprint(input, 'new-blueprint');
+  assert.equal(created.title, '내  집'); assert.equal(created.version, 1); assert.throws(() => f.core.createBlueprint({ ...input, title: '내 집' }));
+  const other = f.core.createBlueprint({ ...input, title: '다른 집' }); assert.throws(() => f.core.updateBlueprint(other.id, { ...input, title: '내 집' }));
+  f.advance(1); const updated = f.core.updateBlueprint(created.id, { ...input, width: 6 }, 'update-blueprint'); assert.equal(updated.version, 2); assert.equal(updated.createdAt, created.createdAt); assert.equal(updated.updatedAt, f.now()); assert.equal(f.core.getSnapshot().blueprints[0].width, 6);
+  f.core.deleteBlueprint(created.id, 'delete-blueprint'); assert.equal(f.core.getSnapshot().blueprints.length, 1); assert.throws(() => f.core.updateBlueprint('cabin', input)); assert.throws(() => f.core.deleteBlueprint('cabin')); assert.throws(() => f.core.deleteBlueprint(created.id));
+  for (const commandId of ['new-blueprint', 'update-blueprint', 'delete-blueprint']) assert.ok(f.events.some(e => e.type === 'command.applied' && e.commandId === commandId));
+});
+
+test('custom build pins catalog values over incoming definitions and raw placements, then survives editing and deletion', () => {
+  const f = fixture(), input = { ...blueprintPreset('warehouse'), title: '우리 창고' }, definition = f.core.createBlueprint(input);
+  const goal = f.core.createGoal({ kind: 'build', params: { blueprint: definition.id, siteSelection: 'nearby', blueprintDefinition: { ...definition, width: 20 }, requiredBlocks: [{ position: { x: 99, y: 99, z: 99 }, name: 'tnt' }] } }); const survey = f.latest();
+  assert.deepEqual(survey.payload.task.params.blueprintDefinition, definition); assert.equal(survey.payload.task.params.requiredBlocks, undefined); assert.equal(survey.payload.task.params.siteWidth, definition.width);
+  f.core.updateBlueprint(definition.id, { ...input, width: 9 }); f.core.updateGoal(goal.id, { title: '목표 제목 변경' });
+  assert.deepEqual(f.core.getSnapshot().goals[0].input.params.blueprintDefinition, definition, 'unrelated goal edits preserve the pinned version');
+  f.core.deleteBlueprint(definition.id); assert.equal(f.core.getSnapshot().blueprints.length, 0); assert.throws(() => f.core.createGoal({ kind: 'build', params: { blueprint: definition.id } }));
+  f.result(survey, siteResult(f, survey)); const resurvey = f.latest(); assert.equal(resurvey.payload.task.params.mode, 'build-site'); f.result(resurvey, siteResult(f, resurvey)); const build = f.latest(); assert.deepEqual(build.payload.task.params.blueprintDefinition, definition); assert.deepEqual(build.payload.task.completion, { kind: 'blocks', blocks: blueprint(definition.id, { x: 5, y: 64, z: 5 }, 'oak', definition) });
+  const restored = new FleetController({ checkpoint: f.core.checkpoint(), now: f.now, send: () => {} }); assert.equal(restored.getSnapshot().blueprints.length, 0); assert.deepEqual(restored.getSnapshot().goals[0].input.params.blueprintDefinition, definition); FleetCheckpointSchema.parse(restored.checkpoint());
+});
+
+test('an explicit build parameter update pins the current catalog version', () => {
+  const f = fixture(0), input = { ...blueprintPreset('house'), title: '가족 집' }, first = f.core.createBlueprint(input), goal = f.core.createGoal({ kind: 'build', params: { blueprint: first.id } });
+  const second = f.core.updateBlueprint(first.id, { ...input, wood: 'birch', materials: { ...input.materials, roof: 'birch_planks' } });
+  f.core.updateGoal(goal.id, { params: { blueprint: first.id } }); assert.deepEqual(f.core.getSnapshot().goals[0].input.params.blueprintDefinition, second);
+});
+
+for (const stage of ['survey', 'preparation-proposal', 'preparation-completion']) test(`custom ${stage} rejects a same-id/version definition with changed dimensions or furnishings`, () => {
+  const f = fixture(), definition = f.core.createBlueprint({ ...blueprintPreset('warehouse'), title: '맞춤 창고' }); f.core.createGoal({ kind: 'build', params: { blueprint: definition.id, siteSelection: 'nearby' } }); const survey = f.latest();
+  if (stage === 'survey') {
+    const proof = siteResult(f, survey); proof.checkpoint.buildSite.blueprintDefinition = { ...definition, width: definition.width + 1 }; f.result(survey, proof);
+  } else {
+    const proposal = preparationProposal(f, survey); proposal.plan.design = definition.id; proposal.plan.blueprintDefinition = definition;
+    if (stage === 'preparation-proposal') { proposal.plan.blueprintDefinition = { ...definition, furniture: { ...definition.furniture, chest: false } }; f.result(survey, proposal.payload); }
+    else { f.result(survey, proposal.payload); const preparation = f.latest(); assert.equal(preparation.payload.task.params.mode, 'prepare-site'); const prepared = preparedResult(f, proposal); prepared.checkpoint.buildSite.blueprintDefinition = { ...definition, materials: { ...definition.materials, roof: 'stone_bricks' } }; f.result(preparation, prepared); }
+  }
+  assert.equal(f.core.getSnapshot().goals[0].state, 'held'); assert.notEqual(f.core.getSnapshot().goals[0].input.params.siteSelection, 'fixed');
+});
+
+test('custom observed preparation keeps its immutable definition through catalog deletion and actual completion', () => {
+  const f = fixture(), definition = f.core.createBlueprint({ ...blueprintPreset('warehouse'), title: '지형 정리 창고' }); f.core.createGoal({ kind: 'build', params: { blueprint: definition.id, siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); proposal.plan.design = definition.id; proposal.plan.blueprintDefinition = definition;
+  f.result(survey, proposal.payload); const preparation = f.latest(); assert.deepEqual(preparation.payload.task.params.blueprintDefinition, definition); f.core.deleteBlueprint(definition.id); f.result(preparation, preparedResult(f, proposal));
+  const build = f.latest(); assert.deepEqual(build.payload.task.params.blueprintDefinition, definition); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'fixed'); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
+  f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint(definition.id, proposal.plan.origin, 'oak', definition) })] }); assert.equal(f.core.getSnapshot().goals[0].state, 'completed');
+});
+
+test('public planner handles malformed custom preparation without throwing and catalog raw blocks cannot replace generated cells', () => {
+  const f = fixture(0), definition = f.core.createBlueprint({ ...blueprintPreset('warehouse'), title: '계획 검증 창고' }), goal = f.core.createGoal({ kind: 'build', params: { blueprint: definition.id } });
+  const plan: BuildSitePreparation = { design: definition.id, origin: { x: 5, y: 64, z: 5 }, entrance: { x: 8, y: 64, z: 4 }, near: { x: 0, y: 64, z: 0 }, observedAt: f.now(), edits: [], path: [{ x: 0, y: 64, z: 0 }] };
+  const marker = PreparationVerificationSchema.parse({ controllerEpoch: 'epoch', sessionId: 'session', attemptId: 'attempt', botId: 'bot', observedAt: f.now() });
+  const invalid = { ...goal, input: { ...goal.input, params: { blueprint: definition.id, siteSelection: 'preparing', sitePreparation: JSON.parse(JSON.stringify(plan)), preparationVerification: marker } } };
+  assert.match(planGoal(invalid, f.core.getSnapshot().rules, randomUUID).waiting!, /설계도 버전/);
+  const raw = { ...goal, input: { ...goal.input, params: { blueprint: definition.id, blueprintDefinition: JSON.parse(JSON.stringify(definition)), origin: { x: 0, y: 64, z: 0 }, requiredBlocks: [{ position: { x: 900, y: 900, z: 900 }, name: 'tnt' }] } } };
+  const generated = planGoal(raw, f.core.getSnapshot().rules, randomUUID); assert.equal(generated.tasks.length, 1); assert.deepEqual(generated.tasks[0].completion, { kind: 'blocks', blocks: blueprint(definition.id, { x: 0, y: 64, z: 0 }, 'oak', definition) });
+  const legacy = f.core.checkpoint(); delete (legacy as Partial<typeof legacy>).blueprints; assert.deepEqual(FleetCheckpointSchema.parse(legacy).blueprints, [], 'older persisted checkpoints restore an empty catalog');
+});
 
 test('an observed terrain proposal reserves preparation, then actual prepared ground starts building without completing the warehouse', () => {
   const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } });

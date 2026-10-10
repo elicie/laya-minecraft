@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
-import { RulesSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, validateBuildSitePreparation, type BuildSitePreparation, type Position, type TaskSpec } from '../packages/contracts/src';
+import { RulesSchema, BlueprintDefinitionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, validateBuildSitePreparation, type BuildSitePreparation, type Position, type TaskSpec } from '../packages/contracts/src';
 import { findBuildSitePreparation, intersectsBotBody, observePreparation, prepareBuildSite } from '../packages/minecraft/src/terrain';
 import { executeVillageTask, exploreBuildSite } from '../packages/minecraft/src/village-actions';
 import { ActionFailure, ConditionWait, checkAbort, type ActionServices } from '../packages/minecraft/src/services';
@@ -50,6 +51,20 @@ test('terrain exploration proposes observed shallow cut and fill with an escape 
   assert.deepEqual(plan.path[0], { x: 0, y: 64, z: 0 }); assert.ok(plan.edits.length <= 192);
   assert.ok(validateBuildSitePreparation(plan, observePreparation(f.services, plan)).ok);
   assert.equal(f.dug.length, 0); assert.equal(f.placed.length, 0); assert.equal(f.visited.length, 0);
+});
+
+test('custom dimensions and pinned definition survive terrain proposal and actual site preparation', async () => {
+  const f = fixture(), definition = BlueprintDefinitionSchema.parse({ id: randomUUID(), version: 2, createdAt: 1, updatedAt: 2, title: '사용자 창고', template: 'warehouse', width: 6, depth: 5, height: 3, wood: 'spruce',
+    materials: { floor: 'cobblestone', wall: 'stone_bricks', roof: 'spruce_planks', window: 'glass' }, furniture: { chest: false, craftingTable: false, furnace: false, bed: false, lighting: false } });
+  f.explore.params = { ...f.explore.params, design: definition.id, blueprintDefinition: definition };
+  const proposal = findBuildSitePreparation(f.explore, f.services); assert.ok(proposal);
+  assert.equal(proposal.plan.design, definition.id); assert.deepEqual(proposal.plan.blueprintDefinition, definition);
+  assert.ok(validateBuildSitePreparation(proposal.plan, proposal.blocks).ok);
+  const result = await prepareBuildSite(f.prep(proposal.plan), f.services);
+  assert.equal(result.outcome, 'completed');
+  assert.deepEqual((result.checkpoint.buildSite as { blueprintDefinition: unknown }).blueprintDefinition, definition);
+  const actual = new Map(observePreparation(f.services, proposal.plan).map(b => [key(b.position), b.name]));
+  for (const cell of buildSiteCells(proposal.plan.origin, 6, 5, 3)) assert.ok(cell.requirement === 'air' ? isBuildSiteAir(actual.get(key(cell.position))!) : isBuildSiteGround(actual.get(key(cell.position))!));
 });
 
 test('reserved terrain preparation opens the trapped bot escape, reuses actual excavated dirt and proves the complete site', async () => {
