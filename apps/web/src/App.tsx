@@ -9,6 +9,7 @@ import { BotDetail } from "./components/BotDetail";
 import { Events } from "./components/Events";
 import { BotForm, GoalForm, RulesForm, VillageForm } from "./components/Forms";
 import { VillageMap } from "./components/VillageMap";
+import { PreparationProgress } from "./components/PreparationProgress";
 import { useFleet } from "./hooks/useFleet";
 import { errorMessage, patch, post, request } from "./lib/api";
 import { createRequestId } from "./lib/uuid";
@@ -20,6 +21,7 @@ import {
   percent,
   roleLabels,
   selectedBotWork,
+  taskActionLabel,
 } from "./lib/display";
 
 type Modal = {
@@ -492,11 +494,12 @@ export function App() {
                             <ol>
                               {tasks.map((task) => (
                                 <li key={task.id}>
-                                  <span>{label(task.kind, actionLabels)}</span>
+                                  <span>{taskActionLabel(task, goal)}</span>
                                   <span className="muted">
                                     {label(task.state)}
                                   </span>
                                   {task.reason && <p>{task.reason}</p>}
+                                  <PreparationProgress task={task} />
                                 </li>
                               ))}
                             </ol>

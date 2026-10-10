@@ -75,6 +75,9 @@ export type ExpectedBlock = z.infer<typeof ExpectedBlockSchema>;
 const BlockPositionSchema = PositionSchema.refine(p => Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z), 'Integer block coordinates are required');
 export const BuildSiteSchema = z.object({ origin: BlockPositionSchema, design: z.string().min(1), entrance: BlockPositionSchema, observedAt: time }).strict();
 export type BuildSite = z.infer<typeof BuildSiteSchema>;
+export const BuildSitePreparationSchema = BuildSiteSchema.extend({ near: PositionSchema, edits: z.array(z.object({ position: BlockPositionSchema, before: z.string().min(1), after: z.enum(['air', 'dirt']) }).strict()).max(192), path: z.array(BlockPositionSchema).min(1).max(65) }).strict();
+export type BuildSitePreparation = z.infer<typeof BuildSitePreparationSchema>;
+export const PreparationVerificationSchema = z.object({ controllerEpoch: IdSchema, sessionId: IdSchema, attemptId: IdSchema, botId: IdSchema, observedAt: time }).strict();
 export const BuildWaitingForSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('blocks'), causeCode: z.enum(['BUILD_SUPPORT', 'BUILD_SITE', 'BUILD_ACCESS', 'BUILD_OBSERVATION']), positions: z.array(BlockPositionSchema).min(1).max(10000), watchPosition: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('inventory'), causeCode: z.literal('BUILD_MATERIAL'), item: z.string().min(1), minimum: z.number().int().positive(), watchPosition: z.boolean().optional(), resourceNames: z.array(z.string().min(1)).max(100).optional() }).strict(),
@@ -212,3 +215,4 @@ export function itemCount(items: readonly ItemStack[], item: string): number { r
 export function sameContainer(a: ContainerRef, b: ContainerRef): boolean { return a.id === b.id && a.world === b.world && a.dimension === b.dimension && a.position.x === b.position.x && a.position.y === b.position.y && a.position.z === b.position.z; }
 export function parseWorkerMessage(value: unknown): WorkerMessage { return WorkerMessageSchema.parse(value); }
 export function parseCentralMessage(value: unknown): CentralMessage { return CentralMessageSchema.parse(value); }
+export * from './build-site-preparation';

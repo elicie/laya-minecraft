@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { Block } from 'prismarine-block';
 import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
-import { ContainerRefSchema, PositionSchema, itemCount, type ActionKind, type BotConfig, type ContainerRef, type ObservationInput, type ResultPayload, type Rules, type TaskSpec } from '../../contracts/src';
+import { ContainerRefSchema, PositionSchema, itemCount, type ActionKind, type BotConfig, type ContainerRef, type ObservationInput, type Position, type ResultPayload, type Rules, type TaskSpec } from '../../contracts/src';
 import { ActionFailure, ConditionWait, checkAbort, pause, type ActionServices } from './services';
 import { inventory, inventoryObservation, observationBase, position, vector } from './observations';
 import { HUNTABLE, HOSTILES } from './combat-policy';
@@ -54,6 +54,7 @@ export class MineflayerExecutor {
       bot: this.bot, rules: this.options.rules, signal, checkpoint, observations: [], evidence: [],
       check: () => checkAbort(signal), pause: (ms) => pause(ms, signal), near: (p, radius) => this.near(p, signal, radius),
       ensureItem: (item, quantity) => this.ensureItem(item, quantity, s), place: (p, item, expected, face) => this.place(p, item, expected, s, face),
+      recoverDrops: (p, item, minimum, avoidSupports) => this.pickup(p, s, item, minimum, avoidSupports),
       observeInventory: () => inventoryObservation(this.bot, this.options.world, this.options.dimension()),
       progress: (action, reason) => this.options.onProgress?.(action, reason),
     };
@@ -238,6 +239,10 @@ export class MineflayerExecutor {
     return false;
   }
   private protectedBuildPosition(p: { x: number; y: number; z: number }, s: ActionServices): boolean {
+    for (const field of ['protectedPositions', 'buildPreparationProtection']) {
+      const cells = s.checkpoint[field];
+      if (Array.isArray(cells) && cells.some(value => value && typeof value === 'object' && 'x' in value && 'y' in value && 'z' in value && value.x === p.x && value.y === p.y && value.z === p.z)) return true;
+    }
     const area = s.checkpoint.buildProtection as { origin?: { x: number; y: number; z: number }; width?: number; depth?: number; height?: number } | undefined;
     const origin = area?.origin;
     if (!origin || !Number.isFinite(area?.width) || !Number.isFinite(area?.depth) || !Number.isFinite(area?.height)) return false;
@@ -284,7 +289,7 @@ export class MineflayerExecutor {
     }
     this.recordInventory(s);
   }
-  private async pickup(location: { x: number; y: number; z: number }, s: ActionServices, item?: string, minimum = Infinity): Promise<void> {
+  private async pickup(location: { x: number; y: number; z: number }, s: ActionServices, item?: string, minimum = Infinity, avoidSupports: Position[] = []): Promise<void> {
     const p = vector(location);
     for (let round = 0; round < (item ? 20 : 3); round++) {
       s.check();
@@ -295,6 +300,7 @@ export class MineflayerExecutor {
         // is not a reachable stand position; reobserve until it has ground.
         const feet = drop.position.floored(), support = this.bot.blockAt(feet.offset(0, -1, 0));
         const body = this.bot.blockAt(feet), head = this.bot.blockAt(feet.offset(0, 1, 0));
+        if (avoidSupports.some(p => p.x === feet.x && p.y === feet.y - 1 && p.z === feet.z)) return;
         if (support?.boundingBox !== 'block' || body?.boundingBox !== 'empty' || head?.boundingBox !== 'empty' ||
           [support.name, body.name, head.name].some(name => unsafeBlocks.has(name))) continue;
         try { await s.near({ x: drop.position.x, y: feet.y, z: drop.position.z }, 0); await s.pause(150); }
@@ -574,6 +580,7 @@ export class MineflayerExecutor {
   }
 
   async execute(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
+    s.checkpoint.protectedPositions = Array.isArray(task.params.protectedPositions) ? task.params.protectedPositions.slice(0, 10000) : [];
     s.check(); const item = typeof task.params.item === 'string' ? task.params.item : '';
     const quantity = task.completion.kind === 'inventory' ? task.completion.minimum : typeof task.params.quantity === 'number' ? task.params.quantity : 1;
     switch (task.kind) {

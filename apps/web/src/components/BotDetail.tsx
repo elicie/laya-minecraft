@@ -13,9 +13,11 @@ import {
   positionText,
   roleLabels,
   safeViewerUrl,
+  taskActionLabel,
   waitingTaskStates,
 } from "../lib/display";
 import { Events } from "./Events";
+import { PreparationProgress } from "./PreparationProgress";
 
 export function BotDetail({
   bot,
@@ -56,11 +58,16 @@ export function BotDetail({
     report?.mode !== "emergency" &&
     !survival;
   const action = waiting
-    ? `${goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
+    ? `${task.params.mode === "prepare-site" ? "부지 정리 " : goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
     : report
       ? label(
           survival && report.action === "idle" ? "survive" : report.action,
-          actionLabels,
+          !survival &&
+            report.mode !== "emergency" &&
+            task &&
+            report.action === task.kind
+            ? { ...actionLabels, [task.kind]: taskActionLabel(task, goal) }
+            : actionLabels,
         )
       : "봇 보고 대기";
   const reason = waiting
@@ -182,10 +189,13 @@ export function BotDetail({
             {task && !survival && (
               <p className="muted" style={{ fontSize: 10, marginBottom: 7 }}>
                 {waiting ? "대기 중 작업" : "현재 작업"} ·{" "}
-                {label(task.kind, actionLabels)} · {label(task.state)}
+                {taskActionLabel(task, goal)} · {label(task.state)}
               </p>
             )}
             <p className="reason">{reason}</p>
+            {task && !survival && report?.mode !== "emergency" && (
+              <PreparationProgress task={task} />
+            )}
             {survival && (
               <p
                 className="tag warning"
