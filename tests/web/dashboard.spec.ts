@@ -6,6 +6,8 @@ import {
   type CommandReceipt,
   type FleetSnapshot,
   type GoalDefinition,
+  type Goal,
+  type Task,
 } from "../../packages/contracts/src";
 
 function agent(id: string, role: string): Agent {
@@ -655,6 +657,14 @@ test("construction and harvest previews keep the edited plan and full destinatio
   await expect(page.getByRole("combobox", { name: /^건물 설계/ })).toHaveValue(
     "castle",
   );
+  await expect(page.getByLabel("건설 위치", { exact: false })).toHaveValue(
+    "fixed",
+  );
+  await expect(
+    page
+      .getByRole("group", { name: "건물 시작 좌표", exact: true })
+      .getByLabel("X", { exact: true }),
+  ).toHaveValue("10");
   await page
     .getByRole("combobox", { name: /^건물 설계/ })
     .selectOption("cabin");
@@ -666,6 +676,7 @@ test("construction and harvest previews keep the edited plan and full destinatio
   expect(submitted[0]!.params.blueprint).toBe("cabin");
   expect(submitted[0]!.params.design).toBeUndefined();
   expect(submitted[0]!.params.requiredBlocks).toBeUndefined();
+  expect(submitted[0]!.params.origin).toEqual({ x: 10, y: 64, z: 10 });
 
   await page.getByRole("button", { name: "＋ 목표 등록", exact: true }).click();
   await page.getByLabel("무엇을 할까요?").fill("밀 4개 수확해 줘");
@@ -687,4 +698,351 @@ test("construction and harvest previews keep the edited plan and full destinatio
   expect(submitted[1]!.params.origin).toEqual({ x: 9, y: 63, z: 10 });
   expect(submitted[1]!.quantity).toBe(4);
   expect(submitted[1]!.destination?.position).toEqual({ x: 20, y: 64, z: 20 });
+});
+
+test("construction chooses nearby land without an invented origin and validates fixed coordinates", async ({
+  page,
+}) => {
+  const state = snapshot();
+  state.rules.center = null;
+  state.rules.warehouse = null;
+  const submitted: GoalDefinition[] = [];
+  let interpretations = 0;
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
+    if (path.endsWith("/goals/interpret")) {
+      interpretations++;
+      return route.fulfill({
+        json: {
+          source: "code",
+          warnings: [],
+          goal: GoalInputSchema.parse({
+            kind: "build",
+            title: "공동 창고 건설",
+            params: {
+              blueprint: "warehouse",
+              ...(interpretations === 3
+                ? { position: { x: -20, y: 66, z: 5 } }
+                : {}),
+            },
+          }),
+        },
+      });
+    }
+    if (path.endsWith("/goals"))
+      submitted.push(route.request().postDataJSON() as GoalDefinition);
+    return route.fulfill({
+      json: {
+        id: `build-command-${submitted.length}`,
+        type: "goal.create",
+        state: "applied",
+        createdAt: 10,
+        updatedAt: 12,
+      },
+    });
+  });
+  await page.goto("/");
+  async function preview() {
+    await page
+      .getByRole("button", { name: "＋ 목표 등록", exact: true })
+      .click();
+    await page.getByLabel("무엇을 할까요?").fill("공동 창고 지어 줘");
+    await page.getByRole("button", { name: "목표 해석", exact: true }).click();
+  }
+  async function register() {
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "목표 등록", exact: true })
+      .click();
+  }
+  await preview();
+  await expect(page.getByLabel("건설 위치", { exact: false })).toHaveValue(
+    "nearby",
+  );
+  await expect(
+    page.getByRole("group", { name: "건물 시작 좌표", exact: true }),
+  ).toHaveCount(0);
+  await register();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted[0]!.params.siteSelection).toBe("nearby");
+  expect(submitted[0]!.params.origin).toBeUndefined();
+  expect(submitted[0]!.params.position).toBeUndefined();
+
+  await preview();
+  await page.getByLabel("건설 위치", { exact: false }).selectOption("fixed");
+  const coordinates = page.getByRole("group", {
+    name: "건물 시작 좌표",
+    exact: true,
+  });
+  for (const axis of ["X", "Y", "Z"])
+    await expect(coordinates.getByLabel(axis, { exact: true })).toHaveValue("");
+  await coordinates.getByLabel("X", { exact: true }).fill("12.5");
+  await coordinates.getByLabel("Y", { exact: true }).fill("67");
+  await coordinates.getByLabel("Z", { exact: true }).fill("-8");
+  await register();
+  expect(submitted).toHaveLength(1);
+  await expect(page.getByRole("alert")).toContainText(
+    "건물 시작 좌표 X, Y, Z에 정수를 모두 입력하세요.",
+  );
+  await coordinates.getByLabel("X", { exact: true }).fill("12");
+  await coordinates.getByLabel("Y", { exact: true }).fill("");
+  await register();
+  expect(submitted).toHaveLength(1);
+  expect(
+    await coordinates
+      .getByLabel("Y", { exact: true })
+      .evaluate((element: HTMLInputElement) => element.validity.valueMissing),
+  ).toBe(true);
+  await coordinates.getByLabel("Y", { exact: true }).fill("67");
+  await register();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted[1]!.params).toMatchObject({
+    siteSelection: "fixed",
+    origin: { x: 12, y: 67, z: -8 },
+  });
+
+  await preview();
+  await expect(page.getByLabel("건설 위치", { exact: false })).toHaveValue(
+    "fixed",
+  );
+  for (const [axis, value] of [
+    ["X", "-20"],
+    ["Y", "66"],
+    ["Z", "5"],
+  ])
+    await expect(coordinates.getByLabel(axis!, { exact: true })).toHaveValue(
+      value!,
+    );
+  await register();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(submitted[2]!.params).toMatchObject({
+    siteSelection: "fixed",
+    origin: { x: -20, y: 66, z: 5 },
+  });
+  expect(submitted[2]!.params.position).toBeUndefined();
+});
+
+test("an idle bot shows its latest construction wait reason instead of completed work and keeps emergency and survival reports first", async ({
+  page,
+}) => {
+  let state = snapshot();
+  const now = Date.now();
+  const hunter = state.agents[0]!;
+  hunter.session!.report!.mode = "idle";
+  hunter.session!.report!.action = "idle";
+  hunter.session!.report!.reason = "이전 건설 작업을 마쳤습니다.";
+  hunter.session!.report!.currentAttemptId = "old-attempt";
+  const goal: Goal = {
+    id: "warehouse-goal",
+    input: GoalInputSchema.parse({
+      kind: "build",
+      preferredBotId: hunter.id,
+      params: { blueprint: "warehouse", siteSelection: "nearby" },
+    }),
+    title: "공동 창고 건설",
+    state: "condition-wait",
+    taskIds: ["wait-task"],
+    createdAt: now - 1000,
+    updatedAt: now,
+    generation: 2,
+    progress: { current: 0 },
+    reason: "건설에 적합한 부지를 기다립니다.",
+  };
+  const task: Task = {
+    id: "wait-task",
+    goalId: goal.id,
+    generation: 2,
+    kind: "build",
+    params: {},
+    dependencies: [],
+    completion: { kind: "manual", reason: "건물 상태 확인" },
+    reservationKeys: [],
+    state: "condition-wait",
+    attemptId: "wait-attempt",
+    retryCount: 0,
+    resumeCount: 1,
+    checkpoint: {},
+    progress: 0,
+    createdAt: now - 1000,
+    updatedAt: now,
+    reason: "건설 위치 아래에 지지할 지면이 없습니다.",
+  };
+  state.goals = [
+    goal,
+    {
+      ...goal,
+      id: "old-goal",
+      title: "이전 집 건설",
+      state: "completed",
+      generation: 1,
+      taskIds: ["old-task"],
+    },
+    {
+      ...goal,
+      id: "other-goal",
+      title: "농부의 건설",
+      input: { ...goal.input, preferredBotId: "Farmer" },
+      taskIds: ["other-task"],
+    },
+  ];
+  state.tasks = [
+    task,
+    {
+      ...task,
+      id: "old-task",
+      goalId: "old-goal",
+      generation: 1,
+      state: "completed",
+      attemptId: "old-attempt",
+      reason: "이전 집을 완성했습니다.",
+      updatedAt: now + 1000,
+    },
+    {
+      ...task,
+      id: "outdated-task",
+      generation: 1,
+      reason: "이전 좌표에서 다시 건설합니다.",
+      updatedAt: now + 2000,
+    },
+    {
+      ...task,
+      id: "other-task",
+      goalId: "other-goal",
+      attemptId: undefined,
+      affinityBotId: "Farmer",
+      reason: "다른 봇의 작업 대기입니다.",
+      updatedAt: now + 3000,
+    },
+  ];
+  state.attempts = [
+    {
+      id: "old-attempt",
+      taskId: "old-task",
+      botId: hunter.id,
+      sessionId: hunter.session!.id,
+      controllerEpoch: state.controllerEpoch,
+      reason: "initial",
+      state: "completed",
+      assignedAt: now - 3000,
+      finishedAt: now - 2000,
+    },
+    {
+      id: "wait-attempt",
+      taskId: task.id,
+      botId: hunter.id,
+      sessionId: hunter.session!.id,
+      controllerEpoch: state.controllerEpoch,
+      reason: "initial",
+      state: "completed",
+      assignedAt: now - 1000,
+      finishedAt: now,
+    },
+  ];
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith("/snapshot")
+        ? state
+        : {
+            id: "viewer-wait",
+            type: "viewer.start",
+            state: "applied",
+            createdAt: now,
+            updatedAt: now,
+          },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+    .click();
+  const detail = page.getByRole("region", { name: "Hunter 상세 상태" });
+  await expect(detail).toContainText("대기 중 목표 · 공동 창고 건설");
+  await expect(detail.locator(".current-action")).toHaveText("건설 조건 대기");
+  await expect(detail).toContainText(
+    "건설 위치 아래에 지지할 지면이 없습니다.",
+  );
+  for (const old of [
+    "이전 건설 작업을 마쳤습니다.",
+    "이전 집 건설",
+    "이전 좌표에서 다시 건설합니다.",
+    "다른 봇의 작업 대기입니다.",
+  ])
+    await expect(detail).not.toContainText(old);
+  async function sendState() {
+    state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+    await page.evaluate(
+      (value) =>
+        (window as unknown as BrowserHarness).sendFleet(
+          "snapshot",
+          JSON.parse(value),
+        ),
+      JSON.stringify(state),
+    );
+  }
+  task.state = "retry-wait";
+  task.reason = "지면 상태를 다시 확인한 후 재시도합니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText(
+    "건설 재시도 대기",
+  );
+  await expect(detail).toContainText(task.reason);
+  task.state = "held";
+  task.reason = "건설 재시도 횟수를 모두 사용했습니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("건설 보류");
+  await expect(detail).toContainText(task.reason);
+  const waitingAttempt = state.attempts.find(
+    (attempt) => attempt.id === "wait-attempt",
+  )!;
+  waitingAttempt.botId = "Farmer";
+  waitingAttempt.sessionId = state.agents[1]!.session!.id;
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("작업 대기");
+  await expect(detail).not.toContainText("대기 중 목표 · 공동 창고 건설");
+  await expect(detail).not.toContainText(task.reason);
+  task.affinityBotId = hunter.id;
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("건설 보류");
+  await expect(detail).toContainText(task.reason);
+  delete task.affinityBotId;
+  waitingAttempt.botId = hunter.id;
+  waitingAttempt.sessionId = hunter.session!.id;
+  hunter.session!.report!.mode = "survival";
+  hunter.session!.report!.action = "collect";
+  hunter.session!.report!.reason =
+    "체력이 낮아 회복을 위해 먹을 것을 찾습니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("수집");
+  await expect(detail).toContainText(hunter.session!.report!.reason);
+  await expect(detail).toContainText("등록된 목표 · 공동 창고 건설");
+  await expect(detail).toContainText("생존 유지 중");
+  await expect(detail).not.toContainText("대기 중 작업");
+  await expect(detail).not.toContainText(task.reason);
+  hunter.session!.report!.action = "idle";
+  hunter.session!.report!.reason =
+    "안전한 장소에서 체력이 회복되기를 기다립니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("생존 유지");
+  await expect(detail).toContainText(hunter.session!.report!.reason);
+  await expect(detail).not.toContainText("건설 보류");
+  hunter.session!.report!.mode = "emergency";
+  hunter.session!.report!.action = "counterattack";
+  hunter.session!.report!.reason =
+    "공격받아 반격하며 동료의 지원을 기다립니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("반격");
+  await expect(detail).toContainText(hunter.session!.report!.reason);
+  await expect(detail).not.toContainText("대기 중 목표");
+  hunter.session!.report!.mode = "idle";
+  hunter.session!.report!.action = "idle";
+  hunter.session!.report!.reason = "다음 목표를 기다립니다.";
+  goal.state = "completed";
+  task.state = "completed";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("작업 대기");
+  await expect(detail).toContainText("다음 목표를 기다립니다.");
+  await expect(detail).not.toContainText("공동 창고 건설");
 });

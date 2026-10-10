@@ -3,9 +3,10 @@ import { join } from 'node:path';
 import type { Bot } from 'mineflayer';
 import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
+import { Vec3 } from 'vec3';
 import {
-  CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PROTOCOL_VERSION,
-  type BotReport, type CentralMessage, type ResultPayload, type WorkerLaunch, type WorkerMessage,
+  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PROTOCOL_VERSION,
+  type BotReport, type BuildWaitingFor, type CentralMessage, type ResultPayload, type WorkerLaunch, type WorkerMessage,
 } from '../../contracts/src';
 import { MineflayerExecutor, EXECUTABLE_ACTIONS, type ExecutorOptions } from './actions';
 import { executeVillageTask } from './village-actions';
@@ -39,6 +40,7 @@ export class MinecraftWorker {
   private inbox = Promise.resolve();
   private readonly seenMessages = new Set<string>();
   private readonly completedAttempts = new Set<string>();
+  private readonly buildWatches = new Map<string, { attemptId: string; condition: Extract<BuildWaitingFor, { kind: 'blocks' }> }>();
   private pendingRules?: Extract<CentralMessage, { type: 'rules.update' }>;
   private viewer?: Awaited<ReturnType<typeof createBotViewer>>;
   private statusTimer?: NodeJS.Timeout;
@@ -82,6 +84,7 @@ export class MinecraftWorker {
     bot.on('kicked', () => { this.ready = false; this.reason = 'Minecraft 서버에서 연결을 종료했습니다.'; });
     bot.on('end', (reason) => {
       this.ready = false; this.stopping = true; this.active?.controller.abort(); this.local?.controller.abort(); this.clearTimers();
+      this.buildWatches.clear();
       this.viewer?.close(); this.viewer = undefined;
       this.message('bot.stopped', { reason: String(reason) });
     });
@@ -107,7 +110,7 @@ export class MinecraftWorker {
       world: `${config.connection.host}:${config.connection.port}`, dimension: String(this.bot.game?.dimension ?? this.launch.rules.dimension),
       health: Math.max(0, Math.min(20, this.bot.health ?? 0)), food: Math.max(0, Math.min(20, this.bot.food ?? 0)),
       inventory: this.ready && this.bot.inventory ? inventory(this.bot) : [], action: this.action, reason: this.reason,
-      mode: this.stopping ? 'stopping' : !config.enabled ? 'paused' : this.mode,
+      mode: this.stopping ? 'stopping' : !config.enabled ? 'paused' : this.mode === 'idle' && this.survivalUrgent() ? 'survival' : this.mode,
       capabilities: EXECUTABLE_ACTIONS.filter((action) => config.allowedActions.includes(action)),
       ...(this.active ? { currentAttemptId: this.active.message.attemptId } : {}), rulesVersion: this.launch.rules.version, viewerReady: !!this.viewer,
     };
@@ -137,7 +140,26 @@ export class MinecraftWorker {
   private mapObservation(): void {
     if (!this.ready || Date.now() - this.lastMapAt < 5000) return;
     this.lastMapAt = Date.now();
-    this.message('world.observed', { observations: [this.executor.services(new AbortController().signal).observeInventory(), nearbyBlocks(this.bot, this.executor.options.world, this.executor.options.dimension())] });
+    const observations = [this.executor.services(new AbortController().signal).observeInventory(), nearbyBlocks(this.bot, this.executor.options.world, this.executor.options.dimension())];
+    // The map samples every two blocks. Observe exact construction conditions
+    // separately so a changed support cell can wake a waiting task.
+    const cells = new Map<string, { x: number; y: number; z: number }>();
+    for (const watch of this.buildWatches.values()) for (const p of watch.condition.positions) {
+      if (cells.size >= 10000) break;
+      cells.set(`${p.x},${p.y},${p.z}`, p);
+    }
+    if (cells.size) observations.push({ id: randomUUID(), kind: 'blocks', observedAt: Date.now(), world: this.executor.options.world, dimension: this.executor.options.dimension(),
+      data: { blocks: [...cells.values()].flatMap(p => { const block = this.bot.blockAt(new Vec3(p.x, p.y, p.z)); return block ? [{ position: p, name: block.name }] : []; }) } });
+    this.message('world.observed', { observations });
+  }
+
+  private rememberBuildWait(message: Assignment, result: ResultPayload): void {
+    this.buildWatches.delete(message.taskId);
+    if (result.outcome !== 'condition-wait' || !(message.payload.task.kind === 'build' || message.payload.task.params.mode === 'build-site')) return;
+    const condition = BuildWaitingForSchema.safeParse(result.checkpoint.waitingFor);
+    if (!condition.success || condition.data.kind !== 'blocks') return;
+    this.buildWatches.set(message.taskId, { attemptId: message.attemptId, condition: condition.data });
+    if (this.buildWatches.size > 16) this.buildWatches.delete(this.buildWatches.keys().next().value!);
   }
 
   receive(value: unknown): Promise<void> {
@@ -149,7 +171,10 @@ export class MinecraftWorker {
       this.seenMessages.add(message.messageId);
       switch (message.type) {
         case 'task.assign': await this.assign(message); break;
-        case 'task.cancel': if (this.active?.message.taskId === message.taskId && this.active.message.attemptId === message.attemptId) await this.cancelActive(message.payload.reason, 'task.cancelled'); break;
+        case 'task.cancel':
+          if (this.buildWatches.get(message.taskId)?.attemptId === message.attemptId) this.buildWatches.delete(message.taskId);
+          if (this.active?.message.taskId === message.taskId && this.active.message.attemptId === message.attemptId) await this.cancelActive(message.payload.reason, 'task.cancelled');
+          break;
         case 'rules.update':
           if (message.payload.rules.version < this.launch.rules.version) break;
           if (this.active && message.payload.mode === 'queued') this.pendingRules = message;
@@ -197,6 +222,7 @@ export class MinecraftWorker {
       this.taskMessage(message, 'task.rejected', { reason: '작업 준비 중 월드 상태나 규칙이 바뀌었습니다.', retryable: true }); return;
     }
     const controller = new AbortController(), services = this.executor.services(controller.signal, structuredClone(message.payload.checkpoint));
+    this.buildWatches.delete(message.taskId);
     const active: ActiveTask = { message, controller, services, promise: Promise.resolve() };
     this.active = active; this.mode = 'working'; this.action = message.payload.task.kind; this.reason = '중앙에서 배정한 작업을 수락했습니다.';
     this.taskMessage(message, 'task.accepted', {});
@@ -208,12 +234,13 @@ export class MinecraftWorker {
     let failure: unknown;
     try {
       const result = await this.executor.execute(message.payload.task, services);
-      if (!active.controller.signal.aborted) this.taskMessage(message, 'task.result', result);
+      if (!active.controller.signal.aborted) { this.rememberBuildWait(message, result); this.taskMessage(message, 'task.result', result); }
     } catch (error) {
       failure = error;
       if (!active.controller.signal.aborted) {
         services.observations.push(services.observeInventory());
         const result: ResultPayload = { outcome: error instanceof ConditionWait ? 'condition-wait' : error instanceof ActionFailure && error.effectsKnown ? 'failed' : 'uncertain', observations: services.observations, evidence: services.evidence, checkpoint: { ...services.checkpoint, ...(error instanceof ConditionWait ? error.checkpoint : {}) }, reason: error instanceof Error ? error.message : '실행 결과를 확인해야 합니다.', ...(error instanceof ConditionWait ? {} : { error: { code: error instanceof ActionFailure ? error.code : 'ACTION_UNCERTAIN', message: error instanceof Error ? error.message : '작업 실패', retryable: error instanceof ActionFailure && error.retryable, effectsKnown: error instanceof ActionFailure && error.effectsKnown } }) };
+        this.rememberBuildWait(message, result);
         this.taskMessage(message, 'task.result', result);
       }
     } finally {
@@ -243,7 +270,12 @@ export class MinecraftWorker {
     if (this.local || this.stopping) return;
     const controller = new AbortController(); this.mode = mode;
     const local = { controller, promise: Promise.resolve(), mode }; this.local = local;
-    local.promise = action(this.executor.services(controller.signal)).catch((error) => { if (!controller.signal.aborted) this.reason = error instanceof Error ? error.message : '조건을 확인해야 합니다.'; }).finally(() => { this.executor.stopControls(); if (this.local === local) this.local = undefined; this.mode = this.emergencyPending ? 'emergency' : this.active ? 'working' : 'idle'; this.message('bot.status', this.report()); });
+    local.promise = action(this.executor.services(controller.signal)).catch((error) => { if (!controller.signal.aborted) this.reason = error instanceof Error ? error.message : '조건을 확인해야 합니다.'; }).finally(() => {
+      this.executor.stopControls(); if (this.local === local) this.local = undefined;
+      this.mode = this.emergencyPending ? 'emergency' : this.active ? 'working' : 'idle';
+      if (mode === 'survival' && this.mode === 'idle' && this.survivalUrgent()) this.action = this.bot.food < 18 ? '식량 대기' : '회복 대기';
+      this.message('bot.status', this.report());
+    });
   }
   pollSafety(): void {
     if (!this.ready || this.stopping || this.emergencyPending || this.local?.mode === 'emergency' || this.executor.fighting) return;
@@ -279,13 +311,19 @@ export class MinecraftWorker {
       this.startLocal(async (s) => {
         if (urgentSurvival) await this.cancelActive('기본 생존 상태를 회복하기 위해 진행을 보존합니다.', 'task.interrupted');
         this.mode = 'survival';
-        this.action = '식량 확보'; this.reason = '기본 생존에 필요한 식량을 확보합니다.';
-        if (this.bot.food >= 18) { await s.pause(1000); return; }
-        if (await this.executor.eat(s)) return;
-        for (const item of ['bread', 'carrot', 'cooked_beef']) {
-          try { await this.executor.ensureItem(item, 1, s); if (await this.executor.eat(s)) return; } catch { s.check(); }
+        while (this.bot.food < 18 || this.bot.health <= this.launch.rules.combat.retreatHealth) {
+          s.check();
+          if (this.bot.food >= 18) {
+            this.action = '회복 대기'; this.reason = '허기가 충분하므로 서버에서 실제 체력이 회복되는지 확인합니다.';
+            this.message('bot.status', this.report()); await s.pause(1000); continue;
+          }
+          this.action = '식량 확보'; this.reason = '기본 생존에 필요한 식량을 확보합니다.';
+          if (!await this.executor.eat(s)) {
+            await this.executor.ensureFood(s);
+            if (!await this.executor.eat(s)) throw new ConditionWait('확보한 식량의 실제 섭취 조건을 확인해야 합니다.');
+          }
+          await s.pause(250);
         }
-        throw new ConditionWait('먹을 수 있는 식량이나 자원을 기다립니다.');
       }, 'survival');
       return;
     }

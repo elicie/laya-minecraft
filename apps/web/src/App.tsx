@@ -19,6 +19,7 @@ import {
   localTime,
   percent,
   roleLabels,
+  selectedBotWork,
 } from "./lib/display";
 
 type Modal = {
@@ -52,17 +53,9 @@ export function App() {
   const agents =
     snapshot?.agents.filter((bot) => bot.status !== "removed") ?? [];
   const selected = agents.find((bot) => bot.id === selectedId);
-  const selectedAttemptId =
-    selected?.session?.activeAttemptId ??
-    selected?.session?.report?.currentAttemptId;
-  const selectedAttempt = snapshot?.attempts.find(
-    (attempt) => attempt.id === selectedAttemptId,
-  );
-  const selectedTask = snapshot?.tasks.find(
-    (task) => task.id === selectedAttempt?.taskId,
-  );
-  const selectedGoal = snapshot?.goals.find(
-    (goal) => goal.id === selectedTask?.goalId,
+  const { task: selectedTask, goal: selectedGoal } = selectedBotWork(
+    snapshot,
+    selected,
   );
   const activeGoals =
     snapshot?.goals.filter(

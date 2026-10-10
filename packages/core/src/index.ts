@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
-  BotInputSchema, BotPatchSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
-  itemCount, sameContainer,
+  BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildWaitingForSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
+  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, sameContainer,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
-  type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
+  type BuildSite, type BuildWaitingFor, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
 } from '../../contracts/src';
 import { containerKey, goalTitle, jsonObject, planGoal, roleFits } from './planning';
-import { footprintInside, freshObservations, verifyCompletion } from './verification';
+import { BLUEPRINTS, blueprint, type BlueprintName } from '../../contracts/src/blueprints';
+import { distance, footprintInside, freshObservations, positionKey, verifyCompletion } from './verification';
 
 export { planGoal, containerKey, roleFits } from './planning';
 export { verifyCompletion, footprintInside } from './verification';
@@ -25,6 +26,7 @@ const terminalGoals = new Set(['completed', 'cancelled']);
 const activeAttempts = new Set(['assigned', 'accepted', 'running', 'cancelling']);
 const runnable = new Set(['waiting', 'interrupted', 'retry-wait', 'condition-wait']);
 const isStockGoal = (goal: Goal) => goal.input.kind === 'collect' || (goal.input.kind === 'hunt' && !!goal.input.item);
+const isBuildSiteTask = (task: Task) => task.kind === 'explore' && task.params.mode === 'build-site';
 const clone = <T>(value: T): T => structuredClone(value);
 const taskSpec = (task: Task) => ({ id: task.id, goalId: task.goalId, kind: task.kind, ...(task.source ? { source: task.source } : {}), params: task.params, dependencies: task.dependencies, completion: task.completion, reservationKeys: task.reservationKeys, ...(task.affinityBotId ? { affinityBotId: task.affinityBotId } : {}) });
 
@@ -254,6 +256,7 @@ export class FleetController {
     if (terminalGoals.has(goal.state)) throw new Error('A finished goal cannot be edited');
     if (parsed.preferredBotId) this.agent(parsed.preferredBotId);
     goal.input = GoalInputSchema.parse({ ...goal.input, ...parsed, preferredBotId: parsed.preferredBotId === null ? undefined : parsed.preferredBotId ?? goal.input.preferredBotId });
+    goal.replanRequested = true;
     goal.title = goalTitle(goal.input);
     if (parsed.quantity !== undefined) goal.targetQuantity = goal.input.quantityMode === 'total' ? parsed.quantity : undefined;
     this.pending(commandId, 'goal-update', goalId);
@@ -396,15 +399,22 @@ export class FleetController {
   }
 
   private verify(task: Task, attempt: TaskAttempt, evidence: ResultPayload['evidence'] = []) {
+    // Visiting a site is a planning step, never proof that the building exists.
+    if (isBuildSiteTask(task)) return { complete: false, current: 0, target: 1, reason: '부지의 실제 지반·빈 공간·접근 관측이 필요합니다.' };
     const agent = this.state.agents.find(a => a.id === attempt.botId);
     return verifyCompletion(task.completion, { observations: this.state.observations, evidence, now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: agent?.session?.report?.world ?? this.state.rules.world, dimension: agent?.session?.report?.dimension ?? this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
   }
   private finishResult(agent: Agent, task: Task, attempt: TaskAttempt, result: ResultPayload): void {
     this.observe(agent, result.observations, attempt.id);
     task.state = 'verifying'; task.checkpoint = clone(result.checkpoint); attempt.result = clone(result);
-    const verification = this.verify(task, attempt, result.evidence);
+    const siteProof = isBuildSiteTask(task) ? this.verifyBuildSite(task, attempt) : undefined;
+    const verification = siteProof ? { complete: !!siteProof.site && result.outcome === 'completed', current: 0, target: 1, reason: siteProof.reason } : this.verify(task, attempt, result.evidence);
     attempt.finishedAt = this.now(); agent.session!.activeAttemptId = undefined;
-    if (verification.complete) { this.release(attempt.id); this.completeTask(task, attempt); }
+    if (verification.complete) {
+      this.release(attempt.id); this.completeTask(task, attempt); task.waitState = undefined;
+      const goal = this.goal(task.goalId);
+      if (siteProof?.site && !goal.replanRequested && goal.state !== 'cancelling' && !terminalGoals.has(goal.state) && !this.state.pendingCommands.some(c => c.type === 'goal-update' && c.targetId === goal.id)) this.selectBuildSite(goal, task, attempt, siteProof.site);
+    }
     else if (this.goal(task.goalId).state === 'cancelling') { task.state = 'cancelled'; attempt.state = 'cancelled'; this.release(attempt.id); }
     else if (result.outcome === 'uncertain' || (result.outcome === 'completed' && task.completion.kind !== 'continuous') || (result.outcome === 'failed' && !result.error?.effectsKnown)) {
       task.state = 'held'; attempt.state = 'uncertain'; task.reason = result.reason ?? result.error?.message ?? verification.reason;
@@ -415,11 +425,95 @@ export class FleetController {
     } else {
       attempt.state = 'interrupted'; this.release(attempt.id); this.reducePartialTransfer(task, attempt, result.evidence);
       task.state = 'condition-wait'; task.retryAt = this.now() + 5000; task.resumeCount++; task.reason = result.reason ?? verification.reason;
+      if (result.outcome === 'condition-wait' && (task.kind === 'build' || isBuildSiteTask(task))) this.recordBuildWait(task, attempt, verification.current);
     }
     task.updatedAt = this.now();
     this.changed(verification.complete ? 'task.completed' : `task.${task.state}`, task.reason ?? '실제 결과를 검증했습니다.', { taskId: task.id, attemptId: attempt.id, botId: agent.id });
     if (agent.status === 'removing') this.send(agent, 'bot.shutdown', { reason: '작업 종료 후 봇 제거' }); else this.applyAgentRules(agent);
     this.finishGoalCancellation(this.goal(task.goalId));
+  }
+  private verifyBuildSite(task: Task, attempt: TaskAttempt): { site?: BuildSite; reason: string } {
+    const parsed = BuildSiteSchema.safeParse(task.checkpoint.buildSite), near = PositionSchema.safeParse(task.params.near);
+    const design = String(task.params.design ?? task.params.blueprint ?? 'cabin');
+    const fail = (reason: string) => ({ reason });
+    if (!parsed.success || !near.success || !Object.hasOwn(BLUEPRINTS, design)) return fail('지원하는 설계도와 실제 부지 좌표 증거가 필요합니다.');
+    const site = parsed.data, size = BLUEPRINTS[design as BlueprintName];
+    if (site.design !== design || site.observedAt < attempt.assignedAt || site.observedAt > this.now() + 1000 || this.now() - site.observedAt > this.state.rules.observationMaxAgeMs) return fail('현재 시도의 최신 부지 관측이 필요합니다.');
+    const center = { x: site.origin.x + (size.width - 1) / 2, y: site.origin.y, z: site.origin.z + (size.depth - 1) / 2 };
+    if (Math.hypot(center.x - near.data.x, center.z - near.data.z) > 32 || Math.abs(site.origin.y - near.data.y) > 8) return fail('부지는 탐색한 봇 주변의 확인 가능한 범위 안에 있어야 합니다.');
+    const entrance = { x: site.origin.x + Math.floor(size.width / 2), y: site.origin.y, z: site.origin.z - 1 };
+    if (positionKey(site.entrance) !== positionKey(entrance)) return fail('설계도의 실제 출입 경로 위치를 확인해야 합니다.');
+    const blocks = blueprint(design, site.origin, typeof task.params.wood === 'string' ? task.params.wood : 'oak');
+    const cells = buildSiteCells(site.origin, size.width, size.depth, Math.max(...blocks.map(b => b.position.y - site.origin.y)));
+    const goal = this.goal(task.goalId);
+    if (goal.input.source === 'autonomous' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, cells))) return fail('부지와 출입 경로 전체가 설정한 마을 범위 안에 있어야 합니다.');
+    const observations = freshObservations({ observations: this.state.observations.filter(o => o.controllerEpoch === this.controllerEpoch), now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
+    const actual = new Map<string, { name: string; observedAt: number; receivedAt: number }>();
+    for (const observation of observations) if (observation.kind === 'blocks') for (const block of observation.data.blocks) {
+      const key = positionKey(block.position), previous = actual.get(key);
+      if (!previous || observation.observedAt >= previous.observedAt) actual.set(key, { name: block.name, observedAt: observation.observedAt, receivedAt: observation.receivedAt });
+    }
+    if (cells.some(cell => { const name = actual.get(positionKey(cell.position))?.name; return !name || !(cell.requirement === 'air' ? isBuildSiteAir(name) : isBuildSiteGround(name)); })) return fail('부지 전체의 빈 공간, 안전한 지반과 출입 경로를 실제 블록으로 확인해야 합니다.');
+    const visits = observations.filter(o => o.kind === 'exploration').sort((a, b) => b.observedAt - a.observedAt || b.receivedAt - a.receivedAt);
+    const visit = visits[0];
+    if (!visit || visit.kind !== 'exploration' || distance(visit.data.position, { ...entrance, x: entrance.x + 0.5, z: entrance.z + 0.5 }) > 1.5) return fail('탐색한 봇이 실제 출입 경로에 접근한 관측이 필요합니다.');
+    const keys = new Set(cells.map(cell => `block:${this.state.rules.world}:${this.state.rules.dimension}:${positionKey(cell.position)}`));
+    if (this.state.reservations.some(r => r.attemptId !== attempt.id && keys.has(r.key)) || this.state.tasks.some(other => other.goalId !== goal.id && other.generation === this.goal(other.goalId).generation && !['completed', 'cancelled'].includes(other.state) && !terminalGoals.has(this.goal(other.goalId).state) && other.reservationKeys.some(key => keys.has(key)))) return fail('다른 작업이 예약한 부지와 출입 경로를 보존해야 합니다.');
+    return { site, reason: '현재 시도의 실제 블록과 접근 관측으로 부지를 확인했습니다.' };
+  }
+  private selectBuildSite(goal: Goal, task: Task, attempt: TaskAttempt, site: BuildSite): void {
+    goal.input.params = { ...goal.input.params, origin: jsonObject(site.origin), siteSelection: 'fixed', siteVerification: { controllerEpoch: this.controllerEpoch, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, observedAt: site.observedAt } };
+    goal.progress.current = 0;
+    this.invalidatePlan(goal, '실제로 확인한 부지에서 건축 단계를 계획합니다.');
+    this.changed('goal.build-site-selected', goal.reason!, { goalId: goal.id, taskId: task.id, attemptId: attempt.id, botId: attempt.botId, data: { origin: jsonObject(site.origin), design: site.design } });
+  }
+  private buildWaitFingerprint(condition: BuildWaitingFor, botId: string, previous?: string): string {
+    let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string> } = {};
+    try { if (previous) saved = JSON.parse(previous); } catch { /* An absent legacy fingerprint has no known values. */ }
+    const observations = freshObservations({ observations: this.state.observations.filter(o => o.controllerEpoch === this.controllerEpoch), now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension }).sort((a, b) => a.observedAt - b.observedAt || a.receivedAt - b.receivedAt);
+    const actual = new Map<string, string>();
+    for (const observation of observations) if (observation.kind === 'blocks') for (const block of observation.data.blocks) actual.set(positionKey(block.position), block.name);
+    const agent = this.state.agents.find(a => a.id === botId), report = agent?.session?.report;
+    const validReport = report && report.world === this.state.rules.world && report.dimension === this.state.rules.dimension && this.now() - agent!.session!.lastReportAt < this.state.rules.statusTimeoutMs;
+    const fingerprint: typeof saved = {};
+    if (condition.kind === 'blocks') fingerprint.blocks = Object.fromEntries([...new Set(condition.positions.map(positionKey))].sort().map(key => [key, actual.get(key) ?? saved.blocks?.[key] ?? null]));
+    else {
+      fingerprint.inventory = validReport ? itemCount(report.inventory, condition.item) : saved.inventory ?? 0;
+      if (condition.resourceNames?.length) {
+        const resources = { ...saved.resources };
+        for (const [key, name] of actual) if (condition.resourceNames.includes(name) || key in resources) resources[key] = name;
+        fingerprint.resources = Object.fromEntries(Object.entries(resources).sort(([a], [b]) => a.localeCompare(b)).slice(0, 2048));
+      }
+    }
+    if (condition.watchPosition) fingerprint.position = validReport && report.position ? positionKey({ x: Math.floor(report.position.x), y: Math.floor(report.position.y), z: Math.floor(report.position.z) }) : saved.position;
+    return JSON.stringify(fingerprint);
+  }
+  private recordBuildWait(task: Task, attempt: TaskAttempt, verified: number): void {
+    const parsed = BuildWaitingForSchema.safeParse(task.checkpoint.waitingFor), previous = task.waitState;
+    const waitingFor = parsed.success ? parsed.data : undefined;
+    const sameCondition = JSON.stringify(waitingFor) === JSON.stringify(previous?.waitingFor);
+    const fingerprint = waitingFor ? this.buildWaitFingerprint(waitingFor, attempt.botId, sameCondition ? previous?.fingerprint : undefined) : JSON.stringify({ reason: task.reason, verified, build: task.checkpoint.build, inventory: [...(this.state.agents.find(a => a.id === attempt.botId)?.session?.report?.inventory ?? [])].sort((a, b) => a.name.localeCompare(b.name)) });
+    const repeatCount = previous && sameCondition && previous.fingerprint === fingerprint ? previous.repeatCount + 1 : 0;
+    task.waitState = { ...(waitingFor ? { waitingFor } : {}), botId: attempt.botId, sessionId: attempt.sessionId, fingerprint, repeatCount };
+    if (waitingFor) task.retryAt = undefined;
+    else if (repeatCount >= this.state.rules.maxRetries) { task.state = 'held'; task.reason = `${task.reason ?? '건축 조건 대기'} 동일한 조건으로 ${this.state.rules.maxRetries}회 재확인했으나 진행이 없어 보류했습니다.`; }
+  }
+  private refreshBuildWait(task: Task): void {
+    const wait = task.waitState;
+    if (task.state !== 'condition-wait' || !wait?.waitingFor) return;
+    const agent = this.state.agents.find(a => a.id === wait.botId);
+    // The old worker owned the passive block watch. A confirmed replacement
+    // session must inspect the preserved conditions once to restore that watch.
+    const replacement = agent?.session?.state === 'ready' && agent.session.id !== wait.sessionId && this.state.stoppedSessionIds.includes(wait.sessionId);
+    const fingerprint = this.buildWaitFingerprint(wait.waitingFor, wait.botId, wait.fingerprint);
+    if (!replacement && fingerprint === wait.fingerprint) return;
+    if (isBuildSiteTask(task) && wait.waitingFor.watchPosition) {
+      const position = this.state.agents.find(a => a.id === wait.botId)?.session?.report?.position;
+      if (position) task.params.near = jsonObject(position);
+    }
+    task.state = 'interrupted'; task.retryAt = this.now(); task.reason = replacement ? '이전 실행 종료와 새 세션을 확인하고 보존한 건축 조건을 다시 관측합니다.' : '관련 실제 관측이 바뀌어 실행 조건을 다시 확인합니다.';
+    delete task.checkpoint.waitingFor;
+    this.changed('task.condition-changed', task.reason, { taskId: task.id, goalId: task.goalId });
   }
   private reducePartialTransfer(task: Task, attempt: TaskAttempt, evidence: ResultPayload['evidence']): void {
     if (task.completion.kind !== 'transfer') return;
@@ -477,6 +571,7 @@ export class FleetController {
     if (terminalGoals.has(goal.state)) return;
     if (!goal.input.destination && this.state.rules.warehouse && (isStockGoal(goal) || ['store', 'take'].includes(goal.input.kind) || (goal.input.kind === 'farm' && goal.input.params.mode === 'harvest'))) goal.input.destination = clone(this.state.rules.warehouse);
     let tasks = this.currentTasks(goal), stock = this.warehouseCount(goal);
+    for (const task of tasks) this.refreshBuildWait(task);
     if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) { goal.state = 'condition-wait'; goal.reason = '자율 마을 발전이 꺼져 있습니다.'; return; }
     if (goal.input.source === 'autonomous' && tasks.some(t => t.completion.kind === 'blocks' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, t.completion.blocks))) && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '마을 범위에 맞는 전체 배치를 다시 확인합니다.'); tasks = []; }
     if (isStockGoal(goal)) {
@@ -502,10 +597,11 @@ export class FleetController {
       if (!stopped || !observed) { goal.state = 'held'; goal.reason = '이전 실행 종료와 최신 월드 관측을 기다립니다.'; return; }
       this.invalidatePlan(goal, '실제 월드를 확인하고 남은 작업을 자동 재개합니다.'); tasks = [];
     }
-    const goalEdit = this.state.pendingCommands.some(c => c.targetId === goal.id && c.type === 'goal-update');
-    if (goalEdit && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '수정한 목표를 재계획합니다.'); tasks = []; this.finishCommands(goal.id, ['goal-update']); }
+    const goalEdit = goal.replanRequested || this.state.pendingCommands.some(c => c.targetId === goal.id && c.type === 'goal-update');
+    if (goalEdit && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '수정한 목표를 재계획합니다.'); goal.replanRequested = undefined; tasks = []; this.finishCommands(goal.id, ['goal-update']); }
     if (tasks.some(t => t.state === 'held')) { goal.state = 'held'; goal.reason = tasks.find(t => t.state === 'held')?.reason; return; }
     if (tasks.length && tasks.every(t => t.state === 'completed' || t.state === 'cancelled')) {
+      if (goal.input.kind === 'build' && goal.input.params.siteSelection === 'nearby' && !goal.input.params.origin && tasks.some(isBuildSiteTask) && !goalEdit) { goal.state = 'held'; goal.reason = '부지 탐색은 건설 완료가 아닙니다. 실제 부지 확인이 필요합니다.'; return; }
       if (isStockGoal(goal) && stock === undefined) { goal.state = 'condition-wait'; goal.reason = '최종 창고 재고 관측이 필요합니다.'; return; }
       const ongoing = goal.input.mode === 'maintain' || ['guard', 'follow', 'survive'].includes(goal.input.kind);
       if (!isStockGoal(goal) && !ongoing) {
@@ -520,27 +616,34 @@ export class FleetController {
       this.invalidatePlan(goal, '다음 실행 주기를 준비합니다.'); tasks = [];
     }
     if (!tasks.length) {
-      const plan = planGoal(goal, this.state.rules, randomUUID, stock);
+      const builders = this.state.agents.filter(a => a.config.enabled && a.status !== 'removed' && a.status !== 'removing' && a.session?.state === 'ready' && a.session.report?.ready && a.session.report.world === this.state.rules.world && a.session.report.dimension === this.state.rules.dimension && this.now() - a.session.lastReportAt < this.state.rules.statusTimeoutMs && ['build', 'explore'].every(kind => a.config.allowedActions.includes(kind as 'build' | 'explore') && a.session!.report!.capabilities.includes(kind as 'build' | 'explore'))).sort((a, b) => Number(b.id === goal.input.preferredBotId) - Number(a.id === goal.input.preferredBotId));
+      const nearbyPosition = builders.find(a => a.session?.report?.position)?.session?.report?.position;
+      const plan = planGoal(goal, this.state.rules, randomUUID, stock, nearbyPosition);
       if (plan.waiting) { goal.state = 'condition-wait'; goal.reason = plan.waiting; return; }
       for (const spec of plan.tasks) {
         const task: Task = { ...spec, generation: goal.generation, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
         this.state.tasks.push(task); goal.taskIds.push(task.id);
       }
-      if (plan.tasks.length) { goal.state = 'queued'; this.changed('goal.planned', '실행 단계와 선행 조건을 계획했습니다.', { goalId: goal.id, data: { tasks: plan.tasks.length } }); }
+      if (plan.tasks.length) { goal.state = 'queued'; goal.reason = undefined; this.changed('goal.planned', '실행 단계와 선행 조건을 계획했습니다.', { goalId: goal.id, data: { tasks: plan.tasks.length } }); }
     }
+    const frontier = this.currentTasks(goal).filter(t => !['completed', 'cancelled'].includes(t.state) && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed'));
+    if (frontier.length && frontier.every(t => t.state === 'condition-wait')) { goal.state = 'condition-wait'; goal.reason = frontier[0].reason; goal.updatedAt = this.now(); }
+    else if (goal.state === 'condition-wait') { goal.state = 'queued'; goal.reason = undefined; }
   }
   private candidateTasks(agent: Agent): Task[] {
-    if (!agent.config.enabled || agent.desiredConfig?.enabled === false || agent.status === 'removing' || agent.status === 'removed' || agent.session?.state !== 'ready' || !agent.session.report?.ready || agent.session.activeAttemptId || agent.session.rulesVersion !== this.state.rules.version || this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'paused', 'stopping'].includes(agent.session.report.mode) || agent.session.report.health <= 0) return [];
+    if (!agent.config.enabled || agent.desiredConfig?.enabled === false || agent.status === 'removing' || agent.status === 'removed' || agent.session?.state !== 'ready' || !agent.session.report?.ready || agent.session.activeAttemptId || agent.session.rulesVersion !== this.state.rules.version || this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'paused', 'stopping'].includes(agent.session.report.mode) || agent.session.report.health <= this.state.rules.combat.retreatHealth || agent.session.report.food <= 6) return [];
     const pinned = this.state.tasks.some(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;
+      if (task.state === 'condition-wait' && task.waitState?.waitingFor) return false;
       if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) return false;
       if (task.blockedByGoalId && !terminalGoals.has(this.goal(task.blockedByGoalId).state)) return false;
       if (task.affinityBotId && task.affinityBotId !== agent.id) return false;
       if (pinned && task.affinityBotId !== agent.id) return false;
       if (!task.dependencies.every(id => this.state.tasks.find(t => t.id === id)?.state === 'completed')) return false;
       if (!agent.config.allowedActions.includes(task.kind) || !agent.session!.report!.capabilities.includes(task.kind)) return false;
+      if (isBuildSiteTask(task) && (!agent.session!.report!.position || !agent.config.allowedActions.includes('build') || !agent.session!.report!.capabilities.includes('build'))) return false;
       if (task.reservationKeys.some(key => this.state.reservations.some(r => r.key === key && r.attemptId !== task.attemptId))) return false;
       if (agent.session!.report!.world !== this.state.rules.world || agent.session!.report!.dimension !== this.state.rules.dimension) return false;
       if (goal.input.source === 'autonomous' && task.completion.kind === 'blocks' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, task.completion.blocks))) return false;
@@ -563,6 +666,7 @@ export class FleetController {
   }
   private assign(agent: Agent, task: Task, decision: SchedulerDecision = { id: task.id, source: 'code', reason: '우선순위, 역할, 능력과 예약 조건을 확인했습니다.' }): void {
     if (!this.candidateTasks(agent).some(t => t.id === task.id) || this.preferredElsewhere(task, agent)) return;
+    if (isBuildSiteTask(task)) task.params.near = jsonObject(agent.session!.report!.position!);
     if (task.kind === 'collect' && task.completion.kind === 'inventory') task.params.quantity = Math.max(0, task.completion.minimum - itemCount(agent.session!.report!.inventory, task.completion.item));
     const goal = this.goal(task.goalId);
     if ((task.kind === 'craft' || task.kind === 'smelt') && task.completion.kind === 'inventory' && goal.input.quantityMode === 'additional') {
@@ -573,7 +677,7 @@ export class FleetController {
     this.state.attempts.push(attempt); task.attemptId = attempt.id; task.state = 'assigned'; task.updatedAt = this.now();
     agent.session!.activeAttemptId = attempt.id;
     for (const key of task.reservationKeys) this.state.reservations.push({ key, taskId: task.id, attemptId: attempt.id, botId: agent.id, sessionId: attempt.sessionId, acquiredAt: this.now() });
-    this.goal(task.goalId).state = 'active';
+    this.goal(task.goalId).state = 'active'; this.goal(task.goalId).reason = undefined;
     this.changed('scheduler.decision', decision.reason, { taskId: task.id, botId: agent.id, attemptId: attempt.id, data: { source: decision.source, ...(decision.model ? { model: decision.model } : {}) } });
     this.send(agent, 'task.assign', { task: taskSpec(task), checkpoint: task.checkpoint, rulesVersion: this.state.rules.version }, { taskId: task.id, attemptId: attempt.id });
     this.changed('task.assigned', '작업을 배정하고 수락을 기다립니다.', { taskId: task.id, botId: agent.id, attemptId: attempt.id });
@@ -610,13 +714,13 @@ export class FleetController {
   private yieldAutonomy(): void {
     const userTasks = this.state.tasks.filter(t => {
       const goal = this.goal(t.goalId);
-      return goal.input.source === 'user' && !terminalGoals.has(goal.state) && goal.state !== 'held' && goal.state !== 'cancelling' && t.generation === goal.generation && runnable.has(t.state) && (t.retryAt ?? 0) <= this.now() && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed');
+      return goal.input.source === 'user' && !terminalGoals.has(goal.state) && goal.state !== 'held' && goal.state !== 'cancelling' && t.generation === goal.generation && runnable.has(t.state) && !(t.state === 'condition-wait' && t.waitState?.waitingFor) && (t.retryAt ?? 0) <= this.now() && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed');
     }).sort((a, b) => this.taskPriority(b) - this.taskPriority(a));
     for (const task of userTasks) {
       if (this.state.agents.some(a => this.candidateTasks(a).some(t => t.id === task.id))) continue;
       const agent = this.state.agents.find(a => {
         const active = this.state.tasks.find(t => t.attemptId === a.session?.activeAttemptId);
-        return active && active.state !== 'cancelling' && this.goal(active.goalId).input.source === 'autonomous' && a.status === 'ready' && a.config.enabled && a.desiredConfig?.enabled !== false && a.session?.state === 'ready' && a.session.report?.mode !== 'emergency' && a.config.allowedActions.includes(task.kind) && a.session.report?.capabilities.includes(task.kind) && (!task.affinityBotId || task.affinityBotId === a.id);
+        return active && active.state !== 'cancelling' && this.goal(active.goalId).input.source === 'autonomous' && a.status === 'ready' && a.config.enabled && a.desiredConfig?.enabled !== false && a.session?.state === 'ready' && a.session.report && a.session.report.mode !== 'emergency' && a.session.report.health > this.state.rules.combat.retreatHealth && a.session.report.food > 6 && a.config.allowedActions.includes(task.kind) && a.session.report.capabilities.includes(task.kind) && (!task.affinityBotId || task.affinityBotId === a.id);
       });
       if (!agent) continue;
       const active = this.state.tasks.find(t => t.attemptId === agent.session?.activeAttemptId)!;

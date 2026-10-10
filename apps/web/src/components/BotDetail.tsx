@@ -13,6 +13,7 @@ import {
   positionText,
   roleLabels,
   safeViewerUrl,
+  waitingTaskStates,
 } from "../lib/display";
 import { Events } from "./Events";
 
@@ -48,6 +49,23 @@ export function BotDetail({
   onViewerToggle: () => void;
 }) {
   const report = bot.session?.report;
+  const survival = report?.mode === "survival";
+  const waiting =
+    !!task &&
+    waitingTaskStates.has(task.state) &&
+    report?.mode !== "emergency" &&
+    !survival;
+  const action = waiting
+    ? `${goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
+    : report
+      ? label(
+          survival && report.action === "idle" ? "survive" : report.action,
+          actionLabels,
+        )
+      : "봇 보고 대기";
+  const reason = waiting
+    ? task.reason || goal?.reason || "작업 조건이 충족되기를 기다립니다."
+    : report?.reason || "연결되면 행동과 판단 이유를 표시합니다.";
   const stale = !live || isReportStale(bot.session?.lastReportAt, now);
   const viewerUrl = safeViewerUrl(bot.viewer.prefix, bot.id);
   const viewing =
@@ -156,21 +174,26 @@ export function BotDetail({
             <h3>현재 하는 일</h3>
             {goal && (
               <p className="reason" style={{ marginBottom: 7 }}>
-                목표 · {goal.title}
+                {survival ? "등록된 목표" : waiting ? "대기 중 목표" : "목표"} ·{" "}
+                {goal.title}
               </p>
             )}
-            <p className="current-action">
-              {report ? label(report.action, actionLabels) : "봇 보고 대기"}
-            </p>
-            {task && (
+            <p className="current-action">{action}</p>
+            {task && !survival && (
               <p className="muted" style={{ fontSize: 10, marginBottom: 7 }}>
-                현재 작업 · {label(task.kind, actionLabels)} ·{" "}
-                {label(task.state)}
+                {waiting ? "대기 중 작업" : "현재 작업"} ·{" "}
+                {label(task.kind, actionLabels)} · {label(task.state)}
               </p>
             )}
-            <p className="reason">
-              {report?.reason || "연결되면 행동과 판단 이유를 표시합니다."}
-            </p>
+            <p className="reason">{reason}</p>
+            {survival && (
+              <p
+                className="tag warning"
+                style={{ display: "inline-block", marginTop: 10 }}
+              >
+                생존 유지 중
+              </p>
+            )}
             {report?.mode === "emergency" && (
               <p
                 className="tag danger"

@@ -63,13 +63,42 @@ export const GoalInputSchema = z.object({
 });
 export type GoalInput = z.input<typeof GoalInputSchema>;
 export type GoalDefinition = z.output<typeof GoalInputSchema>;
-export const GoalPatchSchema = z.object({ title: z.string().min(1).max(500).optional(), quantity: z.number().int().min(1).max(1000000).optional(), priority: z.number().int().min(0).max(100).optional(), preferredBotId: IdSchema.nullable().optional(), mode: z.enum(['once', 'maintain']).optional() }).strict();
+// A supplied params object replaces the previous object; omission preserves it.
+// This allows changing a fixed build origin back to nearby site selection.
+export const GoalPatchSchema = z.object({ title: z.string().min(1).max(500).optional(), quantity: z.number().int().min(1).max(1000000).optional(), priority: z.number().int().min(0).max(100).optional(), preferredBotId: IdSchema.nullable().optional(), mode: z.enum(['once', 'maintain']).optional(), params: JsonObjectSchema.optional() }).strict();
 export type GoalPatch = z.infer<typeof GoalPatchSchema>;
 export interface GoalPreview { request: string; goals: GoalDefinition[]; warnings: string[]; source: 'code' | 'laya' | 'qwen'; }
 export interface Interpretation { goal: GoalDefinition; source: 'qwen' | 'code'; warnings: string[]; }
 
 export const ExpectedBlockSchema = z.object({ position: PositionSchema, name: z.string().min(1) }).strict();
 export type ExpectedBlock = z.infer<typeof ExpectedBlockSchema>;
+const BlockPositionSchema = PositionSchema.refine(p => Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z), 'Integer block coordinates are required');
+export const BuildSiteSchema = z.object({ origin: BlockPositionSchema, design: z.string().min(1), entrance: BlockPositionSchema, observedAt: time }).strict();
+export type BuildSite = z.infer<typeof BuildSiteSchema>;
+export const BuildWaitingForSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('blocks'), causeCode: z.enum(['BUILD_SUPPORT', 'BUILD_SITE', 'BUILD_ACCESS', 'BUILD_OBSERVATION']), positions: z.array(BlockPositionSchema).min(1).max(10000), watchPosition: z.boolean().optional() }).strict(),
+  z.object({ kind: z.literal('inventory'), causeCode: z.literal('BUILD_MATERIAL'), item: z.string().min(1), minimum: z.number().int().positive(), watchPosition: z.boolean().optional(), resourceNames: z.array(z.string().min(1)).max(100).optional() }).strict(),
+]);
+export type BuildWaitingFor = z.infer<typeof BuildWaitingForSchema>;
+export const BuildWaitStateSchema = z.object({ waitingFor: BuildWaitingForSchema.optional(), botId: IdSchema, sessionId: IdSchema, fingerprint: z.string(), repeatCount: z.number().int().nonnegative() }).strict();
+export type BuildWaitState = z.infer<typeof BuildWaitStateSchema>;
+export function isBuildSiteAir(name: string): boolean { return ['air', 'cave_air', 'void_air'].includes(name); }
+// Deliberately conservative: movable sand/gravel, leaves, liquids, hazards and
+// existing constructed facilities are not suitable proof of a safe vacant site.
+export function isBuildSiteGround(name: string): boolean {
+  return ['grass_block', 'dirt', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'stone', 'granite', 'diorite', 'andesite', 'deepslate', 'tuff', 'calcite', 'sandstone', 'red_sandstone', 'clay', 'terracotta', 'snow_block', 'end_stone', 'netherrack'].includes(name) || /^[a-z]+_terracotta$/.test(name);
+}
+export interface BuildSiteCell { position: Position; requirement: 'air' | 'ground'; }
+export function buildSiteCells(origin: Position, width: number, depth: number, height: number): BuildSiteCell[] {
+  if (![origin.x, origin.y, origin.z, width, depth, height].every(Number.isInteger) || width < 1 || depth < 1 || height < 0 || width > 32 || depth > 32 || height > 32) throw new Error('Invalid build site bounds');
+  const cells: BuildSiteCell[] = [];
+  for (let x = -1; x <= width; x++) for (let z = -1; z <= depth; z++) {
+    cells.push({ position: { x: origin.x + x, y: origin.y - 1, z: origin.z + z }, requirement: 'ground' });
+    const inside = x >= 0 && x < width && z >= 0 && z < depth;
+    for (let y = 0; y <= (inside ? height : 1); y++) cells.push({ position: { x: origin.x + x, y: origin.y + y, z: origin.z + z }, requirement: 'air' });
+  }
+  return cells;
+}
 export const CompletionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('inventory'), item: z.string().min(1), minimum: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('container'), container: ContainerRefSchema, item: z.string().min(1), minimum: z.number().int().nonnegative() }).strict(),
@@ -151,9 +180,9 @@ export const WorkerMessageSchema = z.discriminatedUnion('type', [
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 
 export type GoalState = 'queued' | 'active' | 'condition-wait' | 'maintaining' | 'completed' | 'cancelling' | 'cancelled' | 'held';
-export interface Goal { id: string; input: GoalDefinition; title: string; state: GoalState; targetQuantity?: number; taskIds: string[]; createdAt: number; updatedAt: number; reason?: string; progress: { current: number; target?: number }; generation: number; nextRunAt?: number; }
+export interface Goal { id: string; input: GoalDefinition; title: string; state: GoalState; targetQuantity?: number; taskIds: string[]; createdAt: number; updatedAt: number; reason?: string; progress: { current: number; target?: number }; generation: number; nextRunAt?: number; replanRequested?: boolean; }
 export type TaskState = 'waiting' | 'assigned' | 'accepted' | 'running' | 'verifying' | 'completed' | 'condition-wait' | 'interrupted' | 'retry-wait' | 'cancelling' | 'cancelled' | 'held';
-export interface Task extends TaskSpec { generation: number; state: TaskState; attemptId?: string; retryCount: number; resumeCount: number; checkpoint: JsonObject; progress: number; reason?: string; createdAt: number; updatedAt: number; retryAt?: number; blockedByGoalId?: string; }
+export interface Task extends TaskSpec { generation: number; state: TaskState; attemptId?: string; retryCount: number; resumeCount: number; checkpoint: JsonObject; progress: number; reason?: string; createdAt: number; updatedAt: number; retryAt?: number; blockedByGoalId?: string; waitState?: BuildWaitState; }
 export interface TaskAttempt { id: string; taskId: string; botId: string; sessionId: string; controllerEpoch: string; reason: 'initial' | 'retry' | 'resume'; state: 'assigned' | 'accepted' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'interrupted' | 'failed' | 'uncertain'; startedAt?: number; assignedAt: number; finishedAt?: number; result?: ResultPayload; }
 export interface Reservation { key: string; taskId: string; attemptId: string; botId: string; sessionId: string; acquiredAt: number; }
 export interface AgentSession { id: string; state: 'starting' | 'ready' | 'abnormal' | 'stopped'; lastReportAt: number; report?: BotReport; activeAttemptId?: string; rulesVersion: number; pendingRulesVersion?: number; }
@@ -167,8 +196,8 @@ export const CommandReceiptSchema = z.object({ id: IdSchema, type: z.string(), s
 export type CommandReceipt = z.infer<typeof CommandReceiptSchema>;
 export interface ApiError { error: { code: string; message: string; details?: JsonValue }; }
 
-export const GoalSchema = z.object({ id: IdSchema, input: GoalInputSchema, title: z.string(), state: z.enum(['queued', 'active', 'condition-wait', 'maintaining', 'completed', 'cancelling', 'cancelled', 'held']), targetQuantity: z.number().int().nonnegative().optional(), taskIds: z.array(IdSchema), createdAt: time, updatedAt: time, reason: z.string().optional(), progress: z.object({ current: z.number().nonnegative(), target: z.number().nonnegative().optional() }).strict(), generation: z.number().int().nonnegative(), nextRunAt: time.optional() }).strict();
-export const TaskSchema = TaskSpecSchema.extend({ generation: z.number().int().nonnegative(), state: z.enum(['waiting', 'assigned', 'accepted', 'running', 'verifying', 'completed', 'condition-wait', 'interrupted', 'retry-wait', 'cancelling', 'cancelled', 'held']), attemptId: IdSchema.optional(), retryCount: z.number().int().nonnegative(), resumeCount: z.number().int().nonnegative(), checkpoint: JsonObjectSchema, progress: z.number().min(0).max(1), reason: z.string().optional(), createdAt: time, updatedAt: time, retryAt: time.optional(), blockedByGoalId: IdSchema.optional() }).strict();
+export const GoalSchema = z.object({ id: IdSchema, input: GoalInputSchema, title: z.string(), state: z.enum(['queued', 'active', 'condition-wait', 'maintaining', 'completed', 'cancelling', 'cancelled', 'held']), targetQuantity: z.number().int().nonnegative().optional(), taskIds: z.array(IdSchema), createdAt: time, updatedAt: time, reason: z.string().optional(), progress: z.object({ current: z.number().nonnegative(), target: z.number().nonnegative().optional() }).strict(), generation: z.number().int().nonnegative(), nextRunAt: time.optional(), replanRequested: z.boolean().optional() }).strict();
+export const TaskSchema = TaskSpecSchema.extend({ generation: z.number().int().nonnegative(), state: z.enum(['waiting', 'assigned', 'accepted', 'running', 'verifying', 'completed', 'condition-wait', 'interrupted', 'retry-wait', 'cancelling', 'cancelled', 'held']), attemptId: IdSchema.optional(), retryCount: z.number().int().nonnegative(), resumeCount: z.number().int().nonnegative(), checkpoint: JsonObjectSchema, progress: z.number().min(0).max(1), reason: z.string().optional(), createdAt: time, updatedAt: time, retryAt: time.optional(), blockedByGoalId: IdSchema.optional(), waitState: BuildWaitStateSchema.optional() }).strict();
 export const TaskAttemptSchema = z.object({ id: IdSchema, taskId: IdSchema, botId: IdSchema, sessionId: IdSchema, controllerEpoch: IdSchema, reason: z.enum(['initial', 'retry', 'resume']), state: z.enum(['assigned', 'accepted', 'running', 'cancelling', 'completed', 'cancelled', 'interrupted', 'failed', 'uncertain']), assignedAt: time, startedAt: time.optional(), finishedAt: time.optional(), result: ResultPayloadSchema.optional() }).strict();
 export const ReservationSchema = z.object({ key: z.string(), taskId: IdSchema, attemptId: IdSchema, botId: IdSchema, sessionId: IdSchema, acquiredAt: time }).strict();
 export const AgentSessionSchema = z.object({ id: IdSchema, state: z.enum(['starting', 'ready', 'abnormal', 'stopped']), lastReportAt: time, report: BotReportSchema.optional(), activeAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), pendingRulesVersion: z.number().int().positive().optional() }).strict();

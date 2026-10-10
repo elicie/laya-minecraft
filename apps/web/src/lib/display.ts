@@ -1,3 +1,85 @@
+import type {
+  Agent,
+  FleetSnapshot,
+  Goal,
+  Task,
+} from "../../../../packages/contracts/src";
+
+const activeTaskStates = new Set([
+  "assigned",
+  "accepted",
+  "running",
+  "verifying",
+  "cancelling",
+]);
+export const waitingTaskStates = new Set([
+  "condition-wait",
+  "held",
+  "retry-wait",
+]);
+
+export function selectedBotWork(
+  snapshot: FleetSnapshot | null,
+  bot: Agent | undefined,
+): { task?: Task; goal?: Goal } {
+  if (!snapshot || !bot || bot.session?.report?.mode === "emergency") return {};
+  const current = (task: Task) => {
+    const goal = snapshot.goals.find((goal) => goal.id === task.goalId);
+    return goal &&
+      goal.generation === task.generation &&
+      !["completed", "cancelled"].includes(goal.state)
+      ? goal
+      : undefined;
+  };
+  const work = (task: Task) => ({
+    ...(bot.session?.report?.mode === "survival" ? {} : { task }),
+    goal: current(task),
+  });
+  const attemptId =
+    bot.session?.activeAttemptId ?? bot.session?.report?.currentAttemptId;
+  const attempt = snapshot.attempts.find(
+    (attempt) =>
+      attempt.id === attemptId &&
+      attempt.botId === bot.id &&
+      attempt.sessionId === bot.session?.id &&
+      attempt.controllerEpoch === snapshot.controllerEpoch,
+  );
+  const active =
+    attempt &&
+    snapshot.tasks.find(
+      (task) =>
+        task.id === attempt.taskId &&
+        task.attemptId === attempt.id &&
+        activeTaskStates.has(task.state) &&
+        current(task),
+    );
+  if (active) return work(active);
+  const task = snapshot.tasks
+    .filter((task) => {
+      const goal = current(task);
+      if (
+        !goal ||
+        goal.state === "cancelling" ||
+        !waitingTaskStates.has(task.state) ||
+        (task.affinityBotId && task.affinityBotId !== bot.id)
+      )
+        return false;
+      const latestAttempt = task.attemptId
+        ? snapshot.attempts.find(
+            (attempt) =>
+              attempt.id === task.attemptId && attempt.taskId === task.id,
+          )
+        : snapshot.attempts
+            .filter((attempt) => attempt.taskId === task.id)
+            .sort((a, b) => b.assignedAt - a.assignedAt)[0];
+      if (task.affinityBotId) return task.affinityBotId === bot.id;
+      if (latestAttempt) return latestAttempt.botId === bot.id;
+      return goal.input.preferredBotId === bot.id;
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0];
+  return task ? work(task) : {};
+}
+
 export const roleLabels: Record<string, string> = {
   gatherer: "채집가",
   builder: "건축가",

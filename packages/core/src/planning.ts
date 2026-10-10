@@ -1,6 +1,6 @@
-import { type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
+import { buildSiteCells, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
 import { footprintInside, positionKey } from './verification';
-import { blueprint } from '../../contracts/src/blueprints';
+import { BLUEPRINTS, blueprint, type BlueprintName } from '../../contracts/src/blueprints';
 
 export interface PlanResult { tasks: TaskSpec[]; waiting?: string; }
 export function containerKey(container: ContainerRef): string { return `container:${container.world}:${container.dimension}:${positionKey(container.position)}`; }
@@ -33,7 +33,7 @@ function asBlocks(value: unknown): ExpectedBlock[] | undefined {
   }
   return result;
 }
-export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehouseCount?: number): PlanResult {
+export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehouseCount?: number, nearbyPosition?: Position): PlanResult {
   const input = goal.input, tasks: TaskSpec[] = [];
   const add = (kind: ActionKind, params: JsonObject, completion: CompletionCondition, dependencies: string[] = [], reservationKeys: string[] = []): TaskSpec => {
     const task: TaskSpec = { id: newId(), goalId: goal.id, kind, source: input.source, params, dependencies, completion, reservationKeys };
@@ -65,14 +65,34 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
   }
   if (input.kind === 'build') {
     let blocks = asBlocks(input.params.requiredBlocks);
+    if (input.params.siteSelection === 'nearby' && !asPosition(input.params.origin) && !asPosition(input.params.position)) {
+      const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
+      if (blocks || !Object.hasOwn(BLUEPRINTS, design)) return { tasks, waiting: '부지 탐색에는 지원하는 건축 설계도가 필요합니다.' };
+      if (!nearbyPosition) return { tasks, waiting: '건축과 부지 탐색이 가능한 봇의 실제 위치를 기다립니다.' };
+      const size = BLUEPRINTS[design as BlueprintName];
+      let height: number;
+      try { height = Math.max(...blueprint(design, { x: 0, y: 0, z: 0 }, typeof input.params.wood === 'string' ? input.params.wood : 'oak').map(b => b.position.y)); }
+      catch { return { tasks, waiting: '지원하는 건축 설계와 재료를 선택해야 합니다.' }; }
+      add('explore', { ...input.params, mode: 'build-site', design, near: jsonObject(nearbyPosition), searchRadius: 32, siteWidth: size.width, siteDepth: size.depth, siteHeight: height }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], [`build-site:${rules.world}:${rules.dimension}`]);
+      return { tasks };
+    }
     const origin = asPosition(input.params.origin) ?? asPosition(input.params.position) ?? rules.center ?? undefined;
     if (!blocks && origin) {
+      if (!Object.hasOwn(BLUEPRINTS, String(input.params.design ?? input.params.blueprint ?? 'cabin'))) return { tasks, waiting: '지원하는 건축 설계를 선택해야 합니다.' };
       try { blocks = blueprint(String(input.params.design ?? input.params.blueprint ?? 'cabin'), origin, typeof input.params.wood === 'string' ? input.params.wood : 'oak'); }
       catch { return { tasks, waiting: '지원하는 건축 설계를 선택해야 합니다.' }; }
     }
     if (!blocks) return { tasks, waiting: '건축 설계와 전체 블록 배치를 확인해야 합니다.' };
     if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, blocks))) return { tasks, waiting: '자율 건축의 전체 배치가 설정한 마을 범위 안에 있어야 합니다.' };
-    add('build', { ...input.params, ...(origin ? { origin: jsonObject(origin) } : {}), requiredBlocks: blocks.map(b => jsonObject(b)) }, { kind: 'blocks', blocks }, [], blocks.map(b => `block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`));
+    let reserved: { position: Position }[] = blocks;
+    const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
+    if (origin && input.params.siteSelection === 'fixed' && input.params.siteVerification && Object.hasOwn(BLUEPRINTS, design)) {
+      const size = BLUEPRINTS[design as BlueprintName];
+      const height = Math.max(...blocks.map(b => b.position.y - origin.y));
+      if (![origin.x, origin.y, origin.z, height].every(Number.isInteger) || height < 0 || height > 32) return { tasks, waiting: '관측한 부지의 정수 좌표와 건축 범위를 확인해야 합니다.' };
+      reserved = buildSiteCells(origin, size.width, size.depth, height);
+    }
+    add('build', { ...input.params, ...(origin ? { origin: jsonObject(origin) } : {}), requiredBlocks: blocks.map(b => jsonObject(b)) }, { kind: 'blocks', blocks }, [], reserved.map(b => `block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`));
     return { tasks };
   }
   if (input.kind === 'farm') {

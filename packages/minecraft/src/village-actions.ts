@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
-import { ExpectedBlockSchema, itemCount, type ExpectedBlock, type JsonObject, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
+import { ExpectedBlockSchema, PositionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, type ExpectedBlock, type JsonObject, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
+import { BLUEPRINTS, blueprint } from '../../contracts/src/blueprints';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
@@ -45,6 +47,171 @@ function observedBlocks(s: ActionServices, blocks: ExpectedBlock[]): ExpectedBlo
   });
 }
 
+function buildWait(s: ActionServices, causeCode: string, message: string, positions: Position[]): never {
+  const unique = [...new Map(positions.map(p => [key(p), p])).values()];
+  s.checkpoint.waitingFor = { kind: 'blocks', causeCode, positions: unique };
+  s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt: Date.now(), world: s.rules.world, dimension: s.rules.dimension,
+    data: { blocks: unique.flatMap(p => { const b = at(s, p); return b ? [{ position: p, name: b.name }] : []; }) } });
+  throw new ConditionWait(`${message} (${unique.slice(0, 4).map(key).join(' / ')})`, s.checkpoint);
+}
+
+async function buildMaterial(s: ActionServices, item: string): Promise<void> {
+  try { await s.ensureItem(item, 1); }
+  catch (error) {
+    if (error instanceof ConditionWait) {
+      const missing = typeof error.checkpoint.missingResource === 'string' ? error.checkpoint.missingResource : typeof error.checkpoint.missingItem === 'string' ? error.checkpoint.missingItem : item;
+      s.checkpoint.waitingFor = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: missing, minimum: typeof error.checkpoint.minimum === 'number' ? error.checkpoint.minimum : 1,
+        watchPosition: true, resourceNames: Array.isArray(error.checkpoint.resourceNames) ? error.checkpoint.resourceNames : [missing] };
+      s.checkpoint.buildCause = { stage: 'materials', item, missingItem: missing };
+    }
+    throw error;
+  }
+}
+
+async function buildPlace(s: ActionServices, expected: ExpectedBlock, item: string, face?: Position): Promise<void> {
+  try { await s.place(expected.position, item, expected.name, face); }
+  catch (error) {
+    if (error instanceof ConditionWait) {
+      const feet = { x: Math.floor(s.bot.entity.position.x), y: Math.floor(s.bot.entity.position.y), z: Math.floor(s.bot.entity.position.z) };
+      buildWait(s, 'BUILD_ACCESS', error.message, [expected.position, ...SUPPORT_FACES.map(f => offset(expected.position, -f.x, -f.y, -f.z)), offset(feet, 0, -1, 0), feet, offset(feet, 0, 1, 0)]);
+    }
+    throw error;
+  }
+}
+
+const SUPPORT_FACES: Position[] = [{ x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, { x: 0, y: -1, z: 0 }];
+
+/** Only observed natural ground and empty space are eligible; this never edits terrain. */
+export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: () => number = () => performance.now()): Promise<ResultPayload> {
+  const design = String(task.params.design ?? task.params.blueprint ?? '');
+  if (!(design in BLUEPRINTS)) throw new ConditionWait('부지를 탐색할 건축 설계도를 선택해 주세요.');
+  const dimensions = BLUEPRINTS[design as keyof typeof BLUEPRINTS];
+  const height = Math.max(dimensions.height, ...blueprint(design, { x: 0, y: 0, z: 0 }).map(b => b.position.y));
+  const start = PositionSchema.parse(task.params.near ?? s.bot.entity.position);
+  const radius = Math.min(32, typeof task.params.searchRadius === 'number' ? Math.max(1, task.params.searchRadius) : 32);
+  const startedAt = now(), maxAccessAttempts = 8, maxElapsedMs = 60000;
+  const origins: Position[] = [];
+  const anchorX = Math.floor(start.x - (dimensions.width - 1) / 2), anchorZ = Math.floor(start.z - (dimensions.depth - 1) / 2);
+  for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) {
+    const x = anchorX + dx, z = anchorZ + dz;
+    if (Math.hypot(x + (dimensions.width - 1) / 2 - start.x, z + (dimensions.depth - 1) / 2 - start.z) <= radius) origins.push({ x, y: Math.floor(start.y), z });
+  }
+  origins.sort((a, b) => Math.hypot(a.x + (dimensions.width - 1) / 2 - start.x, a.z + (dimensions.depth - 1) / 2 - start.z) - Math.hypot(b.x + (dimensions.width - 1) / 2 - start.x, b.z + (dimensions.depth - 1) / 2 - start.z));
+  const heights = [0, ...Array.from({ length: 8 }, (_, i) => [i + 1, -(i + 1)]).flat()];
+  const cache = new Map<string, ReturnType<typeof at>>();
+  const read = (p: Position) => { const k = key(p); if (!cache.has(k)) cache.set(k, at(s, p)); return cache.get(k)!; };
+  const rejected: JsonObject[] = [];
+  let checked = 0, accessAttempts = 0, accessElapsedMs = 0;
+  let stoppedBecause: 'attempt-limit' | 'time-limit' | undefined;
+  let lastAccessFailure: JsonObject | undefined;
+  const elapsed = () => Math.max(0, now() - startedAt);
+  const budgetExhausted = () => {
+    if (accessAttempts >= maxAccessAttempts) stoppedBecause = 'attempt-limit';
+    else if (elapsed() >= maxElapsedMs) stoppedBecause = 'time-limit';
+    return !!stoppedBecause;
+  };
+  const rememberRejection = (entry: JsonObject, accessFailure = false) => {
+    if (rejected.length >= 6) { if (!accessFailure) return; rejected.shift(); }
+    rejected.push(entry);
+  };
+  const saveSearch = () => {
+    s.checkpoint.buildSiteSearch = { near: start, radius, checked, rejected, accessAttempts, accessElapsedMs, elapsedMs: elapsed(), budget: { maxAccessAttempts, maxElapsedMs }, ...(stoppedBecause ? { stoppedBecause } : {}), ...(lastAccessFailure ? { lastAccessFailure } : {}) };
+  };
+  const failedAccess = (origin: Position, entrance: Position, message: string) => {
+    const from = { x: s.bot.entity.position.x, y: s.bot.entity.position.y, z: s.bot.entity.position.z };
+    lastAccessFailure = { origin, position: entrance, from, expected: 'reachable', actual: message };
+    rememberRejection(lastAccessFailure, true); saveSearch();
+  };
+  delete s.checkpoint.buildSite;
+  search: for (const candidate of origins) for (const dy of heights) {
+    s.check(); if (budgetExhausted()) break search;
+    const origin = { ...candidate, y: candidate.y + dy };
+    if (Math.abs(origin.y - start.y) > 8) continue;
+    checked++;
+    if (checked % 256 === 0) { s.progress('부지 탐색', `주변 ${radius}블록 안의 실제 지면과 빈 건축 공간을 확인합니다.`); await s.pause(0); }
+    const groundPosition = offset(origin, 0, -1, 0), ground = read(groundPosition), first = read(origin);
+    if (!ground || !isBuildSiteGround(ground.name) || ground.boundingBox !== 'block' || !first || !isBuildSiteAir(first.name)) {
+      rememberRejection({ origin, position: ground && isBuildSiteGround(ground.name) ? origin : groundPosition, expected: 'ground/air', actual: ground && isBuildSiteGround(ground.name) ? first?.name ?? 'unloaded' : ground?.name ?? 'unloaded' });
+      continue;
+    }
+    const entrance = { x: origin.x + Math.floor(dimensions.width / 2), y: origin.y, z: origin.z - 1 };
+    const cells = buildSiteCells(origin, dimensions.width, dimensions.depth, height);
+    const mismatch = cells.find(cell => {
+      const b = read(cell.position);
+      return !b || (cell.requirement === 'ground' ? !isBuildSiteGround(b.name) || b.boundingBox !== 'block' : !isBuildSiteAir(b.name));
+    });
+    if (mismatch) {
+      rememberRejection({ origin, position: mismatch.position, expected: mismatch.requirement, actual: read(mismatch.position)?.name ?? 'unloaded' });
+      continue;
+    }
+    if (task.source !== 'user' && cells.some(cell => !inVillage(cell.position, s.rules))) continue;
+    if (budgetExhausted()) break search;
+    accessAttempts++; saveSearch();
+    s.progress('부지 접근', `접근 ${accessAttempts}/${maxAccessAttempts}회 · 경과 ${Math.floor(elapsed() / 1000)}/${maxElapsedMs / 1000}초 · 출입 위치 ${key(entrance)}`);
+    const accessStarted = now();
+    let accessFailure: string | undefined;
+    try { await s.near(offset(entrance, 0.5, 0, 0.5), 0); }
+    catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; accessFailure = error.message; }
+    finally { accessElapsedMs += Math.max(0, now() - accessStarted); saveSearch(); }
+    if (accessFailure) { failedAccess(origin, entrance, accessFailure); continue; }
+    if (s.bot.entity.position.distanceTo(new Vec3(entrance.x + 0.5, entrance.y, entrance.z + 0.5)) > 1.5) { failedAccess(origin, entrance, '이동 후 출입 위치에 실제로 도착하지 못했습니다.'); continue; }
+    // Moving can load fresh chunks, and another player may have occupied the site.
+    const fresh = cells.map(cell => ({ ...cell, block: at(s, cell.position) }));
+    if (fresh.some(cell => !cell.block || (cell.requirement === 'ground' ? !isBuildSiteGround(cell.block.name) || cell.block.boundingBox !== 'block' : !isBuildSiteAir(cell.block.name)))) { cache.clear(); continue; }
+    const observedAt = Date.now();
+    const blocks = fresh.map(cell => ({ position: cell.position, name: cell.block!.name }));
+    s.checkpoint.buildSite = { origin, design, entrance, observedAt };
+    delete s.checkpoint.buildSiteSearch; delete s.checkpoint.waitingFor;
+    s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt, world: s.rules.world, dimension: s.rules.dimension, data: { blocks } });
+    s.observations.push({ id: randomUUID(), kind: 'exploration', observedAt, world: s.rules.world, dimension: s.rules.dimension,
+      data: { position: { x: s.bot.entity.position.x, y: s.bot.entity.position.y, z: s.bot.entity.position.z }, resources: blocks.filter(block => isBuildSiteGround(block.name)).slice(0, 64) } });
+    s.progress('부지 탐색', `빈 건축 공간과 기초 지면, 출구를 확인했습니다: ${key(origin)}`);
+    return result(s, 'completed', '실제 지상 부지에 접근하고 전체 건축 공간을 다시 확인했습니다.');
+  }
+  saveSearch();
+  const from = lastAccessFailure?.from as Position | undefined;
+  const feet = from ? { x: Math.floor(from.x), y: Math.floor(from.y), z: Math.floor(from.z) } : undefined;
+  const approachCells = feet ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].flatMap(([x, z]) => [-1, 0, 1].map(y => offset(feet, x, y, z))) : [];
+  const watched = [...rejected.map(entry => entry.position as Position), ...approachCells];
+  if (!watched.length) watched.push({ x: Math.floor(start.x), y: Math.floor(start.y) - 1, z: Math.floor(start.z) });
+  const positions = [...new Map(watched.map(p => [key(p), p])).values()];
+  s.checkpoint.waitingFor = { kind: 'blocks', causeCode: 'BUILD_SITE', positions, watchPosition: true };
+  s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt: Date.now(), world: s.rules.world, dimension: s.rules.dimension,
+    data: { blocks: positions.flatMap(p => { const b = at(s, p); return b ? [{ position: p, name: b.name }] : []; }) } });
+  const detail = rejected.map(entry => `${key(entry.position as Position)}=${entry.actual}`).join(' / ');
+  const limit = stoppedBecause ? `접근 제한(${stoppedBecause === 'attempt-limit' ? `${maxAccessAttempts}회` : `${maxElapsedMs / 1000}초`})에 도달해 중단합니다. ` : '';
+  return result(s, 'condition-wait', `${limit}주변 ${radius}블록 안에서 기초와 출구가 있는 빈 평지를 찾지 못했습니다. ${detail}`);
+}
+
+interface BuildFootprint { origin: Position; width: number; depth: number; height: number; }
+function footprint(blocks: ExpectedBlock[]): BuildFootprint {
+  const origin = { x: Math.min(...blocks.map(b => b.position.x)), y: Math.min(...blocks.map(b => b.position.y)), z: Math.min(...blocks.map(b => b.position.z)) };
+  return { origin, width: Math.max(...blocks.map(b => b.position.x)) - origin.x + 1, depth: Math.max(...blocks.map(b => b.position.z)) - origin.z + 1, height: Math.max(...blocks.map(b => b.position.y)) - origin.y };
+}
+function validateBuildSite(task: TaskSpec, s: ActionServices, blocks: ExpectedBlock[], area: BuildFootprint, planned: Map<string, string>): void {
+  const design = String(task.params.design ?? task.params.blueprint ?? '');
+  if (design in BLUEPRINTS) {
+    for (const cell of buildSiteCells(area.origin, area.width, area.depth, area.height)) {
+      const current = at(s, cell.position), expected = planned.get(key(cell.position));
+      if (!current) buildWait(s, 'BUILD_OBSERVATION', '건축 부지의 실제 블록 관측이 필요합니다.', [cell.position]);
+      if (cell.requirement === 'ground' && (!isBuildSiteGround(current.name) || current.boundingBox !== 'block')) buildWait(s, 'BUILD_SITE', `전체 기초와 바깥 접근로에 안전한 지면이 필요합니다. 실제 ${current.name}`, [cell.position]);
+      if (cell.requirement === 'air' && !AIR.has(current.name) && current.name !== expected) buildWait(s, 'BUILD_SITE', `기존 ${current.name} 블록을 보존합니다. 부지를 변경해 주세요.`, [cell.position]);
+    }
+  } else {
+    const lowest = new Map<string, ExpectedBlock>();
+    for (const b of blocks) { const k = `${b.position.x},${b.position.z}`; if (!lowest.has(k) || lowest.get(k)!.position.y > b.position.y) lowest.set(k, b); }
+    for (const b of lowest.values()) {
+      const p = offset(b.position, 0, -1, 0), ground = at(s, p);
+      if (!ground || ground.boundingBox !== 'block') buildWait(s, ground ? 'BUILD_SUPPORT' : 'BUILD_OBSERVATION', '최저층 아래에 실제 기초 지지 블록이 필요합니다.', [b.position, p]);
+    }
+    for (const expected of blocks) {
+      const current = at(s, expected.position);
+      if (!current) buildWait(s, 'BUILD_OBSERVATION', '전체 건축 구역을 관측해야 합니다.', [expected.position]);
+      if (!AIR.has(current.name) && current.name !== expected.name) buildWait(s, 'BUILD_SITE', `기존 ${current.name} 블록을 보존합니다. 부지를 변경해 주세요.`, [expected.position]);
+    }
+  }
+}
+
 interface BuildAccess { id: string; columns: ExpectedBlock[][]; stands: Position[]; exit: Position; }
 function constructionAccess(s: ActionServices, blocks: ExpectedBlock[]): BuildAccess | undefined {
   const low = Math.min(...blocks.map(block => block.position.y)), high = Math.max(...blocks.map(block => block.position.y));
@@ -72,23 +239,26 @@ function constructionAccess(s: ActionServices, blocks: ExpectedBlock[]): BuildAc
 }
 
 async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
+  delete s.checkpoint.waitingFor; delete s.checkpoint.buildCause;
   const raw = task.completion.kind === 'blocks' ? task.completion.blocks : task.params.requiredBlocks;
   if (!Array.isArray(raw) || !raw.length || raw.length > 10000) throw new ConditionWait('실제 건축 블록 배치가 필요합니다.');
   const blocks = raw.map(value => ExpectedBlockSchema.parse(value));
   if (blocks.some(b => !position(b.position))) throw new ConditionWait('건축 좌표는 정수 블록 좌표여야 합니다.');
   if (new Set(blocks.map(b => key(b.position))).size !== blocks.length) throw new ConditionWait('건축 배치에 중복 좌표가 있습니다.');
   if ((task as TaskSpec & { source?: string }).source !== 'user') requireBounds(s, blocks.map(b => b.position));
-  if (blocks.some(block => !at(s, block.position))) await s.near(blocks[0]!.position, 4);
-  // Inspect the entire footprint before making a change, including generated bed/door parts.
-  for (const expected of blocks) {
-    const existing = at(s, expected.position);
-    if (!existing) throw new ConditionWait('전체 건축 구역을 관측해야 합니다.', s.checkpoint);
-    if (existing.name !== expected.name && !AIR.has(existing.name)) throw new ConditionWait(`기존 ${existing.name} 블록을 보존합니다. 부지를 변경해 주세요.`, s.checkpoint);
-  }
   if (blocks.every(block => at(s, block.position)?.name === block.name)) {
     facts(s, task, observedBlocks(s, blocks)); recordInventory(s);
     return result(s, 'completed', '전체 설계도와 실제 블록 배치가 일치합니다.');
   }
+  const area = footprint(blocks), planned = new Map(blocks.map(block => [key(block.position), block.name]));
+  s.checkpoint.buildProtection = { ...area };
+  const design = String(task.params.design ?? task.params.blueprint ?? '');
+  const entrance = design in BLUEPRINTS ? { x: area.origin.x + Math.floor(area.width / 2), y: area.origin.y, z: area.origin.z - 1 } : blocks[0]!.position;
+  // Loaded chunks are evidence of visibility, not proof that the worker reached the site.
+  if (blocks.every(block => !!at(s, block.position))) validateBuildSite(task, s, blocks, area, planned);
+  try { await s.near(offset(entrance, 0.5, 0, 0.5), design in BLUEPRINTS ? 1 : 3); }
+  catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]); throw error; }
+  validateBuildSite(task, s, blocks, area, planned);
   const access = constructionAccess(s, blocks);
   const postponed = new Set(access?.columns.flat().map(block => key(block.position)) ?? []);
   const fixture = (name: string) => name.endsWith('_door') || name.endsWith('_bed') || ['chest', 'crafting_table', 'furnace', 'wall_torch', 'ladder'].includes(name);
@@ -108,6 +278,14 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       throw new ConditionWait('문 상단이 실제로 생성되지 않았습니다.', s.checkpoint);
     }
     const item = expected.name === 'wall_torch' ? 'torch' : expected.name;
+    await buildMaterial(s, item);
+    try { await s.near(expected.position, 3); }
+    catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [expected.position, ...SUPPORT_FACES.map(face => offset(expected.position, -face.x, -face.y, -face.z))]); throw error; }
+    // Recursive gathering/crafting can leave this site or change nearby terrain.
+    validateBuildSite(task, s, blocks, area, planned);
+    const refreshed = at(s, expected.position);
+    if (refreshed?.name === expected.name) continue;
+    if (!refreshed || !AIR.has(refreshed.name)) buildWait(s, 'BUILD_SITE', `설치 전에 부지 상태를 다시 확인해야 합니다. 실제 ${refreshed?.name ?? 'unloaded'}`, [expected.position]);
     let face: Position | undefined;
     if (expected.name.endsWith('_door')) generated.add(key(offset(expected.position, 0, 1, 0)));
     if (expected.name.endsWith('_bed')) {
@@ -116,7 +294,7 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       generated.add(key(head));
       const stand = [0, 1].map(height => offset(expected.position, -1, height, 0)).find(p =>
         at(s, offset(p, 0, -1, 0))?.boundingBox === 'block' && at(s, p)?.boundingBox === 'empty' && at(s, offset(p, 0, 1, 0))?.boundingBox === 'empty');
-      if (!stand) throw new ConditionWait('침대의 발판 서쪽에 접근 가능한 빈 위치가 필요합니다.', s.checkpoint);
+      if (!stand) buildWait(s, 'BUILD_ACCESS', '침대의 발판 서쪽에 접근 가능한 빈 위치가 필요합니다.', [offset(expected.position, -1, -1, 0), offset(expected.position, -1, 0, 0), offset(expected.position, -1, 1, 0), offset(expected.position, -1, 2, 0)]);
       await s.near(stand, 0);
       await s.bot.look(-Math.PI / 2, 0, true);
     }
@@ -126,15 +304,14 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
         const reference = at(s, offset(expected.position, -direction.x, 0, -direction.z));
         return reference && reference.boundingBox === 'block';
       });
-      if (!face) throw new ConditionWait('사다리나 횃불을 붙일 지지 블록이 필요합니다.', s.checkpoint);
+      if (!face) buildWait(s, 'BUILD_SUPPORT', '사다리나 횃불을 붙일 지지 블록이 필요합니다.', [expected.position, ...faces.map(direction => offset(expected.position, -direction.x, -direction.y, -direction.z))]);
     } else {
       const faces: Position[] = expected.name.endsWith('_door') || expected.name.endsWith('_bed') ? [{ x: 0, y: 1, z: 0 }] :
         [{ x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }, { x: 0, y: -1, z: 0 }];
       face = faces.find(direction => at(s, offset(expected.position, -direction.x, -direction.y, -direction.z))?.boundingBox === 'block');
-      if (!face) throw new ConditionWait('블록을 붙일 실제 지지 면이 필요합니다.', s.checkpoint);
+      if (!face) buildWait(s, 'BUILD_SUPPORT', '블록을 붙일 실제 지지 면이 필요합니다.', [expected.position, ...faces.map(direction => offset(expected.position, -direction.x, -direction.y, -direction.z))]);
     }
-    await s.ensureItem(item, 1);
-    await s.place(expected.position, item, expected.name, face);
+    await buildPlace(s, expected, item, face);
     s.checkpoint.build = { checked: key(expected.position), placed: Number((s.checkpoint.build as JsonObject | undefined)?.placed ?? 0) + 1 };
     s.check();
     if (at(s, expected.position)?.name !== expected.name) throw new ConditionWait('설치 결과를 실제 월드에서 확인해야 합니다.', s.checkpoint);
@@ -146,10 +323,12 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     const stand = access.stands[i + 1] ?? access.exit;
     // Fill each column from the top while standing on the next lower step.
     for (const expected of pending) {
+      await buildMaterial(s, expected.name);
+      validateBuildSite(task, s, blocks, area, planned);
       const support = at(s, offset(stand, 0, -1, 0));
       if (!support || !(support.name.endsWith('_planks') || ['cobblestone', 'stone', 'stone_bricks', 'bricks', 'dirt', 'grass_block'].includes(support.name)) ||
         at(s, stand)?.boundingBox !== 'empty' || at(s, offset(stand, 0, 1, 0))?.boundingBox !== 'empty')
-        throw new ConditionWait('내려올 발판과 몸이 들어갈 빈 공간을 실제 관측으로 확인해야 합니다.', s.checkpoint);
+        buildWait(s, 'BUILD_ACCESS', '내려올 발판과 몸이 들어갈 빈 공간을 실제 관측으로 확인해야 합니다.', [offset(stand, 0, -1, 0), stand, offset(stand, 0, 1, 0)]);
       // Public placement may reposition for a high face; restore the step for every cell.
       await s.near(offset(stand, 0.5, 0, 0.5), 0);
       const feet = s.bot.entity.position;
@@ -158,8 +337,7 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       s.check();
       const current = at(s, expected.position);
       if (!current || !AIR.has(current.name)) throw new ConditionWait('건축 접근로를 닫기 전에 실제 빈 부지를 확인해야 합니다.', s.checkpoint);
-      await s.ensureItem(expected.name, 1);
-      await s.place(expected.position, expected.name, expected.name);
+      await buildPlace(s, expected, expected.name);
       s.checkpoint.build = { checked: key(expected.position), placed: Number((s.checkpoint.build as JsonObject | undefined)?.placed ?? 0) + 1 };
       if (at(s, expected.position)?.name !== expected.name) throw new ConditionWait('접근로 설치 결과를 확인해야 합니다.', s.checkpoint);
       s.progress('build', '안전하게 내려오며 건축 접근로를 완성합니다.');
