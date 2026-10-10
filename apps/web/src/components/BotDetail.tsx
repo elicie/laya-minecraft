@@ -8,6 +8,8 @@ import {
   actionLabels,
   isReportStale,
   isLocalFoodRecovery,
+  isDeathRecoveryPending,
+  latestRecovery,
   label,
   localTime,
   percent,
@@ -20,6 +22,7 @@ import {
 import { Events } from "./Events";
 import { Inventory } from "./Inventory";
 import { PreparationProgress } from "./PreparationProgress";
+import { Recovery } from "./Recovery";
 
 export function BotDetail({
   bot,
@@ -55,12 +58,14 @@ export function BotDetail({
   const report = bot.session?.report;
   const survival = report?.mode === "survival";
   const localFood = isLocalFoodRecovery(report);
+  const recovering = isDeathRecoveryPending(bot) || report?.mode === "recovering";
+  const awaitingRespawn = latestRecovery(bot)?.phase === "waiting-respawn" && !survival && report?.mode !== "emergency";
   const waiting =
     !!task &&
     waitingTaskStates.has(task.state) &&
     report?.mode !== "emergency" &&
-    !survival && !localFood;
-  const action = waiting
+    !survival && !localFood && !recovering;
+  const action = awaitingRespawn ? "부활 대기" : waiting
     ? `${task.params.mode === "prepare-site" ? "부지 정리 " : goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
     : report
       ? label(
@@ -73,7 +78,7 @@ export function BotDetail({
             : actionLabels,
         )
       : "봇 보고 대기";
-  const reason = waiting
+  const reason = awaitingRespawn ? latestRecovery(bot)!.reason : waiting
     ? task.reason || goal?.reason || "작업 조건이 충족되기를 기다립니다."
     : report?.reason || "연결되면 행동과 판단 이유를 표시합니다.";
   const foodWaitReason = waiting && report?.mode === "idle" &&
@@ -188,12 +193,12 @@ export function BotDetail({
             <h3>현재 하는 일</h3>
             {goal && (
               <p className="reason" style={{ marginBottom: 7 }}>
-                {survival || localFood ? "등록된 목표" : waiting ? "대기 중 목표" : "목표"} ·{" "}
+                {survival || localFood || recovering || report?.mode === "emergency" ? "등록된 목표" : waiting ? "대기 중 목표" : "목표"} ·{" "}
                 {goal.title}
               </p>
             )}
             <p className="current-action">{action}</p>
-            {task && !survival && (
+            {task && !survival && !recovering && report?.mode !== "emergency" && (
               <p className="muted" style={{ fontSize: 10, marginBottom: 7 }}>
                 {waiting ? "대기 중 작업" : "현재 작업"} ·{" "}
                 {taskActionLabel(task, goal)} · {label(task.state)}
@@ -205,7 +210,7 @@ export function BotDetail({
                 식량 대기 · {foodWaitReason}
               </p>
             )}
-            {task && !survival && report?.mode !== "emergency" && (
+            {task && !survival && !recovering && report?.mode !== "emergency" && (
               <PreparationProgress task={task} />
             )}
             {survival && (
@@ -224,6 +229,7 @@ export function BotDetail({
                 위험 대응 중
               </p>
             )}
+            <Recovery bot={bot} events={events} />
             {(bot.desiredConfig ||
               bot.session?.pendingRulesVersion ||
               bot.pendingCommandIds.length > 0) && (

@@ -23,6 +23,8 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 | 메시지 | 의미 |
 | --- | --- |
 | bot.ready / bot.status | 실제 연결 준비와 주기적 상태 |
+| bot.died | 사망 식별자·시점·월드·차원·위치와 사망 전 소지품 |
+| bot.recovery | 사망 복구 단계·예산·실제 회수/미회수 수량·현재 안전 여부 |
 | task.accepted / task.rejected | 작업 수락 또는 이유를 포함한 거절 |
 | task.started / task.progress | 실제 시작과 현재 진행 |
 | task.result | 관측, 변경된 수량, 체크포인트와 실행 결과 |
@@ -61,6 +63,26 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 작물 성숙 변화도 자원 대기 조건에 반영하며, 필드가 없거나 청크를 관측하지
 못한 경우에는 이전 실제 값을 보존합니다. 건축 완료 조건의 블록 비교는
 기존처럼 좌표와 이름을 사용합니다.
+
+사망 기록은 `deathId`로 중복을 막고 봇별 최근 20개를 보존합니다. `recovery`의
+단계는 `waiting-respawn`, `recovering`, `held`, `resolved`이며 체크포인트와
+최대 5회 예산을 재시작 후 유지합니다. 새 세션에서 실제 준비·양수 체력과
+`resolved`·`safe`를 확인하기 전에는 일반 작업을 배정하지 않습니다.
+회수 수량은 실제 인벤토리 증가로 확인하고 미회수 수량을 완료 수량으로
+바꾸지 않습니다. 사망 전 사실과 다른 복구 보고나 오래된 세션은 거부합니다.
+
+`safety.alert.supportRequired`는 최신 실제 적 ID·이름·좌표가 있을 때 중앙의
+지원 목표를 생성합니다. 지원 작업은 정확한 `targetEntityId`와 현재 요청자
+세션·월드·차원·유효 시간을 고정합니다. 같은 종류의 다른 적의 사망은 완료
+증거가 아닙니다. 바쁜 지원 봇은 실제 중단 및 최신 규칙 적용을 확인한 뒤
+배정하고, 지원 종료 후 보존한 기존 작업 체크포인트를 다시 평가합니다.
+
+건축 출입 복구는 `checkpoint.buildAccessPreparation`으로 보고합니다.
+`start`, 고정 출입 위치 `target`, `observedAt`, 한 칸씩 이어진 최대 65칸
+`path`, 최대 32개 `edits`(`before`와 `after: air|dirt`)를 포함합니다.
+중앙은 현재 시도의 실제 관측·기초·공간·인접 위험·보호 좌표를 검증한 후
+같은 목표·세대에 `mode: prepare-access`, `parentTaskId`인 선행 작업을
+예약합니다. 실제 변경 결과와 입구 도착 증거를 확인해야 원래 건축을 재개합니다.
 
 ## 브라우저 API
 

@@ -6,7 +6,8 @@ import { Vec3 } from 'vec3';
 import { ContainerRefSchema, PositionSchema, itemCount, type ActionKind, type BotConfig, type ContainerRef, type ObservationInput, type Position, type ResultPayload, type Rules, type TaskSpec } from '../../contracts/src';
 import { ActionFailure, ConditionWait, checkAbort, pause, type ActionServices } from './services';
 import { inventory, inventoryObservation, observationBase, position, vector } from './observations';
-import { HUNTABLE, HOSTILES } from './combat-policy';
+import { assessCombat, combatEquipment, rangedThreat, HUNTABLE, HOSTILES } from './combat-policy';
+import { retreatToSafety, safeCombatRoute } from './combat-retreat';
 import { exploreBuildSite } from './village-actions';
 import { ResourceRecovery, safeResourceStand } from './resource-recovery';
 
@@ -589,42 +590,56 @@ export class MineflayerExecutor {
     return true;
   }
   async retreat(target: Entity, s: ActionServices): Promise<void> {
-    const p = this.bot.entity.position.floored(), angle = Math.atan2(p.z - target.position.z, p.x - target.position.x);
-    if (this.bot.inventory.slots[45]?.name === 'shield') this.bot.activateItem(true);
-    try {
-      for (const offset of [0, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2]) {
-        const q = p.offset(Math.round(Math.cos(angle + offset) * 8), 0, Math.round(Math.sin(angle + offset) * 8));
-        const ground = this.bot.blockAt(q.offset(0, -1, 0)), feet = this.bot.blockAt(q), head = this.bot.blockAt(q.offset(0, 1, 0));
-        if (ground?.boundingBox !== 'block' || feet?.boundingBox !== 'empty' || head?.boundingBox !== 'empty' || [ground.name, feet.name, head.name].some(name => unsafeBlocks.has(name))) continue;
-        try { await s.near(q, 1); return; } catch { s.check(); }
-      }
-      throw new ConditionWait('퇴각할 안전한 접근로를 확인해야 합니다.');
-    } finally { this.bot.deactivateItem(); }
+    await retreatToSafety(this.bot, target, s, p => this.protectedBuildPosition(vector(p), s));
+    s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'position', data: { position: position(this.bot.entity.position) } });
   }
-  async fightEntity(target: Entity, s: ActionServices, hunt = false): Promise<void> {
+  private combatDecision(target: Entity, s: ActionServices) {
+    const threats = Object.values(this.bot.entities).filter(e => HOSTILES.has(e.name ?? '') && e.position.distanceTo(this.bot.entity.position) < 16);
+    const allies = Object.values(this.bot.players).filter(player => player.entity && player.entity.id !== this.bot.entity.id && player.entity.position.distanceTo(this.bot.entity.position) < 8).length;
+    // The caller already authorized this hostile or hunt target. Reuse the
+    // gear and survival policy without reinterpreting an explicit fight goal
+    // as an unsolicited attack.
+    return assessCombat({ role: this.options.config.role, health: this.bot.health, food: this.bot.food, ...combatEquipment(this.bot), enemies: Math.max(1, threats.length), rangedEnemies: threats.filter(e => rangedThreat(e.name ?? '')).length, allies, attacked: true, threateningVillage: false, targetName: target.name ?? '', distance: target.position.distanceTo(this.bot.entity.position) }, { ...s.rules, combat: { ...s.rules.combat, counterattackWhenAttacked: true } });
+  }
+  private async approachCombat(target: Entity, s: ActionServices, validTarget: () => boolean): Promise<void> {
+    const controller = new AbortController(); let unsafe = false, expired = false;
+    const stop = () => { const decision = this.combatDecision(target, s); expired = !validTarget(); if (expired || ['retreat', 'support', 'ignore'].includes(decision.response)) { unsafe = true; controller.abort(); } };
+    const parentAbort = () => controller.abort(); s.signal.addEventListener('abort', parentAbort, { once: true });
+    this.bot.on('health', stop); this.bot.on('entityMoved', stop);
+    const timer = setInterval(stop, 100);
+    try { stop(); if (combatEquipment(this.bot).shield && rangedThreat(target.name ?? '')) this.bot.activateItem(true); await this.near(target.position, controller.signal, 2); }
+    catch (error) { s.check(); if (unsafe && error instanceof ActionFailure && error.code === 'CANCELLED') { if (expired) throw new ConditionWait('지원 대상의 세션, 유효 시간과 관측을 다시 확인해야 합니다.'); return; } throw error; }
+    finally { clearInterval(timer); this.bot.removeListener('health', stop); this.bot.removeListener('entityMoved', stop); s.signal.removeEventListener('abort', parentAbort); }
+  }
+  async fightEntity(target: Entity, s: ActionServices, hunt = false, validTarget: () => boolean = () => true): Promise<void> {
     if (target.type === 'player' || target.username || !(hunt ? HUNTABLE : HOSTILES).has(target.name ?? '')) throw new ConditionWait('허용된 전투 대상을 확인해야 합니다.');
+    const targetId = target.uuid ?? `${target.id}`;
+    const sameTarget = () => { const actual = this.bot.entities[target.id]; return !!actual && (actual.uuid ?? `${actual.id}`) === targetId && actual.name === target.name && actual.type !== 'player' && !actual.username && validTarget(); };
     this.fighting = true; let killed = false;
-    const onDeath = (e: Entity) => { if (e.id === target.id) { killed = true; s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'entity-death', data: { entityId: e.uuid ?? `${e.id}`, entityName: e.name ?? target.name ?? 'unknown', position: position(e.position) } }); } };
+    const onDeath = (e: Entity) => { if ((e.uuid ?? `${e.id}`) === targetId && e.name === target.name) { killed = true; s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'entity-death', data: { entityId: e.uuid ?? `${e.id}`, entityName: e.name ?? target.name ?? 'unknown', position: position(e.position) } }); } };
     this.bot.on('entityDead', onDeath);
     try {
       const weapon = this.bot.inventory.items().filter((i) => /_(sword|axe)$/.test(i.name)).sort((a, b) => ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite'].indexOf(b.name.split('_')[0]) - ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite'].indexOf(a.name.split('_')[0]))[0];
       if (weapon) await this.bot.equip(weapon, 'hand');
       const deadline = Date.now() + 45000;
       while (this.bot.entities[target.id] && !killed && Date.now() < deadline) {
-        s.check(); const threats = Object.values(this.bot.entities).filter((e) => HOSTILES.has(e.name ?? '') && e.position.distanceTo(this.bot.entity.position) < 8);
-        const allies = Object.values(this.bot.players).filter(player => player.entity && player.entity.id !== this.bot.entity.id && player.entity.position.distanceTo(this.bot.entity.position) < 8).length;
-        if (this.bot.health <= s.rules.combat.retreatHealth || threats.length > (allies + 1) * s.rules.combat.enemyRatioLimit || target.name === 'creeper' && target.position.distanceTo(this.bot.entity.position) < 7) {
-          s.progress('퇴각', '현재 체력이나 주변 적의 수가 불리해 거리를 확보합니다.'); await this.retreat(target, s); throw new ConditionWait('지원과 회복 후 전투를 다시 확인합니다.');
+        s.check(); if (!sameTarget()) throw new ConditionWait('전투 대상의 고유 ID와 지원 요청의 유효 시간을 다시 확인해야 합니다.');
+        const decision = this.combatDecision(target, s);
+        if (['retreat', 'support', 'ignore'].includes(decision.response)) {
+          s.progress('퇴각', decision.reason); await this.retreat(target, s); throw new ConditionWait('지원과 회복 후 전투를 다시 확인합니다.', s.checkpoint);
         }
         const distance = this.bot.entity.position.distanceTo(target.position);
-        if (distance > 3) { s.progress('접근', `${target.name}에 접근합니다.`); await s.near(target.position, 2); continue; }
+        if (distance > 3) { s.progress('접근', `${target.name}에 접근합니다.`); await this.approachCombat(target, s, sameTarget); continue; }
         const start = this.bot.entity.position.offset(0, 1.62, 0), aim = target.position.offset(0, Math.min(target.height ?? 1, 1), 0), diff = aim.minus(start), length = diff.norm();
         const obstruction = this.bot.world.raycast(start, diff.scaled(1 / (length || 1)), Math.max(0, length - 0.3));
         const obstructionPosition = obstruction ? rayPosition(obstruction) : undefined;
         if (obstruction && (!obstructionPosition || this.bot.blockAt(obstructionPosition)?.boundingBox === 'block')) throw new ConditionWait('전투 대상까지 시야를 확보해야 합니다.');
-        s.progress(hunt ? '사냥' : '반격', `${target.name}에게 공격합니다.`); this.bot.deactivateItem(); await this.bot.lookAt(aim); this.bot.attack(target);
+        s.progress(hunt ? '사냥' : '반격', `${target.name}에게 공격합니다.`); this.bot.deactivateItem(); await this.bot.lookAt(aim);
+        s.check(); if (!sameTarget()) throw new ConditionWait('전투 대상의 고유 ID나 지원 요청의 유효 시간이 바뀌었습니다.');
+        if (['retreat', 'support', 'ignore'].includes(this.combatDecision(target, s).response)) continue;
+        this.bot.attack(target);
         await s.pause(weapon?.name.endsWith('_axe') ? 1100 : 650);
-        if (this.bot.inventory.slots[45]?.name === 'shield' && ['skeleton', 'stray', 'bogged', 'pillager'].includes(target.name ?? '')) { this.bot.activateItem(true); await s.pause(200); }
+        if (combatEquipment(this.bot).shield && rangedThreat(target.name ?? '')) { this.bot.activateItem(true); await s.pause(200); }
       }
       if (!killed) throw new ConditionWait('대상 이탈 또는 시간 초과로 서버의 처치 확인을 기다립니다.');
       await this.pickup(target.position, s); this.recordInventory(s);
@@ -641,10 +656,33 @@ export class MineflayerExecutor {
     }
   }
 
+  private async supportFight(task: TaskSpec, s: ActionServices): Promise<void> {
+    const p = task.params, expiry = p.expiresAt;
+    const metadataValid = () => typeof p.supportRequestId === 'string' && !!p.supportRequestId && typeof p.requesterBotId === 'string' && !!p.requesterBotId && typeof p.requesterSessionId === 'string' && !!p.requesterSessionId && typeof p.targetEntityId === 'string' && !!p.targetEntityId && typeof p.targetName === 'string' && HOSTILES.has(p.targetName) && p.world === this.options.world && p.dimension === this.options.dimension() && typeof expiry === 'number' && Number.isFinite(expiry) && expiry > Date.now() && expiry <= Date.now() + 15000;
+    const target = () => Object.values(this.bot.entities).find(e => (e.uuid ?? `${e.id}`) === p.targetEntityId && e.name === p.targetName && e.type !== 'player' && !e.username);
+    if (!metadataValid()) throw new ConditionWait('지원 요청의 대상, 월드와 15초 유효 시간을 다시 확인해야 합니다.');
+    if (!target()) {
+      const location = PositionSchema.safeParse(p.position);
+      if (!location.success) throw new ConditionWait('지원 요청의 실제 관측 위치가 필요합니다.');
+      const route = safeCombatRoute(this.bot, location.data, { protectedPosition: q => this.protectedBuildPosition(vector(q), s) });
+      if (!route.safe) throw new ConditionWait(`지원 대상의 안전한 접근로가 필요합니다: ${route.reason}`);
+      const controller = new AbortController(), abort = () => controller.abort();
+      s.signal.addEventListener('abort', abort, { once: true });
+      const timer = setTimeout(abort, Math.max(1, Number(expiry) - Date.now()));
+      try { await this.near(location.data, controller.signal, 1); }
+      catch (error) { s.check(); if (error instanceof ActionFailure && error.code === 'CANCELLED' && !metadataValid()) throw new ConditionWait('지원 대상의 관측 유효 시간이 지났습니다.'); throw error; }
+      finally { clearTimeout(timer); s.signal.removeEventListener('abort', abort); }
+    }
+    const observed = target();
+    if (!metadataValid() || !observed) throw new ConditionWait('요청한 적의 고유 ID를 실제로 관측해야 합니다. 다른 적에게 지원 공격을 전환하지 않습니다.');
+    await this.fightEntity(observed, s, false, () => metadataValid() && target() === observed);
+  }
+
   async execute(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
     s.checkpoint.protectedPositions = Array.isArray(task.params.protectedPositions) ? task.params.protectedPositions.slice(0, 10000) : [];
     s.check(); const item = typeof task.params.item === 'string' ? task.params.item : '';
     const quantity = task.completion.kind === 'inventory' ? task.completion.minimum : typeof task.params.quantity === 'number' ? task.params.quantity : 1;
+    if (['fight', 'guard'].includes(task.kind) && typeof task.params.supportRequestId === 'string') { await this.supportFight(task, s); this.recordInventory(s); s.check(); return this.result(s); }
     switch (task.kind) {
       case 'collect': await this.ensureItem(item, quantity, s); break;
       case 'craft': await this.ensureItem(item, quantity, s); break;
