@@ -11,6 +11,7 @@ import { BotForm, GoalForm, RulesForm, VillageForm } from "./components/Forms";
 import { VillageMap } from "./components/VillageMap";
 import { useFleet } from "./hooks/useFleet";
 import { errorMessage, patch, post, request } from "./lib/api";
+import { createRequestId } from "./lib/uuid";
 import {
   actionLabels,
   isReportStale,
@@ -164,7 +165,7 @@ export function App() {
             headers: {
               "Content-Type": "application/json",
               "X-Laya-Control": "1",
-              "Idempotency-Key": crypto.randomUUID(),
+              "Idempotency-Key": createRequestId(),
             },
             body: "{}",
             keepalive: true,

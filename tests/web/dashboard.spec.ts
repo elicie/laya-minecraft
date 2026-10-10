@@ -187,118 +187,147 @@ test("natural language is previewed and edited before registration; applied rece
   await expect(page.getByText("요청 접수", { exact: true })).toHaveCount(0);
 });
 
-test("selection shows one actual viewer route and releases the previous viewer", async ({
-  page,
-}) => {
-  let state = snapshot();
-  const operations: string[] = [];
-  await installStream(page);
-  await page.route("**/viewer/**", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: "<html><body>Test viewer</body></html>",
-    }),
-  );
-  await page.route("**/api/v1/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
-    const viewer = path.match(/\/bots\/([^/]+)\/viewer$/);
-    if (viewer) {
-      const id = viewer[1]!,
-        start = route.request().method() === "POST";
-      operations.push(`${route.request().method()}:${id}`);
-      state = {
-        ...state,
-        revision: state.revision + 1,
-        updatedAt: Date.now(),
-        agents: state.agents.map((bot) =>
-          bot.id === id
-            ? {
-                ...bot,
-                viewer: start
-                  ? { state: "ready", port: 4100, prefix: `/viewer/${id}` }
-                  : { state: "stopped" },
-              }
-            : bot,
-        ),
-      };
-      await page.evaluate(
-        (value) =>
-          (window as unknown as BrowserHarness).sendFleet(
-            "snapshot",
-            JSON.parse(value),
-          ),
-        JSON.stringify(state),
-      );
-      return route.fulfill({
-        json: {
-          id: `viewer-${operations.length}`,
-          type: "viewer",
-          state: "applied",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
+for (const nativeUuid of [true, false]) {
+  test(`viewer selection and release work ${nativeUuid ? "with native UUIDs" : "without crypto.randomUUID (HTTP)"}`, async ({
+    page,
+  }) => {
+    let state = snapshot();
+    const operations: string[] = [];
+    const requestIds: string[] = [];
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    if (!nativeUuid)
+      await page.addInitScript(() => {
+        Object.defineProperty(globalThis.crypto, "randomUUID", {
+          value: undefined,
+        });
       });
-    }
-    return route.fulfill({ json: {} });
-  });
-  await page.goto("/");
-  await expect(
-    page.getByRole("button", { name: "Hunter 상세 보기", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
-    .click();
-  await expect(page.locator("iframe")).toHaveCount(1);
-  await expect(page.locator("iframe")).toHaveAttribute(
-    "src",
-    "/viewer/Hunter/",
-  );
-  await expect(
-    page.getByRole("region", { name: "Hunter 상세 상태" }),
-  ).toContainText("공동 창고에 필요한 원목");
-  await page
-    .getByRole("button", { name: "Farmer 상세 보기", exact: true })
-    .click();
-  await expect(page.locator("iframe")).toHaveCount(1);
-  await expect(page.locator("iframe")).toHaveAttribute(
-    "src",
-    "/viewer/Farmer/",
-  );
-  expect(operations).toEqual(["POST:Hunter", "DELETE:Hunter", "POST:Farmer"]);
-  state = {
-    ...state,
-    revision: state.revision + 1,
-    updatedAt: Date.now(),
-    agents: state.agents.map((bot) =>
-      bot.id === "Farmer"
-        ? {
-            ...bot,
-            viewer: { state: "stopped" },
-            session: { ...bot.session!, id: "Farmer-reconnected" },
-          }
-        : bot,
-    ),
-  };
-  await page.evaluate(
-    (value) =>
-      (window as unknown as BrowserHarness).sendFleet(
-        "snapshot",
-        JSON.parse(value),
+    await installStream(page);
+    await page.route("**/viewer/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: "<html><body>Test viewer</body></html>",
+      }),
+    );
+    await page.route("**/api/v1/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
+      const viewer = path.match(/\/bots\/([^/]+)\/viewer$/);
+      if (viewer) {
+        requestIds.push(route.request().headers()["idempotency-key"] ?? "");
+        const id = viewer[1]!,
+          start = route.request().method() === "POST";
+        operations.push(`${route.request().method()}:${id}`);
+        state = {
+          ...state,
+          revision: state.revision + 1,
+          updatedAt: Date.now(),
+          agents: state.agents.map((bot) =>
+            bot.id === id
+              ? {
+                  ...bot,
+                  viewer: start
+                    ? { state: "ready", port: 4100, prefix: `/viewer/${id}` }
+                    : { state: "stopped" },
+                }
+              : bot,
+          ),
+        };
+        await page.evaluate(
+          (value) =>
+            (window as unknown as BrowserHarness).sendFleet(
+              "snapshot",
+              JSON.parse(value),
+            ),
+          JSON.stringify(state),
+        );
+        return route.fulfill({
+          json: {
+            id: `viewer-${operations.length}`,
+            type: "viewer",
+            state: "applied",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        });
+      }
+      return route.fulfill({ json: {} });
+    });
+    await page.goto("/");
+    await expect(
+      page.getByRole("button", { name: "Hunter 상세 보기", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+      .click();
+    await expect(page.locator("iframe")).toHaveCount(1);
+    await expect(page.locator("iframe")).toHaveAttribute(
+      "src",
+      "/viewer/Hunter/",
+    );
+    await expect(
+      page.getByRole("region", { name: "Hunter 상세 상태" }),
+    ).toContainText("공동 창고에 필요한 원목");
+    await page
+      .getByRole("button", { name: "Farmer 상세 보기", exact: true })
+      .click();
+    await expect(page.locator("iframe")).toHaveCount(1);
+    await expect(page.locator("iframe")).toHaveAttribute(
+      "src",
+      "/viewer/Farmer/",
+    );
+    expect(operations).toEqual(["POST:Hunter", "DELETE:Hunter", "POST:Farmer"]);
+    state = {
+      ...state,
+      revision: state.revision + 1,
+      updatedAt: Date.now(),
+      agents: state.agents.map((bot) =>
+        bot.id === "Farmer"
+          ? {
+              ...bot,
+              viewer: { state: "stopped" },
+              session: { ...bot.session!, id: "Farmer-reconnected" },
+            }
+          : bot,
       ),
-    JSON.stringify(state),
-  );
-  await expect
-    .poll(
-      () =>
-        operations.filter((operation) => operation === "POST:Farmer").length,
-    )
-    .toBe(2);
-  await expect(page.locator("iframe")).toHaveCount(1);
-  await page.getByRole("button", { name: "봇 상세 닫기", exact: true }).click();
-  await expect(page.locator("iframe")).toHaveCount(0);
-  await expect.poll(() => operations.at(-1)).toBe("DELETE:Farmer");
-});
+    };
+    await page.evaluate(
+      (value) =>
+        (window as unknown as BrowserHarness).sendFleet(
+          "snapshot",
+          JSON.parse(value),
+        ),
+      JSON.stringify(state),
+    );
+    await expect
+      .poll(
+        () =>
+          operations.filter((operation) => operation === "POST:Farmer").length,
+      )
+      .toBe(2);
+    await expect(page.locator("iframe")).toHaveCount(1);
+    await page
+      .getByRole("button", { name: "봇 상세 닫기", exact: true })
+      .click();
+    await expect(page.locator("iframe")).toHaveCount(0);
+    await expect.poll(() => operations.at(-1)).toBe("DELETE:Farmer");
+    await page
+      .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+      .click();
+    await expect(page.locator("iframe")).toHaveAttribute(
+      "src",
+      "/viewer/Hunter/",
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => operations.at(-1)).toBe("DELETE:Hunter");
+    for (const id of requestIds)
+      expect(id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    expect(new Set(requestIds).size).toBe(requestIds.length);
+    expect(errors).toEqual([]);
+  });
+}
 
 test("stale reports are labelled and cannot be shown as a live viewer", async ({
   page,
