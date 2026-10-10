@@ -17,6 +17,7 @@ import {
   waitingTaskStates,
 } from "../lib/display";
 import { Events } from "./Events";
+import { Inventory } from "./Inventory";
 import { PreparationProgress } from "./PreparationProgress";
 
 export function BotDetail({
@@ -259,31 +260,14 @@ export function BotDetail({
         </div>
       </div>
       <div className="bot-secondary">
-        <div className="detail-section">
+        <div className="detail-section inventory-section">
           <h3>
             인벤토리{" "}
             <span className="muted" style={{ fontSize: 10 }}>
               {stale && report ? "· 마지막 관측" : ""}
             </span>
           </h3>
-          {report?.inventory.length ? (
-            <div className="inventory">
-              {report.inventory.map((item, index) => (
-                <div
-                  className="inventory-item"
-                  key={`${item.name}:${index}`}
-                  title={item.name}
-                >
-                  <span>{item.name.replaceAll("_", " ")}</span>
-                  <b>{item.count}</b>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="reason">
-              {report ? "인벤토리가 비어 있습니다." : "인벤토리 관측 대기"}
-            </p>
-          )}
+          <Inventory key={bot.id} report={report} stale={stale} />
         </div>
         <div className="detail-section">
           <h3>최근 활동</h3>

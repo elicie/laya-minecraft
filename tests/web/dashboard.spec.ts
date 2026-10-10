@@ -8,6 +8,7 @@ import {
   type GoalDefinition,
   type Goal,
   type Task,
+  type InventoryView,
 } from "../../packages/contracts/src";
 import {
   BlueprintInputSchema,
@@ -102,10 +103,15 @@ async function installStream(page: Page) {
     }
     Object.defineProperty(window, "EventSource", { value: MockStream });
     (window as unknown as BrowserHarness).sendFleet = (kind, value) => {
-      for (const stream of streams)
+      for (const stream of streams) {
+        if (kind === "disconnect") {
+          stream.onerror?.(new Event("error"));
+          continue;
+        }
         stream.dispatchEvent(
           new MessageEvent(kind, { data: JSON.stringify(value) }),
         );
+      }
     };
   });
 }
@@ -1711,4 +1717,367 @@ test("builtin blueprints can only be copied and template size rules stay usable 
     expect((rect?.x ?? 0) + (rect?.width ?? 0)).toBeLessThanOrEqual(390);
   }
   expect(mutations).toBe(0);
+});
+
+function inventoryView(): InventoryView {
+  const slots: InventoryView["slots"] = Array.from({ length: 46 }, () => null);
+  slots[0] = { name: "oak_planks", count: 4 };
+  slots[1] = { name: "oak_log", count: 1 };
+  slots[5] = {
+    name: "iron_helmet",
+    count: 1,
+    durability: { remaining: 150, maximum: 165 },
+  };
+  slots[6] = { name: "iron_chestplate", count: 1 };
+  slots[7] = { name: "iron_leggings", count: 1 };
+  slots[8] = { name: "iron_boots", count: 1 };
+  slots[9] = { name: "oak_log", count: 64, maxStackSize: 64 };
+  slots[10] = { name: "oak_log", count: 12, maxStackSize: 64 };
+  slots[11] = {
+    name: "modded_relic",
+    displayName: "알 수 없는 유물",
+    count: 2,
+    enchants: [
+      "sharpness",
+      "smite",
+      "bane_of_arthropods",
+      "efficiency",
+      "unbreaking",
+      "mending",
+      "fortune",
+      "silk_touch",
+      "power",
+      "protection",
+    ].map((name) => ({ name, level: 1 })),
+  };
+  slots[36] = {
+    name: "diamond_pickaxe",
+    displayName: "다이아몬드 곡괭이",
+    customName: "채굴자의 곡괭이",
+    count: 1,
+    maxStackSize: 1,
+    durability: { remaining: 32, maximum: 1561 },
+    enchants: [
+      { name: "minecraft:efficiency", level: 3 },
+      { name: "unbreaking", level: 2 },
+    ],
+  };
+  slots[37] = { name: "bread", count: 5 };
+  slots[45] = { name: "shield", count: 1 };
+  return { slots, selectedHotbarSlot: 0, cursor: { name: "stone", count: 3 } };
+}
+
+test("inventory keeps authentic slot positions, duplicate stacks and equipment while focused details follow live moves", async ({
+  page,
+}) => {
+  let state = snapshot();
+  state.agents = [agent("Hunter", "hunter")];
+  const bot = state.agents[0]!;
+  bot.session!.report!.inventoryView = inventoryView();
+  bot.session!.report!.inventory = [
+    { name: "oak_log", count: 77 },
+    { name: "diamond_pickaxe", count: 1 },
+  ];
+  const mutations: string[] = [];
+  let atlasRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/inventory-atlas.png")
+      atlasRequests++;
+  });
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/snapshot")) return route.fulfill({ json: state });
+    mutations.push(path);
+    return route.fulfill({
+      json: {
+        id: "inventory-viewer",
+        type: "viewer.start",
+        state: "applied",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+    .click();
+  const board = page.getByRole("region", {
+    name: "인게임 인벤토리",
+    exact: true,
+  });
+  await expect(board.locator("[data-slot-index]")).toHaveCount(46);
+  await expect(
+    board
+      .getByRole("group", { name: "보관 공간", exact: true })
+      .locator("[data-slot-index]"),
+  ).toHaveCount(27);
+  await expect(
+    board
+      .getByRole("group", { name: "핫바", exact: true })
+      .locator("[data-slot-index]"),
+  ).toHaveCount(9);
+  await expect(
+    board.locator(".inventory-crafting-grid [data-slot-index]"),
+  ).toHaveCount(4);
+  await expect(board.locator('[data-slot-index="0"]')).toHaveAccessibleName(
+    "제작 결과 · 참나무 판자 4개",
+  );
+  await expect(board.locator('[data-slot-index="1"]')).toHaveAccessibleName(
+    "제작 칸 1 · 참나무 원목 1개",
+  );
+  for (const [index, name] of [
+    [5, "투구"],
+    [6, "흉갑"],
+    [7, "각반"],
+    [8, "부츠"],
+  ] as const)
+    await expect(
+      board.locator(`.inventory-armor [data-slot-index="${index}"]`),
+    ).toHaveAttribute("aria-label", new RegExp(`^${name} ·`));
+  await expect(board.locator('[data-slot-index="45"]')).toHaveAccessibleName(
+    "보조 손 · 방패 1개",
+  );
+  await expect(
+    board.locator('[data-slot-index="9"] .inventory-stack-count'),
+  ).toHaveText("64");
+  await expect(
+    board.locator('[data-slot-index="10"] .inventory-stack-count'),
+  ).toHaveText("12");
+  const tool = board.locator('[data-slot-index="36"]');
+  await expect(tool).toHaveClass(/held/);
+  await expect(tool.locator(".inventory-stack-count")).toHaveCount(0);
+  await expect(tool.locator(".inventory-glint")).toHaveCount(1);
+  await expect(tool.getByRole("meter")).toHaveAttribute("aria-valuenow", "32");
+  await expect(tool.getByRole("meter")).toHaveAttribute(
+    "aria-valuemax",
+    "1561",
+  );
+  await expect(board.locator("[data-cursor=true]")).toHaveAccessibleName(
+    "커서 · 돌 3개",
+  );
+  await tool.focus();
+  await expect(page.getByRole("tooltip")).toContainText("채굴자의 곡괭이");
+  await expect(page.getByRole("tooltip")).toContainText("내구도 32 / 1561");
+  await expect(page.getByRole("tooltip")).toContainText("효율 3");
+  await expect(page.getByRole("tooltip")).toContainText("내구성 2");
+  await page.keyboard.press("Tab");
+  await expect(board.locator('[data-slot-index="37"]')).toBeFocused();
+  await expect(page.getByRole("tooltip")).toContainText("빵");
+  await expect(page.getByRole("tooltip")).toContainText("수량 5개");
+  const unknown = board.locator('[data-slot-index="11"]');
+  await unknown.focus();
+  await expect(unknown.locator(".inventory-unknown-icon")).toHaveText("?");
+  await expect(page.getByRole("tooltip")).toContainText("알 수 없는 유물");
+  await unknown.evaluate((element) => element.blur());
+  await unknown.hover();
+  await page.getByRole("tooltip").hover();
+  await page.waitForTimeout(180);
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.mouse.wheel(0, 300);
+  await expect
+    .poll(() =>
+      page.getByRole("tooltip").evaluate((element) => element.scrollTop),
+    )
+    .toBeGreaterThan(0);
+  await tool.focus();
+  const view = bot.session!.report!.inventoryView!;
+  view.slots[9] = null;
+  view.slots[18] = { name: "oak_log", count: 64 };
+  view.slots[10]!.count = 8;
+  view.slots[36]!.durability!.remaining = 20;
+  view.selectedHotbarSlot = 1;
+  view.cursor = null;
+  state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+  bot.session!.lastReportAt = Date.now();
+  await page.evaluate(
+    (state) =>
+      (window as unknown as BrowserHarness).sendFleet(
+        "snapshot",
+        JSON.parse(state),
+      ),
+    JSON.stringify(state),
+  );
+  await expect(board.locator('[data-slot-index="9"]')).toHaveAccessibleName(
+    "보관 칸 1 · 비어 있음",
+  );
+  await expect(
+    board.locator('[data-slot-index="18"] .inventory-stack-count'),
+  ).toHaveText("64");
+  await expect(
+    board.locator('[data-slot-index="10"] .inventory-stack-count'),
+  ).toHaveText("8");
+  await expect(tool).not.toHaveClass(/held/);
+  await expect(board.locator('[data-slot-index="37"]')).toHaveClass(/held/);
+  await expect(page.getByRole("tooltip")).toContainText("내구도 20 / 1561");
+  await expect(board.locator("[data-cursor=true]")).toHaveAccessibleName(
+    "커서 · 비어 있음",
+  );
+  await tool.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await board.screenshot({ path: "/tmp/laya-inventory-desktop.png" });
+  expect(atlasRequests).toBe(1);
+  expect(mutations).toEqual(["/api/v1/bots/Hunter/viewer"]);
+});
+
+test("inventory distinguishes unobserved slots from actual emptiness and marks stale or offline observations", async ({
+  page,
+}) => {
+  let state = snapshot();
+  state.agents = [agent("Hunter", "hunter")];
+  const bot = state.agents[0]!;
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith("/snapshot")
+        ? state
+        : {
+            id: "empty-viewer",
+            type: "viewer.start",
+            state: "applied",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+    .click();
+  const detail = page.getByRole("region", {
+    name: "Hunter 상세 상태",
+    exact: true,
+  });
+  await expect(detail).toContainText("슬롯 관측 대기");
+  await expect(detail).toContainText("보고된 물품 합계");
+  await expect(detail.locator(".inventory-totals")).toContainText(
+    "참나무 원목10개",
+  );
+  await expect(detail.locator("[data-slot-index]")).toHaveCount(0);
+  await expect(detail).not.toContainText("모든 슬롯이 비어 있습니다");
+  bot.session!.report!.inventory = [];
+  bot.session!.report!.inventoryView = {
+    slots: Array.from({ length: 46 }, () => null),
+  };
+  async function send() {
+    state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+    await page.evaluate(
+      (state) =>
+        (window as unknown as BrowserHarness).sendFleet(
+          "snapshot",
+          JSON.parse(state),
+        ),
+      JSON.stringify(state),
+    );
+  }
+  await send();
+  const board = detail.getByRole("region", {
+    name: "인게임 인벤토리",
+    exact: true,
+  });
+  await expect(board.locator("[data-slot-index]")).toHaveCount(46);
+  await expect(
+    board.locator(".inventory-item-icon, .inventory-unknown-icon"),
+  ).toHaveCount(0);
+  await expect(board.locator(".held, [data-cursor=true]")).toHaveCount(0);
+  await expect(board).toContainText("모든 슬롯이 비어 있습니다");
+  bot.session!.lastReportAt = Date.now() - 11_000;
+  await send();
+  await expect(board).toContainText("마지막 관측 상태");
+  bot.session!.lastReportAt = Date.now();
+  await send();
+  await expect(board).not.toContainText("마지막 관측 상태");
+  await page.evaluate(() =>
+    (window as unknown as BrowserHarness).sendFleet("disconnect", null),
+  );
+  await expect(board).toContainText("마지막 관측 상태");
+  await expect(page.locator(".connection")).toContainText("다시 연결 중");
+});
+
+test("inventory stays nine columns at 320 and 375 pixels and touch details fit inside the viewport", async ({
+  page,
+}) => {
+  const state = snapshot();
+  state.agents = [agent("Hunter", "hunter")];
+  state.agents[0]!.session!.report!.inventoryView = inventoryView();
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith("/snapshot")
+        ? state
+        : {
+            id: "mobile-viewer",
+            type: "viewer.start",
+            state: "applied",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+    }),
+  );
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Hunter 상세 보기", exact: true })
+    .click();
+  const board = page.getByRole("region", {
+    name: "인게임 인벤토리",
+    exact: true,
+  });
+  for (const width of [320, 375]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(board.locator("[data-slot-index]")).toHaveCount(46);
+    const rectangles = await board
+      .locator(".inventory-main-grid .inventory-slot")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return { x, y, width, height };
+        }),
+      );
+    expect(rectangles).toHaveLength(27);
+    for (let row = 0; row < 3; row++) {
+      const cells = rectangles.slice(row * 9, row * 9 + 9);
+      expect(
+        Math.max(...cells.map((cell) => cell.y)) -
+          Math.min(...cells.map((cell) => cell.y)),
+      ).toBeLessThan(1);
+      expect(cells[8]!.x).toBeGreaterThan(cells[0]!.x);
+      expect(Math.min(...cells.map((cell) => cell.width))).toBeGreaterThan(15);
+    }
+    expect(rectangles[9]!.y).toBeGreaterThan(rectangles[0]!.y);
+    await board.screenshot({ path: `/tmp/laya-inventory-mobile-${width}.png` });
+    const overflow = await page.evaluate(() =>
+      [...document.querySelectorAll("body *")]
+        .map((element) => ({
+          className: element.className,
+          right: element.getBoundingClientRect().right,
+          left: element.getBoundingClientRect().left,
+        }))
+        .filter(
+          (element) => element.right > window.innerWidth || element.left < 0,
+        ),
+    );
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+      JSON.stringify(overflow),
+    ).toBe(true);
+    expect(
+      await board.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    await board.locator('[data-slot-index="36"]').click();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toContainText("채굴자의 곡괭이");
+    const bounds = await tooltip.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    await board.locator('[data-slot-index="36"]').press("Escape");
+    await board.screenshot({ path: `/tmp/laya-inventory-mobile-${width}.png` });
+  }
 });

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { BlueprintDefinitionSchema, type BlueprintDefinition } from './blueprint-catalog';
+import { InventoryViewSchema } from './inventory';
 export * from './blueprint-catalog';
+export * from './inventory';
 
 export const PROTOCOL_VERSION = 1 as const;
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -146,7 +148,7 @@ export const ErrorInfoSchema = z.object({ code: z.string().min(1), message: z.st
 export type ErrorInfo = z.infer<typeof ErrorInfoSchema>;
 export const ResultPayloadSchema = z.object({ outcome: OutcomeSchema, observations: z.array(ObservationInputSchema).default([]), evidence: z.array(EvidenceSchema).default([]), checkpoint: JsonObjectSchema.default({}), error: ErrorInfoSchema.optional(), reason: z.string().optional() }).strict();
 export type ResultPayload = z.infer<typeof ResultPayloadSchema>;
-export const BotReportSchema = z.object({ ready: z.boolean(), position: PositionSchema.optional(), world: z.string().min(1), dimension: z.string().min(1), health: z.number().min(0).max(20), food: z.number().min(0).max(20), inventory: z.array(ItemStackSchema), action: z.string(), reason: z.string(), mode: z.enum(['idle', 'working', 'emergency', 'survival', 'paused', 'stopping']), capabilities: z.array(ActionKindSchema), currentAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), viewerReady: z.boolean().optional() }).strict();
+export const BotReportSchema = z.object({ ready: z.boolean(), position: PositionSchema.optional(), world: z.string().min(1), dimension: z.string().min(1), health: z.number().min(0).max(20), food: z.number().min(0).max(20), inventory: z.array(ItemStackSchema), inventoryView: InventoryViewSchema.optional(), action: z.string(), reason: z.string(), mode: z.enum(['idle', 'working', 'emergency', 'survival', 'paused', 'stopping']), capabilities: z.array(ActionKindSchema), currentAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), viewerReady: z.boolean().optional() }).strict();
 export type BotReport = z.infer<typeof BotReportSchema>;
 
 const envelopeBase = { protocolVersion: z.literal(PROTOCOL_VERSION), messageId: IdSchema, controllerEpoch: IdSchema, botId: IdSchema, sessionId: IdSchema, sentAt: time, commandId: IdSchema.optional() };
