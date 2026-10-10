@@ -13,6 +13,7 @@
     "dev:web": "vite --config apps/web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "check": "npm run typecheck",
+    "assets:inventory": "node --import tsx scripts/inventory-atlas.ts",
     "build:server": "tsc -p tsconfig.build.json",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build": "npm run typecheck && npm run build:server && npm run build:web",

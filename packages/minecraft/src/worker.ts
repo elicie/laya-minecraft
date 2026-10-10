@@ -11,7 +11,7 @@ import {
 import { MineflayerExecutor, EXECUTABLE_ACTIONS, type ExecutorOptions } from './actions';
 import { executeVillageTask } from './village-actions';
 import { ActionFailure, ConditionWait, type ActionServices } from './services';
-import { inventory, nearbyBlocks, position } from './observations';
+import { inventory, inventoryView, nearbyBlocks, position } from './observations';
 import { assessCombat, HOSTILES } from './combat-policy';
 import { createBotViewer } from './viewer';
 import { createCompatibleBot } from './compatibility';
@@ -104,12 +104,14 @@ export class MinecraftWorker {
   }
   private report(): BotReport {
     const config = this.launch.config;
+    const view = this.ready && !this.stopping && this.bot.inventory ? inventoryView(this.bot) : undefined;
     return {
       ready: this.ready && !this.stopping,
       ...(this.ready && this.bot.entity ? { position: position(this.bot.entity.position) } : {}),
       world: `${config.connection.host}:${config.connection.port}`, dimension: String(this.bot.game?.dimension ?? this.launch.rules.dimension),
       health: Math.max(0, Math.min(20, this.bot.health ?? 0)), food: Math.max(0, Math.min(20, this.bot.food ?? 0)),
       inventory: this.ready && this.bot.inventory ? inventory(this.bot) : [], action: this.action, reason: this.reason,
+      ...(view ? { inventoryView: view } : {}),
       mode: this.stopping ? 'stopping' : !config.enabled ? 'paused' : this.mode === 'idle' && this.survivalUrgent() ? 'survival' : this.mode,
       capabilities: EXECUTABLE_ACTIONS.filter((action) => config.allowedActions.includes(action)),
       ...(this.active ? { currentAttemptId: this.active.message.attemptId } : {}), rulesVersion: this.launch.rules.version, viewerReady: !!this.viewer,
