@@ -490,6 +490,8 @@ export function GoalForm({
     (["collect", "store", "take"].includes(goal.kind) ||
       (goal.kind === "hunt" && !!goal.item) ||
       (goal.kind === "farm" && goal.params.mode === "harvest"));
+  const inventoryCollection = !!goal && !snapshot.rules.warehouse &&
+    (goal.kind === "collect" || goal.kind === "hunt" && !!goal.item);
   const blueprintOptions = [
     ...Object.entries(BLUEPRINTS).map(([id, design]) => ({
       id,
@@ -946,15 +948,16 @@ export function GoalForm({
                     }
                   >
                     <option value="warehouse">
-                      기본 공동 창고
                       {snapshot.rules.warehouse
-                        ? ` · ${snapshot.rules.warehouse.id}`
-                        : " · 지정 필요"}
+                        ? `기본 공동 창고 · ${snapshot.rules.warehouse.id}`
+                        : inventoryCollection ? "봇 인벤토리 합산 · 창고 미지정" : "기본 공동 창고 · 지정 필요"}
                     </option>
                     <option value="custom">다른 창고 지정</option>
                   </select>
                   <small>
-                    {goal.kind === "collect"
+                    {inventoryCollection && !customDestination
+                      ? "창고가 없으면 활성 봇의 인벤토리를 합산해 목표 수량을 확인하면 완료합니다."
+                      : goal.kind === "collect"
                       ? "지정 창고에 목표 수량이 들어온 것을 확인하면 완료합니다."
                       : goal.kind === "farm"
                         ? "수확한 물품이 지정 창고에 입고된 것을 확인하면 완료합니다."
