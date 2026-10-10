@@ -1648,3 +1648,9 @@ dialog::backdrop {
     height: clamp(220px, 62cqw, 300px);
   }
 }
+.recovery-status { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line, #e3e7e7); }
+.recovery-status h3 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.recovery-status p { margin-top: 7px; }
+.recovery-status .muted { font-size: 10px; line-height: 1.6; }
+.recovery-counts { font-size: 12px; line-height: 1.7; }
+.support-status { padding: 8px; background: #fff6de; border-radius: 5px; }

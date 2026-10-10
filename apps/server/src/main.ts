@@ -102,7 +102,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
     if (closing || !core || !supervisor || !agent.config.enabled || agent.status === 'removed' || agent.status === 'removing' || supervisor.has(agent.id)) return;
     if (agent.session && agent.session.state !== 'stopped') return;
     const sessionId = randomUUID();
-    supervisor.spawn(agent.id, sessionId, core.controllerEpoch, { config: agent.config, rules: core.getSnapshot().rules });
+    supervisor.spawn(agent.id, sessionId, core.controllerEpoch, { config: agent.config, rules: core.getSnapshot().rules, ...(agent.recovery ? { restoreRecovery: agent.recovery } : {}) });
     core.startSession(agent.id, sessionId);
   }
   try {

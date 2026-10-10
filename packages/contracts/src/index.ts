@@ -18,6 +18,11 @@ export const PositionSchema = z.object({ x: z.number().finite(), y: z.number().f
 export type Position = z.infer<typeof PositionSchema>;
 export const ItemStackSchema = z.object({ name: z.string().min(1).max(100), count: z.number().int().nonnegative() }).strict();
 export type ItemStack = z.infer<typeof ItemStackSchema>;
+// A death is independent of a central task, and its last live facts survive restarts.
+export const DeathRecordSchema = z.object({ deathId: IdSchema, occurredAt: time, world: z.string().min(1), dimension: z.string().min(1), position: PositionSchema.optional(), priorInventory: z.array(ItemStackSchema).max(128) }).strict();
+export type DeathRecord = z.infer<typeof DeathRecordSchema>;
+export const RecoveryStateSchema = DeathRecordSchema.extend({ phase: z.enum(['waiting-respawn', 'recovering', 'resolved', 'held']), reason: z.string().max(1000), attemptCount: z.number().int().min(0).max(5), progress: z.object({ recoveredCount: z.number().int().min(0).max(1000000), remainingCount: z.number().int().min(0).max(1000000), lostCount: z.number().int().min(0).max(1000000).optional() }).strict(), safe: z.boolean().default(false), updatedAt: time, checkpoint: JsonObjectSchema.default({}) }).strict();
+export type RecoveryState = z.infer<typeof RecoveryStateSchema>;
 export const ContainerRefSchema = z.object({ id: IdSchema, position: PositionSchema, world: z.string().min(1), dimension: z.string().min(1) }).strict();
 export type ContainerRef = z.infer<typeof ContainerRefSchema>;
 
@@ -112,7 +117,7 @@ export const CompletionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('container'), container: ContainerRefSchema, item: z.string().min(1), minimum: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('transfer'), container: ContainerRefSchema, item: z.string().min(1), quantity: z.number().int().positive(), direction: z.enum(['store', 'take']) }).strict(),
   z.object({ kind: z.literal('blocks'), blocks: z.array(ExpectedBlockSchema).min(1).max(10000) }).strict(),
-  z.object({ kind: z.literal('entity-death'), targetName: z.string().optional(), minimum: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal('entity-death'), targetName: z.string().optional(), targetId: IdSchema.optional(), minimum: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('position'), position: PositionSchema, radius: z.number().min(0).max(128) }).strict(),
   z.object({ kind: z.literal('farm'), crop: z.string().optional(), plots: z.number().int().positive(), mode: z.enum(['setup', 'harvest']), quantity: z.number().int().nonnegative().optional(), baseline: z.number().int().nonnegative().optional() }).strict(),
   z.object({ kind: z.literal('exploration'), resourceNames: z.array(z.string()).default([]), minVisits: z.number().int().positive().default(1) }).strict(),
@@ -153,7 +158,7 @@ export const ErrorInfoSchema = z.object({ code: z.string().min(1), message: z.st
 export type ErrorInfo = z.infer<typeof ErrorInfoSchema>;
 export const ResultPayloadSchema = z.object({ outcome: OutcomeSchema, observations: z.array(ObservationInputSchema).default([]), evidence: z.array(EvidenceSchema).default([]), checkpoint: JsonObjectSchema.default({}), error: ErrorInfoSchema.optional(), reason: z.string().optional() }).strict();
 export type ResultPayload = z.infer<typeof ResultPayloadSchema>;
-export const BotReportSchema = z.object({ ready: z.boolean(), position: PositionSchema.optional(), world: z.string().min(1), dimension: z.string().min(1), health: z.number().min(0).max(20), food: z.number().min(0).max(20), inventory: z.array(ItemStackSchema), inventoryView: InventoryViewSchema.optional(), action: z.string(), reason: z.string(), mode: z.enum(['idle', 'working', 'emergency', 'survival', 'paused', 'stopping']), capabilities: z.array(ActionKindSchema), currentAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), viewerReady: z.boolean().optional() }).strict();
+export const BotReportSchema = z.object({ ready: z.boolean(), position: PositionSchema.optional(), world: z.string().min(1), dimension: z.string().min(1), health: z.number().min(0).max(20), food: z.number().min(0).max(20), inventory: z.array(ItemStackSchema), inventoryView: InventoryViewSchema.optional(), action: z.string(), reason: z.string(), mode: z.enum(['idle', 'working', 'emergency', 'survival', 'recovering', 'paused', 'stopping']), recovery: RecoveryStateSchema.optional(), capabilities: z.array(ActionKindSchema), currentAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), viewerReady: z.boolean().optional() }).strict();
 export type BotReport = z.infer<typeof BotReportSchema>;
 
 const envelopeBase = { protocolVersion: z.literal(PROTOCOL_VERSION), messageId: IdSchema, controllerEpoch: IdSchema, botId: IdSchema, sessionId: IdSchema, sentAt: time, commandId: IdSchema.optional() };
@@ -168,12 +173,14 @@ export const CentralMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...envelopeBase, type: z.literal('viewer.stop'), payload: empty }).strict(),
 ]);
 export type CentralMessage = z.infer<typeof CentralMessageSchema>;
-export const WorkerLaunchSchema = z.object({ botId: IdSchema, sessionId: IdSchema, controllerEpoch: IdSchema, config: BotInputSchema.omit({ id: true }), rules: RulesSchema }).strict();
+export const WorkerLaunchSchema = z.object({ botId: IdSchema, sessionId: IdSchema, controllerEpoch: IdSchema, config: BotInputSchema.omit({ id: true }), rules: RulesSchema, restoreRecovery: RecoveryStateSchema.optional() }).strict();
 export type WorkerLaunch = z.infer<typeof WorkerLaunchSchema>;
 const stoppedPayload = z.object({ safeStopped: z.boolean(), observations: z.array(ObservationInputSchema).default([]), evidence: z.array(EvidenceSchema).default([]), checkpoint: JsonObjectSchema.default({}), reason: z.string().optional() }).strict();
 export const WorkerMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...envelopeBase, type: z.literal('bot.ready'), payload: BotReportSchema }).strict(),
   z.object({ ...envelopeBase, type: z.literal('bot.status'), payload: BotReportSchema }).strict(),
+  z.object({ ...envelopeBase, type: z.literal('bot.died'), payload: DeathRecordSchema }).strict(),
+  z.object({ ...envelopeBase, type: z.literal('bot.recovery'), payload: RecoveryStateSchema }).strict(),
   z.object({ ...taskEnvelope, type: z.literal('task.accepted'), payload: empty }).strict(),
   z.object({ ...taskEnvelope, type: z.literal('task.started'), payload: empty }).strict(),
   z.object({ ...taskEnvelope, type: z.literal('task.rejected'), payload: z.object({ reason: z.string(), retryable: z.boolean().default(false) }).strict() }).strict(),
@@ -182,7 +189,7 @@ export const WorkerMessageSchema = z.discriminatedUnion('type', [
   z.object({ ...taskEnvelope, type: z.literal('task.cancelled'), payload: stoppedPayload }).strict(),
   z.object({ ...taskEnvelope, type: z.literal('task.interrupted'), payload: stoppedPayload.extend({ reason: z.string().min(1) }).strict() }).strict(),
   z.object({ ...envelopeBase, type: z.literal('world.observed'), payload: z.object({ observations: z.array(ObservationInputSchema).max(1000) }).strict() }).strict(),
-  z.object({ ...envelopeBase, type: z.literal('safety.alert'), payload: z.object({ response: z.enum(['attack', 'defend', 'support', 'retreat']), reason: z.string(), supportRequired: z.boolean(), threats: z.array(JsonObjectSchema).default([]) }).strict() }).strict(),
+  z.object({ ...envelopeBase, type: z.literal('safety.alert'), payload: z.object({ response: z.enum(['attack', 'defend', 'support', 'retreat']), reason: z.string(), supportRequired: z.boolean(), threats: z.array(JsonObjectSchema).max(64).default([]) }).strict() }).strict(),
   z.object({ ...envelopeBase, type: z.literal('rules.applied'), payload: z.object({ version: z.number().int().positive() }).strict() }).strict(),
   z.object({ ...envelopeBase, type: z.literal('bot.stopped'), payload: z.object({ reason: z.string() }).strict() }).strict(),
   z.object({ ...envelopeBase, type: z.literal('bot.error'), payload: ErrorInfoSchema }).strict(),
@@ -198,7 +205,7 @@ export interface Task extends TaskSpec { generation: number; state: TaskState; a
 export interface TaskAttempt { id: string; taskId: string; botId: string; sessionId: string; controllerEpoch: string; reason: 'initial' | 'retry' | 'resume'; state: 'assigned' | 'accepted' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'interrupted' | 'failed' | 'uncertain'; startedAt?: number; assignedAt: number; finishedAt?: number; result?: ResultPayload; }
 export interface Reservation { key: string; taskId: string; attemptId: string; botId: string; sessionId: string; acquiredAt: number; }
 export interface AgentSession { id: string; state: 'starting' | 'ready' | 'abnormal' | 'stopped'; lastReportAt: number; report?: BotReport; activeAttemptId?: string; rulesVersion: number; pendingRulesVersion?: number; }
-export interface Agent { id: string; config: BotConfig; desiredConfig?: BotConfig; pendingCommandIds: string[]; session?: AgentSession; status: 'registered' | 'connecting' | 'ready' | 'paused' | 'removing' | 'removed' | 'abnormal'; viewer: { state: 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'; port?: number; prefix?: string }; createdAt: number; updatedAt: number; }
+export interface Agent { recovery?: RecoveryState; deaths?: DeathRecord[]; id: string; config: BotConfig; desiredConfig?: BotConfig; pendingCommandIds: string[]; session?: AgentSession; status: 'registered' | 'connecting' | 'ready' | 'paused' | 'removing' | 'removed' | 'abnormal'; viewer: { state: 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'; port?: number; prefix?: string }; createdAt: number; updatedAt: number; }
 export interface CoreEvent { id: string; time: number; revision: number; type: string; commandId?: string; botId?: string; goalId?: string; taskId?: string; attemptId?: string; message: string; data?: JsonObject; }
 export interface FleetSnapshot { schemaVersion: 1; controllerEpoch: string; revision: number; updatedAt: number; rules: Rules; blueprints: BlueprintDefinition[]; agents: Agent[]; goals: Goal[]; tasks: Task[]; attempts: TaskAttempt[]; reservations: Reservation[]; observations: Observation[]; events: CoreEvent[]; }
 export interface PendingRuleCommand { commandId: string; version: number; awaitingBotIds: string[]; expected?: JsonObject; }
@@ -213,7 +220,7 @@ export const TaskSchema = TaskSpecSchema.extend({ generation: z.number().int().n
 export const TaskAttemptSchema = z.object({ id: IdSchema, taskId: IdSchema, botId: IdSchema, sessionId: IdSchema, controllerEpoch: IdSchema, reason: z.enum(['initial', 'retry', 'resume']), state: z.enum(['assigned', 'accepted', 'running', 'cancelling', 'completed', 'cancelled', 'interrupted', 'failed', 'uncertain']), assignedAt: time, startedAt: time.optional(), finishedAt: time.optional(), result: ResultPayloadSchema.optional() }).strict();
 export const ReservationSchema = z.object({ key: z.string(), taskId: IdSchema, attemptId: IdSchema, botId: IdSchema, sessionId: IdSchema, acquiredAt: time }).strict();
 export const AgentSessionSchema = z.object({ id: IdSchema, state: z.enum(['starting', 'ready', 'abnormal', 'stopped']), lastReportAt: time, report: BotReportSchema.optional(), activeAttemptId: IdSchema.optional(), rulesVersion: z.number().int().nonnegative(), pendingRulesVersion: z.number().int().positive().optional() }).strict();
-export const AgentSchema = z.object({ id: IdSchema, config: BotInputSchema.omit({ id: true }), desiredConfig: BotInputSchema.omit({ id: true }).optional(), pendingCommandIds: z.array(IdSchema), session: AgentSessionSchema.optional(), status: z.enum(['registered', 'connecting', 'ready', 'paused', 'removing', 'removed', 'abnormal']), viewer: z.object({ state: z.enum(['stopped', 'starting', 'ready', 'stopping', 'failed']), port: z.number().int().min(1024).max(65535).optional(), prefix: z.string().startsWith('/').optional() }).strict(), createdAt: time, updatedAt: time }).strict();
+export const AgentSchema = z.object({ recovery: RecoveryStateSchema.optional(), deaths: z.array(DeathRecordSchema).max(20).optional(), id: IdSchema, config: BotInputSchema.omit({ id: true }), desiredConfig: BotInputSchema.omit({ id: true }).optional(), pendingCommandIds: z.array(IdSchema), session: AgentSessionSchema.optional(), status: z.enum(['registered', 'connecting', 'ready', 'paused', 'removing', 'removed', 'abnormal']), viewer: z.object({ state: z.enum(['stopped', 'starting', 'ready', 'stopping', 'failed']), port: z.number().int().min(1024).max(65535).optional(), prefix: z.string().startsWith('/').optional() }).strict(), createdAt: time, updatedAt: time }).strict();
 export const CoreEventSchema = z.object({ id: IdSchema, time, revision: z.number().int().nonnegative(), type: z.string(), commandId: IdSchema.optional(), botId: IdSchema.optional(), goalId: IdSchema.optional(), taskId: IdSchema.optional(), attemptId: IdSchema.optional(), message: z.string(), data: JsonObjectSchema.optional() }).strict();
 // ObservationInput is strict at the wire boundary; the persisted form adds trusted envelope fields.
 export const ObservationSchema = z.union(ObservationInputSchema.options.map(option => option.extend({ botId: IdSchema, sessionId: IdSchema, receivedAt: time, attemptId: IdSchema.optional(), controllerEpoch: IdSchema }))) as z.ZodType<Observation>;
@@ -226,3 +233,5 @@ export function parseWorkerMessage(value: unknown): WorkerMessage { return Worke
 export function parseCentralMessage(value: unknown): CentralMessage { return CentralMessageSchema.parse(value); }
 export * from './build-site-preparation';
 export * from './blueprints';
+
+export * from './build-access-recovery';

@@ -3,6 +3,7 @@ import type {
   BotReport,
   FleetSnapshot,
   Goal,
+  RecoveryState,
   Task,
 } from "../../../../packages/contracts/src";
 import { resolveBlueprint } from "../../../../packages/contracts/src/blueprints";
@@ -23,6 +24,17 @@ export const waitingTaskStates = new Set([
 export function isLocalFoodRecovery(report: BotReport | undefined): boolean {
   return !!report && report.mode === "idle" && !report.currentAttemptId &&
     /^(식량 확보|자원 탐색)/.test(report.action);
+}
+
+export function latestRecovery(bot: Agent): RecoveryState | undefined {
+  return [bot.recovery, bot.session?.report?.recovery]
+    .filter((state): state is RecoveryState => !!state)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
+export function isDeathRecoveryPending(bot: Agent): boolean {
+  const state = latestRecovery(bot);
+  return !!state && (state.phase !== "resolved" || !state.safe);
 }
 
 export function taskActionLabel(
@@ -73,7 +85,7 @@ export function selectedBotWork(
   snapshot: FleetSnapshot | null,
   bot: Agent | undefined,
 ): { task?: Task; goal?: Goal } {
-  if (!snapshot || !bot || bot.session?.report?.mode === "emergency") return {};
+  if (!snapshot || !bot) return {};
   const current = (task: Task) => {
     const goal = snapshot.goals.find((goal) => goal.id === task.goalId);
     return goal &&
@@ -83,7 +95,7 @@ export function selectedBotWork(
       : undefined;
   };
   const work = (task: Task) => ({
-    ...(bot.session?.report?.mode === "survival" || isLocalFoodRecovery(bot.session?.report) ? {} : { task }),
+    ...(bot.session?.report?.mode === "survival" || bot.session?.report?.mode === "emergency" || isDeathRecoveryPending(bot) || isLocalFoodRecovery(bot.session?.report) ? {} : { task }),
     goal: current(task),
   });
   const attemptId =

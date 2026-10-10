@@ -8,6 +8,7 @@ import { BUILD_MATERIALS } from '../../contracts/src/blueprint-catalog';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 import { findBuildSitePreparation, prepareBuildSite } from './terrain';
 import { preserveMaterialWait } from './material-wait';
+import { prepareBuildAccess, proposeBuildAccess } from './build-access-recovery';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
 const BUILD_SUPPORT = new Set<string>(BUILD_MATERIALS);
@@ -53,7 +54,7 @@ function observedBlocks(s: ActionServices, blocks: ExpectedBlock[]): ExpectedBlo
 
 function buildWait(s: ActionServices, causeCode: string, message: string, positions: Position[]): never {
   const unique = [...new Map(positions.map(p => [key(p), p])).values()];
-  s.checkpoint.waitingFor = { kind: 'blocks', causeCode, positions: unique };
+  s.checkpoint.waitingFor = { kind: 'blocks', causeCode, positions: unique, ...(causeCode === 'BUILD_ACCESS' ? { watchPosition: true } : {}) };
   s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt: Date.now(), world: s.rules.world, dimension: s.rules.dimension,
     data: { blocks: unique.flatMap(p => { const b = at(s, p); return b ? [{ position: p, name: b.name }] : []; }) } });
   throw new ConditionWait(`${message} (${unique.slice(0, 4).map(key).join(' / ')})`, s.checkpoint);
@@ -281,7 +282,14 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
   // Loaded chunks are evidence of visibility, not proof that the worker reached the site.
   if (blocks.every(block => !!at(s, block.position))) validateBuildSite(task, s, blocks, area, planned);
   try { await s.near(offset(entrance, 0.5, 0, 0.5), resolved ? 1 : 3); }
-  catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]); throw error; }
+  catch (error) {
+    s.check();
+    if (error instanceof ConditionWait) {
+      if (task.params.allowPreparation !== false && task.params.allowAccessPreparation !== false) proposeBuildAccess(s, entrance, blocks, error.message);
+      buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]);
+    }
+    throw error;
+  }
   validateBuildSite(task, s, blocks, area, planned);
   const access = constructionAccess(s, blocks);
   const postponed = new Set(access?.columns.flat().map(block => key(block.position)) ?? []);
@@ -582,7 +590,7 @@ async function breed(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
 export async function executeVillageTask(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   try {
     s.check();
-    if (task.kind === 'build') return task.params.mode === 'prepare-site' ? await prepareBuildSite(task, s) : await build(task, s);
+    if (task.kind === 'build') return task.params.mode === 'prepare-access' ? await prepareBuildAccess(task, s) : task.params.mode === 'prepare-site' ? await prepareBuildSite(task, s) : await build(task, s);
     if (task.kind === 'farm') return await farm(task, s);
     if (task.kind === 'breed') return await breed(task, s);
     throw new ActionFailure('마을 작업 실행기가 지원하지 않는 작업입니다.', 'UNSUPPORTED_ACTION', false, true);

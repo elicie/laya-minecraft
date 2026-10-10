@@ -9,6 +9,7 @@ import {
   type Goal,
   type Task,
   type InventoryView,
+  type RecoveryState,
 } from "../../packages/contracts/src";
 import {
   BlueprintInputSchema,
@@ -199,6 +200,84 @@ test("natural language is previewed and edited before registration; applied rece
   expect(submitted?.executionMode).toBe("queued");
   await expect(page.getByText("적용 완료", { exact: true })).toBeVisible();
   await expect(page.getByText("요청 접수", { exact: true })).toHaveCount(0);
+});
+
+test("death recovery shows confirmed partial items, unavailable support and the preserved construction without masking urgent safety", async ({ page }) => {
+  let state = snapshot();
+  const now = Date.now(), hunter = state.agents[0]!, report = hunter.session!.report!;
+  delete report.currentAttemptId;
+  report.mode = "recovering"; report.action = "build"; report.reason = "사망 전의 오래된 건설 보고입니다."; report.ready = false; report.health = 0;
+  const goal: Goal = {
+    id: "preserved-warehouse", input: GoalInputSchema.parse({ kind: "build", preferredBotId: hunter.id, params: { blueprint: "warehouse", siteSelection: "fixed", origin: { x: 56, y: 70, z: 8 } } }),
+    title: "보존된 공동 창고 건설", state: "condition-wait", taskIds: ["preserved-build"], generation: 2, createdAt: now - 2000, updatedAt: now, progress: { current: 0 }, reason: "기존 건설의 접근 경로를 다시 확인합니다.",
+  };
+  const task: Task = {
+    id: "preserved-build", goalId: goal.id, generation: 2, kind: "build", params: { blueprint: "warehouse" }, dependencies: [], completion: { kind: "manual", reason: "실제 건물 확인" }, reservationKeys: [],
+    state: "condition-wait", affinityBotId: hunter.id, retryCount: 0, resumeCount: 1, progress: 0.2, checkpoint: { placedBlocks: 7 }, createdAt: now - 2000, updatedAt: now,
+    reason: "창고 입구로 가는 안전한 경로가 없어 지형 조건을 기다립니다.",
+  };
+  const recovery: RecoveryState = {
+    deathId: "recovery-fixture", occurredAt: now - 1000, world: "127.0.0.1:25566", dimension: "overworld", position: { x: 56.25, y: 70, z: 8.5 }, priorInventory: [{ name: "cobblestone", count: 10 }],
+    phase: "waiting-respawn", reason: "사망을 확인했습니다. 실제 부활 상태를 기다립니다.", attemptCount: 0, progress: { recoveredCount: 0, remainingCount: 10 }, safe: false, updatedAt: now, checkpoint: {},
+  };
+  hunter.recovery = recovery;
+  report.recovery = structuredClone(recovery);
+  state.goals = [goal]; state.tasks = [task];
+  await installStream(page);
+  await page.route("**/api/v1/**", route => route.fulfill({ json: new URL(route.request().url()).pathname.endsWith("/snapshot") ? state : { id: "recovery-viewer", type: "viewer.start", state: "applied", createdAt: now, updatedAt: now } }));
+  await page.goto("/"); await page.getByRole("button", { name: "Hunter 상세 보기", exact: true }).click();
+  const detail = page.getByRole("region", { name: "Hunter 상세 상태" }), card = detail.getByRole("region", { name: "사망과 복구 상태" });
+  await expect(detail.locator(".current-action")).toHaveText("부활 대기");
+  await expect(detail).not.toContainText("사망 전의 오래된 건설 보고입니다.");
+  await expect(detail).toContainText("등록된 목표 · 보존된 공동 창고 건설");
+  await expect(card).toContainText("보유·회수 확인 0개 · 미회수 10개");
+  await expect(card).toContainText("X 56.3 · Y 70.0 · Z 8.5");
+  await expect(detail).not.toContainText(task.reason!);
+  async function send() {
+    state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+    hunter.session!.lastReportAt = Date.now();
+    await page.evaluate(value => (window as unknown as BrowserHarness).sendFleet("snapshot", JSON.parse(value)), JSON.stringify(state));
+  }
+  report.ready = true; report.health = 20; report.action = "사망 아이템 회수"; report.reason = "관측한 드롭으로 가는 안전한 지면을 확인합니다.";
+  report.recovery = { ...recovery, phase: "recovering", reason: report.reason, attemptCount: 2, progress: { recoveredCount: 4, remainingCount: 6 }, updatedAt: now + 1 };
+  await send();
+  await expect(detail.locator(".current-action")).toHaveText("사망 아이템 회수");
+  await expect(card).toContainText("아이템 회수 중");
+  await expect(card).toContainText("보유·회수 확인 4개 · 미회수 6개");
+  await expect(card).toContainText("회수 시도 2 / 5");
+  report.mode = "emergency"; report.action = "지원·안전 경로 대기"; report.reason = "사망 위치 근처의 적 때문에 안전한 퇴각 경로와 지원이 필요합니다.";
+  report.recovery = { ...report.recovery, phase: "held", reason: "근처 적이 있어 위험한 아이템 위치로 진입하지 않습니다.", updatedAt: now + 2 };
+  state.events = [{ id: "unavailable-support", time: now + 2, revision: 2, type: "support.unavailable", botId: hunter.id, message: "현재 장비와 위치 조건을 만족하는 동료가 없습니다." }];
+  await send();
+  await expect(detail.locator(".current-action")).toHaveText("지원·안전 경로 대기");
+  await expect(detail).toContainText(report.reason);
+  await expect(card).toContainText("회수 조건 대기");
+  await expect(card.locator(".support-status")).toContainText("지원 가능한 동료 없음");
+  await expect(card.locator(".support-status")).toContainText(state.events[0]!.message);
+  await expect(detail).not.toContainText(task.reason!);
+  report.mode = "survival"; report.action = "식량 대기"; report.food = 6; report.reason = "부활 후 기본 생존을 위한 식량을 기다립니다.";
+  await send();
+  await expect(detail.locator(".current-action")).toHaveText("식량 대기");
+  await expect(detail).toContainText(report.reason);
+  await expect(detail).toContainText("생존 유지 중");
+  report.mode = "idle"; report.food = 20; report.action = "idle"; report.reason = "확인한 회수 예산을 마쳤습니다.";
+  report.recovery = { ...report.recovery!, phase: "resolved", safe: false, attemptCount: 5, reason: "안전한 회수 시도를 마쳤습니다. 미회수 물자는 다시 준비해야 합니다.", progress: { recoveredCount: 4, remainingCount: 6, lostCount: 6 }, updatedAt: now + 3 };
+  hunter.recovery = structuredClone(report.recovery);
+  await send();
+  await expect(card).toContainText("회수 확인 종료");
+  await expect(card).toContainText("현재 위치 안전 확인 대기");
+  await expect(detail).not.toContainText(task.reason!);
+  hunter.recovery = { ...hunter.recovery, safe: true, updatedAt: now + 4 }; report.recovery = structuredClone(hunter.recovery);
+  await send();
+  await expect(detail.locator(".current-action")).toHaveText("건설 조건 대기");
+  await expect(detail).toContainText(task.reason!);
+  await expect(card).toContainText("보유·회수 확인 4개 · 미회수 6개");
+  await expect(card).toContainText("미회수 물자는 실제 재고를 확인한 뒤 다시 준비합니다.");
+  await expect(card.locator(".support-status")).toHaveCount(0);
+  await expect(detail).toContainText("대기 중 목표 · 보존된 공동 창고 건설");
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await expect(card).toContainText("회수 시도 5 / 5");
 });
 
 for (const nativeUuid of [true, false]) {

@@ -20,7 +20,7 @@ export class WorkerSupervisor {
   private readonly children = new Map<string, ChildEntry>();
   constructor(private readonly options: SupervisorOptions) {}
 
-  spawn(botId: string, sessionId: string, controllerEpoch: string, bootstrap: { config: unknown; rules: unknown }): WorkerRecord {
+  spawn(botId: string, sessionId: string, controllerEpoch: string, bootstrap: { config: unknown; rules: unknown; restoreRecovery?: unknown }): WorkerRecord {
     if (this.children.has(botId) || this.options.store.workers().some(worker => worker.botId === botId)) {
       throw new Error(`봇 ${botId}의 이전 프로세스가 아직 종료 확인되지 않았습니다.`);
     }

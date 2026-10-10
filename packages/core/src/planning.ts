@@ -133,7 +133,7 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'fight' || input.kind === 'hunt') {
-    add(input.kind, { ...input.params, quantity: input.quantity }, { kind: 'entity-death', minimum: input.quantity, targetName: typeof input.params.targetName === 'string' ? input.params.targetName : undefined });
+    add(input.kind, { ...input.params, quantity: input.quantity }, { kind: 'entity-death', minimum: input.quantity, targetName: typeof input.params.targetName === 'string' ? input.params.targetName : undefined, ...(typeof input.params.targetEntityId === 'string' ? { targetId: input.params.targetEntityId } : {}) }, [], typeof input.params.supportRequestId === 'string' ? [`support:${rules.world}:${rules.dimension}:${String(input.params.targetEntityId)}`] : []);
     return { tasks };
   }
   if (input.kind === 'home' || input.kind === 'guard') {

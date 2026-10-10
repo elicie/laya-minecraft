@@ -65,7 +65,7 @@ export function verifyCompletion(condition: CompletionCondition, context: Verifi
       return result(count, condition.blocks.length, 'Each required block must be observed at its planned position');
     }
     case 'entity-death': {
-      const ids = new Set(observations.filter(o => o.kind === 'entity-death' && (!condition.targetName || o.data.entityName === condition.targetName)).map(o => o.kind === 'entity-death' ? o.data.entityId : ''));
+      const ids = new Set(observations.filter(o => o.kind === 'entity-death' && (!condition.targetName || o.data.entityName === condition.targetName) && (!condition.targetId || o.data.entityId === condition.targetId)).map(o => o.kind === 'entity-death' ? o.data.entityId : ''));
       return result(ids.size, condition.minimum, 'Only observed entity-death events count as kills');
     }
     case 'position': {
