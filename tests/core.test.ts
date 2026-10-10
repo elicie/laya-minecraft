@@ -3,7 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { FleetController } from '../packages/core/src';
 import { verifyCompletion } from '../packages/core/src/verification';
-import { FleetCheckpointSchema, FleetSnapshotSchema, buildSiteCells, type CentralMessage, type ContainerRef, type ObservationInput, type Position } from '../packages/contracts/src';
+import { FleetCheckpointSchema, FleetSnapshotSchema, buildSiteCells, preparationProofPositions, type BuildSitePreparation, type CentralMessage, type ContainerRef, type ExpectedBlock, type ObservationInput, type Position } from '../packages/contracts/src';
 import { blueprint } from '../packages/contracts/src/blueprints';
 
 const world = '127.0.0.1:25566', dimension = 'overworld';
@@ -36,6 +36,153 @@ function siteResult(f: ReturnType<typeof fixture>, task = f.latest(), origin: Po
   const blocks = buildSiteCells(origin, Number(p.siteWidth), Number(p.siteDepth), Number(p.siteHeight)).map(cell => ({ position: cell.position, name: cell.requirement === 'ground' ? 'grass_block' : 'air' }));
   return { outcome: 'completed', checkpoint: { buildSite: { origin, design, entrance, observedAt: f.now() } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...entrance, x: entrance.x + 0.5, z: entrance.z + 0.5 }, resources: [] })] };
 }
+
+function preparationProposal(f: ReturnType<typeof fixture>, task = f.latest()) {
+  const origin = { x: 5, y: 64, z: 5 }, entrance = { x: 8, y: 64, z: 4 };
+  const plan: BuildSitePreparation = { origin, entrance, design: 'warehouse', near: task.payload.task.params.near as Position, observedAt: f.now(), edits: [{ position: { x: 6, y: 64, z: 6 }, before: 'grass_block', after: 'air' }, { position: { x: 7, y: 63, z: 6 }, before: 'air', after: 'dirt' }], path: [...Array.from({ length: 9 }, (_, x) => ({ x, y: 64, z: 0 })), ...Array.from({ length: 4 }, (_, z) => ({ x: 8, y: 64, z: z + 1 }))] };
+  const edits = new Map(plan.edits.map(e => [`${e.position.x},${e.position.y},${e.position.z}`, e]));
+  const blocks: ExpectedBlock[] = preparationProofPositions(plan).map(position => ({ position, name: edits.get(`${position.x},${position.y},${position.z}`)?.before ?? (position.y < 64 ? 'grass_block' : 'air') }));
+  return { plan, blocks, payload: { outcome: 'completed', checkpoint: { buildSitePreparation: plan }, observations: [f.obs('blocks', { blocks })], reason: '제안 성공' } };
+}
+function preparedResult(f: ReturnType<typeof fixture>, proposal: ReturnType<typeof preparationProposal>) {
+  const edits = new Map(proposal.plan.edits.map(e => [`${e.position.x},${e.position.y},${e.position.z}`, e.after]));
+  const blocks = proposal.blocks.map(b => ({ ...b, name: edits.get(`${b.position.x},${b.position.y},${b.position.z}`) ?? b.name }));
+  return { outcome: 'completed', checkpoint: { buildSite: { origin: proposal.plan.origin, design: proposal.plan.design, entrance: proposal.plan.entrance, observedAt: f.now() } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...proposal.plan.entrance, x: proposal.plan.entrance.x + 0.5, z: proposal.plan.entrance.z + 0.5 }, resources: [] })] };
+}
+
+test('an observed terrain proposal reserves preparation, then actual prepared ground starts building without completing the warehouse', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } });
+  const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  const preparation = f.latest(); assert.equal(preparation.payload.task.kind, 'build'); assert.equal(preparation.payload.task.params.mode, 'prepare-site'); assert.equal(preparation.payload.task.goalId, goal.id);
+  assert.equal(f.core.getSnapshot().goals[0].generation, 1); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'preparing'); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
+  for (const p of preparationProofPositions(proposal.plan)) assert.ok(preparation.payload.task.reservationKeys.includes(`block:${world}:${dimension}:${p.x},${p.y},${p.z}`));
+  assert.equal((preparation.payload.task.params.preparation as { edits: unknown[] }).edits.length, 2);
+  f.result(preparation, preparedResult(f, proposal));
+  const build = f.latest(); assert.equal(build.payload.task.kind, 'build'); assert.equal(build.payload.task.params.mode, undefined); assert.equal(build.payload.task.goalId, goal.id);
+  const current = f.core.getSnapshot().goals[0]; assert.equal(current.generation, 2); assert.equal(current.input.params.siteSelection, 'fixed'); assert.equal(current.input.params.sitePreparation, undefined); assert.equal(current.progress.current, 0); assert.notEqual(current.state, 'completed');
+  f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint('warehouse', proposal.plan.origin) })] });
+  assert.equal(f.core.getSnapshot().goals[0].state, 'completed'); FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
+for (const defect of ['missing-proof', 'changed-before', 'stale-plan', 'foreign-attempt', 'forbidden-preparation']) test(`terrain proposal ${defect} cannot authorize world changes`, () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby', ...(defect === 'forbidden-preparation' ? { allowPreparation: false } : {}) } });
+  const survey = f.latest(), proposal = preparationProposal(f, survey);
+  if (defect === 'missing-proof') proposal.payload.observations = [];
+  if (defect === 'changed-before') proposal.blocks.find(b => b.position.x === 6 && b.position.y === 64 && b.position.z === 6)!.name = 'chest';
+  if (defect === 'stale-plan') proposal.plan.observedAt--;
+  if (defect === 'foreign-attempt') { f.receive('bot-0', 'world.observed', { observations: proposal.payload.observations }); proposal.payload.observations = []; }
+  f.result(survey, proposal.payload);
+  assert.equal(f.assignments().length, 1); assert.equal(f.core.getSnapshot().goals[0].state, 'held'); assert.equal(f.core.getSnapshot().goals[0].input.params.sitePreparation, undefined); assert.notEqual(f.core.getSnapshot().goals[0].reason, '제안 성공');
+});
+
+test('prepared-site success requires every terrain edit after-state and current entrance proof', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  const preparation = f.latest(); f.result(preparation, { outcome: 'completed', checkpoint: { buildSite: { origin: proposal.plan.origin, design: 'warehouse', entrance: proposal.plan.entrance, observedAt: f.now() } }, observations: proposal.payload.observations });
+  assert.equal(f.core.getSnapshot().goals[0].state, 'held'); assert.equal(f.assignments().length, 2); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'preparing');
+});
+
+test('prepared dirt that naturally regrows grass remains valid actual preparation evidence', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  const prepared = preparedResult(f, proposal), blocks = prepared.observations.find(o => o.kind === 'blocks'); assert.equal(blocks?.kind, 'blocks'); if (blocks?.kind === 'blocks') blocks.data.blocks.find(b => b.position.x === 7 && b.position.y === 63 && b.position.z === 6)!.name = 'grass_block';
+  f.result(f.latest(), prepared); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'fixed'); assert.equal(f.latest().payload.task.params.mode, undefined); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
+});
+
+test('removing meadow vegetation from a shallow fill cell preserves partial work but does not finish preparation before actual dirt', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey);
+  proposal.plan.edits[1]!.before = 'short_grass'; proposal.blocks.find(b => b.position.x === 7 && b.position.y === 63 && b.position.z === 6)!.name = 'short_grass'; f.result(survey, proposal.payload);
+  const preparation = f.latest(), partial = preparedResult(f, proposal), blocks = partial.observations.find(o => o.kind === 'blocks'); if (blocks?.kind === 'blocks') blocks.data.blocks.find(b => b.position.x === 7 && b.position.y === 63 && b.position.z === 6)!.name = 'air';
+  f.result(preparation, { ...partial, outcome: 'condition-wait', reason: '채울 흙 대기', checkpoint: { ...partial.checkpoint, waitingFor: { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'dirt', minimum: 1 }, preparation: { removedVegetation: 1 } } });
+  assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'preparing'); assert.equal(f.core.getSnapshot().goals[0].state, 'condition-wait'); assert.equal(f.assignments().length, 2);
+  f.status('bot-0', [{ name: 'dirt', count: 1 }]); const resumed = f.latest(); assert.equal(resumed.taskId, preparation.taskId); assert.deepEqual(resumed.payload.checkpoint.preparation, { removedVegetation: 1 });
+  f.result(resumed, preparedResult(f, proposal)); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'fixed'); assert.equal(f.latest().payload.task.params.mode, undefined); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
+});
+
+test('a goal supplied with preparing params or copied approval cannot bypass the observed planning stage', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  const approved = f.core.getSnapshot().goals[0].input.params;
+  for (const marker of [undefined, approved.preparationVerification]) {
+    const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'preparing', sitePreparation: JSON.parse(JSON.stringify(proposal.plan)), ...(marker ? { preparationVerification: marker } : {}) } });
+    assert.equal(goal.state, 'held'); assert.match(goal.reason!, /같은 목표.*승인/); assert.equal(f.assignments().filter(m => m.payload.task.goalId === goal.id).length, 0);
+  }
+});
+
+test('editing an approved terrain plan invalidates its prior approval before any new preparation assignment', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload); const preparation = f.latest();
+  const params = f.core.getSnapshot().goals[0].input.params; (params.sitePreparation as { edits: { before: string }[] }).edits[0]!.before = 'stone';
+  f.core.updateGoal(goal.id, { params }); f.receive('bot-0', 'task.cancelled', { safeStopped: true, checkpoint: {}, observations: [] }, preparation);
+  assert.equal(f.core.getSnapshot().goals[0].state, 'held'); assert.equal(f.assignments().length, 2);
+});
+
+test('a requested cancellation prevents a late completed preparation from starting construction', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload); const preparation = f.latest();
+  f.core.cancelGoal(goal.id, 'cancel-preparation'); f.result(preparation, preparedResult(f, proposal));
+  assert.equal(f.core.getSnapshot().goals[0].state, 'cancelled'); assert.equal(f.assignments().length, 2); assert.ok(f.events.some(e => e.type === 'command.applied' && e.commandId === 'cancel-preparation'));
+});
+
+test('safe preparation interruption keeps the plan and checkpoint for observed before/after revalidation', () => {
+  const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload); const preparation = f.latest(); f.begin(preparation);
+  f.receive('bot-0', 'task.interrupted', { safeStopped: true, checkpoint: { preparation: { changed: 1 } }, observations: [], reason: 'counterattack' }, preparation); f.status('bot-0');
+  const resumed = f.latest(); assert.equal(resumed.taskId, preparation.taskId); assert.deepEqual(resumed.payload.checkpoint.preparation, { changed: 1 }); assert.deepEqual(resumed.payload.task.params.preparation, proposal.plan); assert.equal(f.core.getSnapshot().tasks.find(t => t.id === preparation.taskId)?.retryCount, 0);
+  f.result(resumed, preparedResult(f, proposal)); assert.equal(f.latest().payload.task.params.mode, undefined); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
+});
+
+test('terrain proposals cannot invade another planned building or farm reservation', () => {
+  const f = fixture(2); f.core.createGoal({ kind: 'build', preferredBotId: 'bot-1', params: { requiredBlocks: [{ position: { x: 7, y: 63, z: 6 }, name: 'cobblestone' }] } });
+  const goal = f.core.createGoal({ kind: 'build', preferredBotId: 'bot-0', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }), survey = f.latest('bot-0'), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'held'); assert.equal(f.assignments().filter(m => m.payload.task.params.mode === 'prepare-site').length, 0);
+});
+
+test('queued preparation drains active resource tasks and prevents equally ranked consumers from starving it', () => {
+  const f = fixture(3); f.observeStock(0); f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 2, preferredBotId: 'bot-1' }); const collector = f.latest('bot-1');
+  const goal = f.core.createGoal({ kind: 'build', preferredBotId: 'bot-0', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }), survey = f.latest('bot-0'), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'condition-wait'); assert.equal(f.assignments().filter(m => m.payload.task.params.mode === 'prepare-site').length, 0);
+  f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 3, preferredBotId: 'bot-2' }); assert.equal(f.assignments().filter(m => m.payload.task.kind === 'collect').length, 1);
+  f.result(collector, { outcome: 'completed', observations: [f.obs('inventory', { items: [{ name: 'oak_log', count: 2 }] })] });
+  assert.equal(f.assignments().filter(m => m.payload.task.params.mode === 'prepare-site').length, 1); assert.equal(f.assignments().filter(m => m.payload.task.kind === 'collect').length, 1);
+  const guard = f.core.createGoal({ kind: 'home', preferredBotId: 'bot-2', params: { position: { x: 50, y: 64, z: 50 } } }); const home = f.latest('bot-2'); assert.equal(home.payload.task.goalId, guard.id);
+  const protectedPositions = home.payload.task.params.protectedPositions as Position[]; assert.ok(protectedPositions.some(p => p.x === 7 && p.y === 63 && p.z === 6), 'all new assignments carry the preparation protection area');
+});
+
+for (const unavailable of ['low-health', 'low-food', 'survival', 'incapable', 'paused']) test(`queued preparation with its only builder ${unavailable} cannot starve other capable gatherers`, () => {
+  const f = fixture(3); f.status('bot-1', [], 'idle', ['collect', 'store', 'home']); f.status('bot-2', [], 'idle', ['collect', 'store', 'home']); f.observeStock(0);
+  f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 2, preferredBotId: 'bot-1' }); f.core.createGoal({ kind: 'build', preferredBotId: 'bot-0', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey);
+  const report = f.core.getSnapshot().agents[0].session!.report!;
+  if (unavailable === 'paused') f.core.pauseAgent('bot-0');
+  else f.receive('bot-0', 'bot.status', { ...report, ...(unavailable === 'low-health' ? { health: 5 } : unavailable === 'low-food' ? { food: 6 } : unavailable === 'survival' ? { mode: 'survival' } : { capabilities: ['explore', 'collect'] }) });
+  f.result(survey, proposal.payload);
+  if (unavailable === 'paused') for (const id of ['bot-1', 'bot-2']) f.receive(id, 'rules.applied', { version: f.core.getSnapshot().rules.version });
+  const consumer = f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 3, preferredBotId: 'bot-2' });
+  assert.equal(f.latest('bot-2').payload.task.goalId, consumer.id); assert.equal(f.assignments().filter(m => m.payload.task.params.mode === 'prepare-site').length, 0);
+});
+
+test('a queued preparation barrier preserves higher user priority resource work', () => {
+  const f = fixture(3); f.observeStock(0); f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 2, preferredBotId: 'bot-1' }); f.core.createGoal({ kind: 'build', preferredBotId: 'bot-0', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  const urgent = f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 3, preferredBotId: 'bot-2', priority: 90 }); assert.equal(f.latest('bot-2').payload.task.goalId, urgent.id);
+});
+
+test('controller restart fences old preparation success and reconstructs a plan only after stopped worker plus fresh observation', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload); const old = f.latest(); f.begin(old);
+  const sent: CentralMessage[] = []; const restored = new FleetController({ checkpoint: f.core.checkpoint(), controllerEpoch: 'replacement-epoch', now: f.now, send: (_id, message) => sent.push(message) });
+  assert.equal(restored.onWorkerMessage({ ...old, type: 'task.result', payload: preparedResult(f, proposal) }), false);
+  restored.startSession('bot-0', 'replacement-session'); const receive = (type: string, payload: unknown) => restored.onWorkerMessage({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: restored.controllerEpoch, botId: 'bot-0', sessionId: 'replacement-session', sentAt: f.now(), type, payload });
+  receive('bot.status', { ...f.core.getSnapshot().agents[0].session!.report!, mode: 'idle' }); receive('rules.applied', { version: restored.getSnapshot().rules.version });
+  assert.equal(sent.some(m => m.type === 'task.assign'), false); restored.confirmWorkerStopped('bot-0', 'session-0'); receive('world.observed', { observations: preparedResult(f, proposal).observations });
+  const resumed = sent.find((m): m is Extract<CentralMessage, { type: 'task.assign' }> => m.type === 'task.assign'); assert.ok(resumed); assert.equal(resumed.payload.task.params.mode, 'prepare-site'); assert.deepEqual(resumed.payload.task.params.preparation, proposal.plan); assert.equal(resumed.payload.task.goalId, goal.id); assert.notEqual(restored.getSnapshot().goals[0].state, 'completed');
+});
+
+test('repeated restarts retain the original same-goal survey approval while fresh recovery attempts remain fenced', () => {
+  const f = fixture(); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); f.result(survey, proposal.payload);
+  let current = f.core, old = f.latest(), sessionId = 'session-0';
+  for (let i = 0; i < 3; i++) {
+    const sent: CentralMessage[] = [], epoch = `restart-epoch-${i}`, nextSession = `restart-session-${i}`;
+    const restored = new FleetController({ checkpoint: current.checkpoint(), controllerEpoch: epoch, now: f.now, send: (_id, message) => sent.push(message) });
+    assert.equal(restored.onWorkerMessage({ ...old, type: 'task.result', payload: preparedResult(f, proposal) }), false);
+    restored.startSession('bot-0', nextSession); const receive = (type: string, payload: unknown) => restored.onWorkerMessage({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: epoch, botId: 'bot-0', sessionId: nextSession, sentAt: f.now(), type, payload });
+    receive('bot.status', { ...f.core.getSnapshot().agents[0].session!.report!, mode: 'idle' }); receive('rules.applied', { version: restored.getSnapshot().rules.version }); restored.confirmWorkerStopped('bot-0', sessionId); receive('world.observed', { observations: preparedResult(f, proposal).observations });
+    const resumed = sent.find((m): m is Extract<CentralMessage, { type: 'task.assign' }> => m.type === 'task.assign'); assert.ok(resumed); assert.equal(resumed.payload.task.params.mode, 'prepare-site'); assert.equal(restored.getSnapshot().goals.find(g => g.id === goal.id)?.generation, i + 2); assert.ok(restored.getSnapshot().tasks.some(t => t.id === survey.taskId), 'compaction retains the accepted original survey');
+    current = restored; old = resumed; sessionId = nextSession;
+  }
+});
 
 test('nearby construction waits for a capable bot position and never guesses a default origin', () => {
   const f = fixture(0); const goal = f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby' } });

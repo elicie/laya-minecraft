@@ -138,7 +138,8 @@ test('build-site NoPath stops after eight public approach attempts and preserves
     f.bot.entity.position = new Vec3(0.4, 1, -0.3);
     throw new ConditionWait(`NoPath approach ${calls}`);
   };
-  const result = await exploreBuildSite(siteTask(), f.service, () => 0);
+  const work = siteTask(); work.params.allowPreparation = false;
+  const result = await exploreBuildSite(work, f.service, () => 0);
   assert.equal(calls, 8); assert.equal(result.outcome, 'condition-wait'); assert.equal(result.checkpoint.buildSite, undefined);
   const search = result.checkpoint.buildSiteSearch as { accessAttempts: number; stoppedBecause: string; rejected: { actual: string }[]; lastAccessFailure: { position: Position; from: Position; actual: string } };
   assert.equal(search.accessAttempts, 8); assert.equal(search.stoppedBecause, 'attempt-limit'); assert.equal(search.rejected.length, 6);
@@ -155,7 +156,8 @@ for (const durationMs of [20000, 19000]) test(`build-site ${durationMs}ms approa
   const f = fixture(); flatGround(f);
   let now = 0, calls = 0;
   f.service.near = async () => { calls++; now += durationMs; throw new ConditionWait(`NoPath after ${durationMs}ms`); };
-  const result = await exploreBuildSite(siteTask(), f.service, () => now);
+  const work = siteTask(); work.params.allowPreparation = false;
+  const result = await exploreBuildSite(work, f.service, () => now);
   assert.equal(calls, Math.ceil(60000 / durationMs)); assert.ok(calls < 8); assert.ok(now >= 60000 && now < 80000);
   const search = result.checkpoint.buildSiteSearch as { stoppedBecause: string; accessElapsedMs: number; elapsedMs: number };
   assert.equal(result.outcome, 'condition-wait'); assert.equal(search.stoppedBecause, 'time-limit'); assert.equal(search.accessElapsedMs, now); assert.equal(search.elapsedMs, now);

@@ -5,6 +5,7 @@ import type { Bot } from 'mineflayer';
 import { ExpectedBlockSchema, PositionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, type ExpectedBlock, type JsonObject, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
 import { BLUEPRINTS, blueprint } from '../../contracts/src/blueprints';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
+import { findBuildSitePreparation, prepareBuildSite } from './terrain';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
 const CROPS = {
@@ -88,8 +89,19 @@ export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: (
   const dimensions = BLUEPRINTS[design as keyof typeof BLUEPRINTS];
   const height = Math.max(dimensions.height, ...blueprint(design, { x: 0, y: 0, z: 0 }).map(b => b.position.y));
   const start = PositionSchema.parse(task.params.near ?? s.bot.entity.position);
+  const proposal = task.params.allowPreparation === false ? undefined : findBuildSitePreparation(task, s);
+  if (proposal && proposal.plan.edits.length) {
+    delete s.checkpoint.buildSite; delete s.checkpoint.waitingFor;
+    s.checkpoint.buildSitePreparation = proposal.plan;
+    s.observations.push({ id: randomUUID(), kind: 'blocks', observedAt: proposal.plan.observedAt, world: s.rules.world, dimension: s.rules.dimension, data: { blocks: proposal.blocks } });
+    s.observations.push({ id: randomUUID(), kind: 'exploration', observedAt: proposal.plan.observedAt, world: s.rules.world, dimension: s.rules.dimension,
+      data: { position: { x: s.bot.entity.position.x, y: s.bot.entity.position.y, z: s.bot.entity.position.z }, resources: proposal.blocks.filter(b => isBuildSiteGround(b.name)).slice(0, 64) } });
+    s.progress('부지 탐색', `자연 지형 ${proposal.plan.edits.length}곳과 접근로를 정리하는 계획을 제안합니다. 중앙 검증과 예약을 기다립니다.`);
+    return result(s, 'completed', '실제 자연 지형을 관측해 부지와 접근로 정리 계획을 제안했습니다. 지형은 변경하지 않았습니다.');
+  }
+  delete s.checkpoint.buildSitePreparation;
   const radius = Math.min(32, typeof task.params.searchRadius === 'number' ? Math.max(1, task.params.searchRadius) : 32);
-  const startedAt = now(), maxAccessAttempts = 8, maxElapsedMs = 60000;
+  const startedAt = now(), maxAccessAttempts = task.params.allowPreparation === false ? 8 : 2, maxElapsedMs = task.params.allowPreparation === false ? 60000 : 10000;
   const origins: Position[] = [];
   const anchorX = Math.floor(start.x - (dimensions.width - 1) / 2), anchorZ = Math.floor(start.z - (dimensions.depth - 1) / 2);
   for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) {
@@ -172,7 +184,8 @@ export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: (
   const from = lastAccessFailure?.from as Position | undefined;
   const feet = from ? { x: Math.floor(from.x), y: Math.floor(from.y), z: Math.floor(from.z) } : undefined;
   const approachCells = feet ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].flatMap(([x, z]) => [-1, 0, 1].map(y => offset(feet, x, y, z))) : [];
-  const watched = [...rejected.map(entry => entry.position as Position), ...approachCells];
+  const prepSearch = s.checkpoint.buildPreparationSearch as { rejected?: { position: Position; reason: string }[]; exhausted?: boolean } | undefined;
+  const watched = [...rejected.map(entry => entry.position as Position), ...(task.params.allowPreparation !== false ? prepSearch?.rejected?.map(entry => entry.position) ?? [] : []), ...approachCells];
   if (!watched.length) watched.push({ x: Math.floor(start.x), y: Math.floor(start.y) - 1, z: Math.floor(start.z) });
   const positions = [...new Map(watched.map(p => [key(p), p])).values()];
   s.checkpoint.waitingFor = { kind: 'blocks', causeCode: 'BUILD_SITE', positions, watchPosition: true };
@@ -180,7 +193,8 @@ export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: (
     data: { blocks: positions.flatMap(p => { const b = at(s, p); return b ? [{ position: p, name: b.name }] : []; }) } });
   const detail = rejected.map(entry => `${key(entry.position as Position)}=${entry.actual}`).join(' / ');
   const limit = stoppedBecause ? `접근 제한(${stoppedBecause === 'attempt-limit' ? `${maxAccessAttempts}회` : `${maxElapsedMs / 1000}초`})에 도달해 중단합니다. ` : '';
-  return result(s, 'condition-wait', `${limit}주변 ${radius}블록 안에서 기초와 출구가 있는 빈 평지를 찾지 못했습니다. ${detail}`);
+  const preparation = task.params.allowPreparation !== false ? ` 자연 지형 정리도 확인했으나 ${prepSearch?.exhausted ? '관측 평가 한도에 도달했습니다.' : prepSearch?.rejected?.[0]?.reason ?? '안전한 변경 계획과 접근로를 확인하지 못했습니다.'}` : '';
+  return result(s, 'condition-wait', `${limit}주변 ${radius}블록 안에서 기초와 출구가 있는 빈 평지를 찾지 못했습니다.${preparation} ${detail}`);
 }
 
 interface BuildFootprint { origin: Position; width: number; depth: number; height: number; }
@@ -540,7 +554,7 @@ async function breed(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
 export async function executeVillageTask(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   try {
     s.check();
-    if (task.kind === 'build') return await build(task, s);
+    if (task.kind === 'build') return task.params.mode === 'prepare-site' ? await prepareBuildSite(task, s) : await build(task, s);
     if (task.kind === 'farm') return await farm(task, s);
     if (task.kind === 'breed') return await breed(task, s);
     throw new ActionFailure('마을 작업 실행기가 지원하지 않는 작업입니다.', 'UNSUPPORTED_ACTION', false, true);

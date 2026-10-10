@@ -18,6 +18,25 @@ export const waitingTaskStates = new Set([
   "retry-wait",
 ]);
 
+export function taskActionLabel(
+  task: Pick<Task, "kind" | "params">,
+  goal?: Goal,
+): string {
+  if (task.kind === "build" && task.params.mode === "prepare-site")
+    return "부지 정리";
+  if (task.kind === "explore" && task.params.mode === "build-site")
+    return "건설 부지 탐색";
+  if (
+    task.kind === "build" &&
+    (task.params.blueprint ??
+      task.params.design ??
+      goal?.input.params.blueprint ??
+      goal?.input.params.design) === "warehouse"
+  )
+    return "창고 건축";
+  return label(task.kind, actionLabels);
+}
+
 export function selectedBotWork(
   snapshot: FleetSnapshot | null,
   bot: Agent | undefined,

@@ -1,4 +1,4 @@
-import { buildSiteCells, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
+import { BuildSitePreparationSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
 import { footprintInside, positionKey } from './verification';
 import { BLUEPRINTS, blueprint, type BlueprintName } from '../../contracts/src/blueprints';
 
@@ -64,6 +64,16 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'build') {
+    if (input.params.mode === 'prepare-site' && input.params.siteSelection !== 'preparing') return { tasks, waiting: '부지 정리는 실제 탐색 관측을 승인한 계획에서만 실행할 수 있습니다.' };
+    if (input.params.siteSelection === 'preparing') {
+      if (!PreparationVerificationSchema.safeParse(input.params.preparationVerification).success) return { tasks, waiting: '중앙에서 실제 탐색 관측으로 승인한 부지 정리 계획이 필요합니다.' };
+      const parsed = BuildSitePreparationSchema.safeParse(input.params.sitePreparation);
+      if (!parsed.success || !Object.hasOwn(BLUEPRINTS, parsed.data.design)) return { tasks, waiting: '검증한 부지 정리 계획이 필요합니다.' };
+      const preparation = parsed.data, reserved = preparationProofPositions(preparation);
+      if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, reserved.map(position => ({ position }))))) return { tasks, waiting: '전체 정리 부지와 접근로가 마을 범위 안에 있어야 합니다.' };
+      add('build', { mode: 'prepare-site', design: preparation.design, near: jsonObject(preparation.near), preparation: jsonObject(preparation) }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], reserved.map(position => `block:${rules.world}:${rules.dimension}:${positionKey(position)}`));
+      return { tasks };
+    }
     let blocks = asBlocks(input.params.requiredBlocks);
     if (input.params.siteSelection === 'nearby' && !asPosition(input.params.origin) && !asPosition(input.params.position)) {
       const design = String(input.params.design ?? input.params.blueprint ?? 'cabin');
@@ -73,7 +83,7 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
       let height: number;
       try { height = Math.max(...blueprint(design, { x: 0, y: 0, z: 0 }, typeof input.params.wood === 'string' ? input.params.wood : 'oak').map(b => b.position.y)); }
       catch { return { tasks, waiting: '지원하는 건축 설계와 재료를 선택해야 합니다.' }; }
-      add('explore', { ...input.params, mode: 'build-site', design, near: jsonObject(nearbyPosition), searchRadius: 32, siteWidth: size.width, siteDepth: size.depth, siteHeight: height }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], [`build-site:${rules.world}:${rules.dimension}`]);
+      add('explore', { ...input.params, mode: 'build-site', design, allowPreparation: input.params.allowPreparation !== false, near: jsonObject(nearbyPosition), searchRadius: 32, siteWidth: size.width, siteDepth: size.depth, siteHeight: height }, { kind: 'exploration', resourceNames: [], minVisits: 1 }, [], [`build-site:${rules.world}:${rules.dimension}`]);
       return { tasks };
     }
     const origin = asPosition(input.params.origin) ?? asPosition(input.params.position) ?? rules.center ?? undefined;

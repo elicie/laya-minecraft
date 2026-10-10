@@ -38,6 +38,10 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 
 건축 목표의 `params.siteSelection: "nearby"`는 현재 봇 주변의 부지 탐색을 먼저 배정합니다. 워커는 실제 블록 관측으로 전체 건축 공간, 기초와 바깥 접근로를 확인하고 현장에 접근한 뒤 `checkpoint.buildSite`에 `origin`, `design`, `entrance`, `observedAt`을 보고합니다. 중앙은 현재 시도와 세션의 관측을 검증한 후 같은 목표에 확정 좌표를 반영하고 건설을 계획합니다. 부지 탐색 완료만으로 건축 목표를 완료하지 않습니다.
 
+주변 탐색은 기본적으로 자연 지형 정리도 계획할 수 있습니다(`params.allowPreparation: false`이면 탐색만 수행). 정리가 필요한 경우 탐색 워커는 월드를 변경하지 않고 `checkpoint.buildSitePreparation`으로 계획을 보고합니다. 이 계획은 `origin`, `design`, `entrance`, `observedAt`, 실제 시작 위치 `near`, 한 칸씩 연결된 `path`, 변경 목록 `edits`를 포함합니다. 각 변경은 정수 `position`, 관측한 `before`와 목표 `after`(`air` 또는 `dirt`)를 지정하며 전체 변경은 최대 192개입니다.
+
+중앙은 현재 시도에서 관측한 변경 전 블록, 지지 지반과 경로를 검증합니다. 다른 작업 구역과 겹치지 않는 계획을 같은 목표의 `params.sitePreparation`에 보존하고 `siteSelection: "preparing"`으로 전환합니다. 실행 작업은 `kind: "build"`, `params.mode: "prepare-site"`, `params.preparation`으로 구분하고, 부지·접근로와 확인할 지반 좌표를 예약합니다. 정리 워커는 변경 직전의 실제 블록을 재확인하고 이미 완료한 변경은 건너뜁니다. 정리 뒤 전체 지면과 공간, 실제 출입 위치 접근을 `buildSite`로 확인해야 고정 좌표의 건축 단계로 넘어갑니다.
+
 건축의 조건 대기는 `checkpoint.waitingFor`로 필요한 블록 좌표 또는 재료 수량을 지정합니다. 중앙은 해당 조건의 실제 내용이 바뀌었을 때 재개를 판단합니다. 상태 보고 시간이나 관측 ID가 바뀌는 것만으로 같은 작업을 반복하지 않습니다. 워커는 지도 표본에 포함되지 않는 대기 좌표도 공개 `blockAt` API로 주기적으로 관측합니다.
 
 ## 브라우저 API

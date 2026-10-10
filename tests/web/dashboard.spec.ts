@@ -1046,3 +1046,262 @@ test("an idle bot shows its latest construction wait reason instead of completed
   await expect(detail).toContainText("다음 목표를 기다립니다.");
   await expect(detail).not.toContainText("공동 창고 건설");
 });
+
+test("site preparation reports real edits and materials before a separate warehouse construction stage", async ({
+  page,
+}) => {
+  let state = snapshot();
+  const now = Date.now();
+  const builder = agent("Builder", "builder");
+  builder.config.allowedActions = ["build", "explore"];
+  builder.session!.report!.capabilities = ["build", "explore"];
+  builder.session!.report!.mode = "working";
+  builder.session!.report!.action = "explore";
+  builder.session!.report!.reason = "창고를 지을 자연 지형을 관측합니다.";
+  state.agents = [builder];
+  const goal: Goal = {
+    id: "staged-warehouse",
+    input: GoalInputSchema.parse({
+      kind: "build",
+      params: { blueprint: "warehouse", siteSelection: "nearby" },
+      preferredBotId: builder.id,
+    }),
+    title: "창고와 진입로 건설",
+    state: "active",
+    generation: 1,
+    taskIds: ["site-search"],
+    createdAt: now,
+    updatedAt: now,
+    progress: { current: 0, target: 1 },
+  };
+  const search: Task = {
+    id: "site-search",
+    goalId: goal.id,
+    kind: "explore",
+    params: { mode: "build-site", design: "warehouse", allowPreparation: true },
+    generation: 1,
+    dependencies: [],
+    completion: { kind: "exploration", resourceNames: [], minVisits: 1 },
+    reservationKeys: [],
+    state: "running",
+    attemptId: "search-attempt",
+    retryCount: 0,
+    resumeCount: 0,
+    checkpoint: {},
+    progress: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  state.goals = [goal];
+  state.tasks = [search];
+  function activate(task: Task) {
+    builder.session!.activeAttemptId = task.attemptId;
+    builder.session!.report!.currentAttemptId = task.attemptId;
+    state.attempts.push({
+      id: task.attemptId!,
+      taskId: task.id,
+      botId: builder.id,
+      sessionId: builder.session!.id,
+      controllerEpoch: state.controllerEpoch,
+      reason: "initial",
+      state: "running",
+      assignedAt: now,
+      startedAt: now,
+    });
+  }
+  activate(search);
+  await installStream(page);
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith("/snapshot")
+        ? state
+        : {
+            id: "viewer-stage",
+            type: "viewer.start",
+            state: "applied",
+            createdAt: now,
+            updatedAt: now,
+          },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Builder 상세 보기", exact: true })
+    .click();
+  const detail = page.getByRole("region", { name: "Builder 상세 상태" });
+  const goalCard = page.locator(".goal-row");
+  await expect(detail.locator(".current-action")).toHaveText("건설 부지 탐색");
+  await expect(detail).toContainText(builder.session!.report!.reason);
+  const preparation = {
+    origin: { x: 56, y: 70, z: 8 },
+    design: "warehouse",
+    entrance: { x: 59, y: 70, z: 7 },
+    near: { x: 60, y: 70, z: 9 },
+    observedAt: now,
+    edits: [
+      { position: { x: 56, y: 70, z: 8 }, before: "dirt", after: "air" },
+      { position: { x: 57, y: 70, z: 8 }, before: "stone", after: "air" },
+      { position: { x: 56, y: 69, z: 9 }, before: "air", after: "dirt" },
+    ],
+    path: [
+      { x: 60, y: 70, z: 8 },
+      { x: 59, y: 70, z: 7 },
+    ],
+  };
+  const progress = {
+    stage: "excavate",
+    completedEdits: 1,
+    totalEdits: 3,
+    excavated: 1,
+    filled: 0,
+    pathIndex: 0,
+    pathLength: 2,
+  };
+  const prepare: Task = {
+    ...search,
+    id: "prepare-plot",
+    kind: "build",
+    params: { mode: "prepare-site", design: "warehouse", preparation },
+    generation: 2,
+    completion: { kind: "exploration", resourceNames: [], minVisits: 1 },
+    attemptId: "prepare-attempt",
+    checkpoint: {
+      buildSitePreparation: preparation,
+      preparationProgress: progress,
+    },
+  };
+  search.state = "completed";
+  goal.generation = 2;
+  goal.taskIds = [prepare.id];
+  goal.input.params.siteSelection = "preparing";
+  goal.input.params.sitePreparation = preparation;
+  state.tasks.push(prepare);
+  activate(prepare);
+  builder.session!.report!.action = "build";
+  builder.session!.report!.reason = "자연 지형을 파서 창고 부지를 정리합니다.";
+  async function sendState() {
+    state = { ...state, revision: state.revision + 1, updatedAt: Date.now() };
+    builder.session!.lastReportAt = Date.now();
+    await page.evaluate(
+      (value) =>
+        (window as unknown as BrowserHarness).sendFleet(
+          "snapshot",
+          JSON.parse(value),
+        ),
+      JSON.stringify(state),
+    );
+  }
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("부지 정리");
+  await expect(detail).toContainText("현재 작업 · 부지 정리 · 수행 중");
+  const progressCard = detail.getByRole("region", {
+    name: "부지 정리 진행",
+    exact: true,
+  });
+  await expect(progressCard).toContainText("땅 파기");
+  await expect(progressCard).toContainText("1 / 3칸");
+  await expect(progressCard).toContainText("굴착 확인1칸");
+  await expect(progressCard).toContainText("메우기 확인0칸");
+  await expect(progressCard).toContainText("0 / 2지점");
+  builder.session!.report!.action = "부지 정리";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("부지 정리");
+  builder.session!.report!.mode = "survival";
+  builder.session!.report!.action = "collect";
+  builder.session!.report!.reason =
+    "체력 회복에 필요한 식량을 먼저 확보합니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("수집");
+  await expect(detail).toContainText(builder.session!.report!.reason);
+  await expect(progressCard).toHaveCount(0);
+  builder.session!.report!.mode = "emergency";
+  builder.session!.report!.action = "counterattack";
+  builder.session!.report!.reason = "작업 중 공격받아 반격합니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("반격");
+  await expect(progressCard).toHaveCount(0);
+  builder.session!.report!.mode = "idle";
+  builder.session!.report!.action = "idle";
+  builder.session!.report!.reason = "다음 작업 조건을 기다립니다.";
+  builder.session!.activeAttemptId = undefined;
+  builder.session!.report!.currentAttemptId = undefined;
+  prepare.state = "condition-wait";
+  prepare.reason = "빈 지면을 메울 흙을 확보해야 합니다.";
+  prepare.checkpoint.waitingFor = {
+    kind: "inventory",
+    causeCode: "BUILD_MATERIAL",
+    item: "dirt",
+    minimum: 3,
+  };
+  progress.stage = "fill";
+  progress.excavated = 2;
+  progress.completedEdits = 2;
+  goal.state = "condition-wait";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText(
+    "부지 정리 조건 대기",
+  );
+  await expect(progressCard).toContainText("지면 메우기");
+  await expect(progressCard).toContainText("2 / 3칸");
+  await expect(progressCard).toContainText("흙 3개 보유 필요");
+  await expect(detail).toContainText(prepare.reason);
+  prepare.state = "completed";
+  progress.stage = "verify";
+  progress.completedEdits = 3;
+  progress.filled = 1;
+  progress.pathIndex = 2;
+  goal.state = "active";
+  builder.session!.report!.reason =
+    "부지 정리 결과를 확인했습니다. 건설 배정을 기다립니다.";
+  await sendState();
+  await expect(goalCard.locator(".goal-row-top .tag")).toHaveText("진행 중");
+  await expect(detail.locator(".current-action")).toHaveText("작업 대기");
+  await goalCard.locator(".task-plan summary").click();
+  await expect(goalCard.locator(".task-plan li > span").first()).toHaveText(
+    "부지 정리",
+  );
+  await expect(
+    goalCard.getByRole("region", { name: "부지 정리 진행", exact: true }),
+  ).toContainText("3 / 3칸");
+  await expect(goalCard).toContainText(
+    "부지 정리 결과를 확인했습니다. 건물 완성은 별도로 확인합니다.",
+  );
+  await expect(
+    goalCard.getByRole("region", { name: "부지 정리 진행", exact: true }),
+  ).not.toContainText("자재 대기");
+  const construct: Task = {
+    ...prepare,
+    id: "warehouse-build",
+    generation: 3,
+    params: { blueprint: "warehouse", origin: preparation.origin },
+    checkpoint: {},
+    state: "running",
+    attemptId: "warehouse-attempt",
+    reason: undefined,
+  };
+  goal.generation = 3;
+  goal.taskIds = [construct.id];
+  goal.input.params.siteSelection = "fixed";
+  delete goal.input.params.sitePreparation;
+  state.tasks.push(construct);
+  activate(construct);
+  builder.session!.report!.mode = "working";
+  builder.session!.report!.action = "build";
+  builder.session!.report!.reason = "확인된 부지에 창고의 벽을 설치합니다.";
+  await sendState();
+  await expect(detail.locator(".current-action")).toHaveText("창고 건축");
+  await expect(detail).toContainText(builder.session!.report!.reason);
+  await expect(progressCard).toHaveCount(0);
+  await expect(goalCard.locator(".task-plan li > span").first()).toHaveText(
+    "창고 건축",
+  );
+  await expect(goalCard.locator(".goal-row-top .tag")).toHaveText("진행 중");
+  construct.state = "completed";
+  goal.state = "completed";
+  goal.progress.current = 1;
+  builder.session!.report!.mode = "idle";
+  builder.session!.report!.action = "idle";
+  builder.session!.report!.reason = "창고 건물의 완성 상태를 확인했습니다.";
+  await sendState();
+  await expect(goalCard.locator(".goal-row-top .tag")).toHaveText("완료");
+});

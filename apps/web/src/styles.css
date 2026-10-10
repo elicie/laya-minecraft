@@ -720,6 +720,35 @@ svg {
   line-height: 1.7;
   color: #a0b6c2;
 }
+.preparation-progress {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #13212a;
+  font-size: 11px;
+  color: #a0b6c2;
+}
+.preparation-progress dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.preparation-progress dl > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preparation-progress dd {
+  margin: 0;
+  color: #d9e7ed;
+}
+.preparation-progress p {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.7;
+}
 .viewer {
   width: 100%;
   height: auto;

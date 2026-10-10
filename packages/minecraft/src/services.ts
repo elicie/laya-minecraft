@@ -22,6 +22,7 @@ export interface ActionServices {
   near(position: Position, radius?: number): Promise<void>;
   ensureItem(item: string, quantity: number): Promise<void>;
   place(position: Position, item: string, expectedName?: string, face?: Position): Promise<void>;
+  recoverDrops?(position: Position, item: string, minimum: number, avoidSupports?: Position[]): Promise<void>;
   observeInventory(): ObservationInput;
   progress(action: string, reason: string): void;
 }
