@@ -15,6 +15,7 @@ export interface RuntimeOptions {
   host?: string;
   port?: number;
   webRoot?: string;
+  allowedOrigins?: string[];
   workerPath?: string;
   workerExecArgv?: string[];
   reconnectDelayMs?: number;
@@ -135,6 +136,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
     api = createControlServer({ core, store, startBot, interpret: createGoalInterpreter(),
       host: options.host ?? process.env.API_HOST ?? '127.0.0.1',
       port: options.port ?? Number(process.env.API_PORT ?? 3001),
+      allowedOrigins: options.allowedOrigins ?? (process.env.UI_ORIGINS ?? '').split(',').map(origin => origin.trim()).filter(Boolean),
       webRoot: options.webRoot ?? resolve('dist/web') });
     const address = await api.listen();
     for (const agent of core.getSnapshot().agents) startBot(agent);
