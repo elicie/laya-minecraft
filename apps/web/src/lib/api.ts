@@ -1,4 +1,5 @@
 import type { ApiError } from "../../../../packages/contracts/src";
+import { createRequestId } from "./uuid";
 
 export const API = "/api/v1";
 
@@ -15,7 +16,7 @@ export async function request<T>(
   if (options.body || (options.method && options.method !== "GET"))
     headers.set("Content-Type", "application/json");
   if (options.method && options.method !== "GET") {
-    headers.set("Idempotency-Key", crypto.randomUUID());
+    headers.set("Idempotency-Key", createRequestId());
     headers.set("X-Laya-Control", "1");
   }
   const response = await fetch(`${API}${path}`, {

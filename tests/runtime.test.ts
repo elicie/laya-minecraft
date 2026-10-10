@@ -53,6 +53,26 @@ async function post(runtime: Awaited<ReturnType<typeof startRuntime>>, path: str
   assert.equal(response.status, 202); return response.json() as Promise<{ id: string; state: string; result?: { botId?: string } }>;
 }
 
+test('configured tailnet UI origins can issue commands while unlisted origins are rejected', async () => {
+  const f = setup(); const previous = process.env.UI_ORIGINS;
+  let runtime: Awaited<ReturnType<typeof startRuntime>> | undefined;
+  process.env.UI_ORIGINS = ' http://gti12-1:5173, http://gti12-1.tailc6b81b.ts.net:5173 ';
+  try {
+    runtime = await startRuntime(f.options);
+    const url = `http://127.0.0.1:${runtime.address.port}/api/v1/goals`;
+    const request = (origin: string) => fetch(url, { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-laya-control': '1', origin },
+      body: JSON.stringify({ kind: 'home', params: { position: { x: 0, y: 64, z: 0 } } }) });
+    assert.equal((await request('http://gti12-1:5173')).status, 202);
+    assert.equal((await request('http://gti12-1.tailc6b81b.ts.net:5173')).status, 202);
+    assert.equal((await request('http://unlisted.example:5173')).status, 403);
+    assert.equal(runtime.core.getSnapshot().goals.length, 2);
+  } finally {
+    await runtime?.close(); f.remove();
+    if (previous === undefined) delete process.env.UI_ORIGINS; else process.env.UI_ORIGINS = previous;
+  }
+});
+
 test('runtime validation errors and HTTP listen failures release the instance lock', async () => {
   const f = setup();
   try {
