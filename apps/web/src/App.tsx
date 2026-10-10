@@ -33,6 +33,12 @@ export function App() {
   const { snapshot, connection, now, receipts } = fleet;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewerPaused, setViewerPaused] = useState(false);
+  const [viewerConnection, setViewerConnection] = useState<{
+    botId: string;
+    commandId: string;
+    session: string;
+    confirmed: boolean;
+  } | null>(null);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -101,6 +107,7 @@ export function App() {
 
   function setViewer(id: string | null) {
     desiredViewer.current = id;
+    if (id !== currentViewer.current) setViewerConnection(null);
     viewerQueue.current = viewerQueue.current
       .catch(() => {})
       .then(async () => {
@@ -133,7 +140,15 @@ export function App() {
           await post<CommandReceipt>(
             `/bots/${encodeURIComponent(target)}/viewer`,
           )
-            .then(fleet.receiveReceipt)
+            .then((receipt) => {
+              setViewerConnection({
+                botId: target,
+                commandId: receipt.id,
+                session: currentViewerSession.current,
+                confirmed: receipt.state === "applied",
+              });
+              fleet.receiveReceipt(receipt);
+            })
             .catch((value) => {
               currentViewer.current = null;
               setError(errorMessage(value));
@@ -185,6 +200,29 @@ export function App() {
       setViewer(null);
     }
   }, [selectedId, selected, snapshot]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const detail = document.querySelector<HTMLElement>(".bot-detail");
+    if (detail) {
+      detail.scrollTop = 0;
+      if (window.matchMedia("(max-width: 1120px)").matches)
+        detail.scrollIntoView({ block: "start" });
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!viewerConnection || viewerConnection.confirmed) return;
+    const receipt = receipts[viewerConnection.commandId];
+    if (receipt?.state === "applied")
+      setViewerConnection({ ...viewerConnection, confirmed: true });
+    else if (receipt?.state === "failed") {
+      currentViewer.current = null;
+      setViewerConnection(null);
+      setViewerPaused(true);
+      setError(receipt.error ?? "관전 화면을 준비하지 못했습니다.");
+    }
+  }, [viewerConnection, receipts]);
 
   useEffect(() => {
     if (
@@ -371,7 +409,7 @@ export function App() {
               now={now}
               onConfigure={() => open("village")}
             />
-            <section className="panel" aria-labelledby="goal-title">
+            <section className="panel goals-panel" aria-labelledby="goal-title">
               <div className="panel-heading">
                 <div>
                   <h2 id="goal-title">마을의 목표</h2>
@@ -512,7 +550,7 @@ export function App() {
                 </div>
               )}
             </section>
-            <section className="panel" aria-labelledby="bots-title">
+            <section className="panel bots-panel" aria-labelledby="bots-title">
               <div className="panel-heading">
                 <div>
                   <h2 id="bots-title">함께하는 봇</h2>
@@ -628,6 +666,12 @@ export function App() {
                 live={live}
                 events={snapshot?.events ?? []}
                 viewerPaused={viewerPaused}
+                viewerConfirmed={
+                  viewerConnection?.botId === selected.id &&
+                  viewerConnection.session ===
+                    `${snapshot?.controllerEpoch}:${selected.session?.id}` &&
+                  viewerConnection.confirmed
+                }
                 busy={busy}
                 onClose={() => {
                   setSelectedId(null);
@@ -650,7 +694,7 @@ export function App() {
                 }}
               />
             ) : (
-              <section className="panel">
+              <section className="panel observation-placeholder">
                 <div className="panel-heading">
                   <h2>봇 관찰</h2>
                   <span className="tag neutral">선택 대기</span>
@@ -666,7 +710,7 @@ export function App() {
                 </div>
               </section>
             )}
-            <section className="panel">
+            <section className="panel village-activity">
               <div className="panel-heading">
                 <h2>마을 활동</h2>
                 <Sprout size={16} color="#94b47e" />
@@ -684,7 +728,7 @@ export function App() {
                 />
               </div>
             </section>
-            <section className="panel">
+            <section className="panel village-settings">
               <div className="panel-heading">
                 <h2>마을 설정</h2>
                 <MapPin size={16} color="#8bb4c3" />
