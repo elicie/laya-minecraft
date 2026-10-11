@@ -49,6 +49,11 @@ function preparedResult(f: ReturnType<typeof fixture>, proposal: ReturnType<type
   const blocks = proposal.blocks.map(b => ({ ...b, name: edits.get(`${b.position.x},${b.position.y},${b.position.z}`) ?? b.name }));
   return { outcome: 'completed', checkpoint: { buildSite: { origin: proposal.plan.origin, design: proposal.plan.design, entrance: proposal.plan.entrance, observedAt: f.now(), ...(proposal.plan.blueprintDefinition ? { blueprintDefinition: proposal.plan.blueprintDefinition } : {}) } }, observations: [f.obs('blocks', { blocks }), f.obs('exploration', { position: { ...proposal.plan.entrance, x: proposal.plan.entrance.x + 0.5, z: proposal.plan.entrance.z + 0.5 }, resources: [] })] };
 }
+function verifyWarehouse(f: ReturnType<typeof fixture>) {
+  const check = f.latest(), completion = check.payload.task.completion;
+  assert.equal(completion.kind, 'warehouse'); if (completion.kind !== 'warehouse') throw new Error('Warehouse verification task required');
+  f.result(check, { outcome: 'completed', observations: [f.obs('blocks', { blocks: completion.blocks }), f.obs('container', { container: completion.container, items: [] })] });
+}
 
 test('custom blueprint mutations persist versions and reject ambiguous normalized catalog titles', () => {
   const f = fixture(0), input = { ...blueprintPreset('cabin'), title: '  내  집  ' }, created = f.core.createBlueprint(input, 'new-blueprint');
@@ -92,7 +97,7 @@ test('custom observed preparation keeps its immutable definition through catalog
   const f = fixture(), definition = f.core.createBlueprint({ ...blueprintPreset('warehouse'), title: '지형 정리 창고' }); f.core.createGoal({ kind: 'build', params: { blueprint: definition.id, siteSelection: 'nearby' } }); const survey = f.latest(), proposal = preparationProposal(f, survey); proposal.plan.design = definition.id; proposal.plan.blueprintDefinition = definition;
   f.result(survey, proposal.payload); const preparation = f.latest(); assert.deepEqual(preparation.payload.task.params.blueprintDefinition, definition); f.core.deleteBlueprint(definition.id); f.result(preparation, preparedResult(f, proposal));
   const build = f.latest(); assert.deepEqual(build.payload.task.params.blueprintDefinition, definition); assert.equal(f.core.getSnapshot().goals[0].input.params.siteSelection, 'fixed'); assert.notEqual(f.core.getSnapshot().goals[0].state, 'completed');
-  f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint(definition.id, proposal.plan.origin, 'oak', definition) })] }); assert.equal(f.core.getSnapshot().goals[0].state, 'completed');
+  f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint(definition.id, proposal.plan.origin, 'oak', definition) })] }); verifyWarehouse(f); assert.equal(f.core.getSnapshot().goals[0].state, 'completed');
 });
 
 test('public planner handles malformed custom preparation without throwing and catalog raw blocks cannot replace generated cells', () => {
@@ -102,7 +107,7 @@ test('public planner handles malformed custom preparation without throwing and c
   const invalid = { ...goal, input: { ...goal.input, params: { blueprint: definition.id, siteSelection: 'preparing', sitePreparation: JSON.parse(JSON.stringify(plan)), preparationVerification: marker } } };
   assert.match(planGoal(invalid, f.core.getSnapshot().rules, randomUUID).waiting!, /설계도 버전/);
   const raw = { ...goal, input: { ...goal.input, params: { blueprint: definition.id, blueprintDefinition: JSON.parse(JSON.stringify(definition)), origin: { x: 0, y: 64, z: 0 }, requiredBlocks: [{ position: { x: 900, y: 900, z: 900 }, name: 'tnt' }] } } };
-  const generated = planGoal(raw, f.core.getSnapshot().rules, randomUUID); assert.equal(generated.tasks.length, 1); assert.deepEqual(generated.tasks[0].completion, { kind: 'blocks', blocks: blueprint(definition.id, { x: 0, y: 64, z: 0 }, 'oak', definition) });
+  const generated = planGoal(raw, f.core.getSnapshot().rules, randomUUID); assert.equal(generated.tasks.length, 2); assert.deepEqual(generated.tasks[0].completion, { kind: 'blocks', blocks: blueprint(definition.id, { x: 0, y: 64, z: 0 }, 'oak', definition) });
   const legacy = f.core.checkpoint(); delete (legacy as Partial<typeof legacy>).blueprints; assert.deepEqual(FleetCheckpointSchema.parse(legacy).blueprints, [], 'older persisted checkpoints restore an empty catalog');
 });
 
@@ -117,6 +122,7 @@ test('an observed terrain proposal reserves preparation, then actual prepared gr
   const build = f.latest(); assert.equal(build.payload.task.kind, 'build'); assert.equal(build.payload.task.params.mode, undefined); assert.equal(build.payload.task.goalId, goal.id);
   const current = f.core.getSnapshot().goals[0]; assert.equal(current.generation, 2); assert.equal(current.input.params.siteSelection, 'fixed'); assert.equal(current.input.params.sitePreparation, undefined); assert.equal(current.progress.current, 0); assert.notEqual(current.state, 'completed');
   f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint('warehouse', proposal.plan.origin) })] });
+  verifyWarehouse(f);
   assert.equal(f.core.getSnapshot().goals[0].state, 'completed'); FleetCheckpointSchema.parse(f.core.checkpoint());
 });
 
@@ -264,7 +270,8 @@ test('observed nearby site advances the same goal into a reserved build phase, w
   assert.equal(snapshot.goals.length, 1, 'site selection does not manufacture another user goal');
   const count = f.assignments().length; assert.equal(f.result(survey, proof), false); assert.equal(f.assignments().length, count);
   f.result(build, { outcome: 'completed', observations: [f.obs('blocks', { blocks: blueprint('warehouse', proof.checkpoint.buildSite.origin) })] });
-  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed', 'only observed actual blueprint blocks complete the goal');
+  assert.notEqual(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed'); verifyWarehouse(f);
+  assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed', 'observed actual blueprint blocks and a real opened container complete the goal');
   FleetCheckpointSchema.parse(f.core.checkpoint());
 });
 

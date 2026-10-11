@@ -117,6 +117,7 @@ export const CompletionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('container'), container: ContainerRefSchema, item: z.string().min(1), minimum: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('transfer'), container: ContainerRefSchema, item: z.string().min(1), quantity: z.number().int().positive(), direction: z.enum(['store', 'take']) }).strict(),
   z.object({ kind: z.literal('blocks'), blocks: z.array(ExpectedBlockSchema).min(1).max(10000) }).strict(),
+  z.object({ kind: z.literal('warehouse'), container: ContainerRefSchema, blocks: z.array(ExpectedBlockSchema).min(1).max(10000) }).strict(),
   z.object({ kind: z.literal('entity-death'), targetName: z.string().optional(), targetId: IdSchema.optional(), minimum: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('position'), position: PositionSchema, radius: z.number().min(0).max(128) }).strict(),
   z.object({ kind: z.literal('farm'), crop: z.string().optional(), plots: z.number().int().positive(), mode: z.enum(['setup', 'harvest']), quantity: z.number().int().nonnegative().optional(), baseline: z.number().int().nonnegative().optional() }).strict(),

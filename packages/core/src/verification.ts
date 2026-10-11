@@ -31,12 +31,19 @@ export function verifyCompletion(condition: CompletionCondition, context: Verifi
     case 'inventory': {
       const observed = observations.filter(o => o.kind === 'inventory').reverse().sort((a, b) => b.observedAt - a.observedAt)[0];
       const count = observed?.kind === 'inventory' ? itemCount(observed.data.items, condition.item) : 0;
-      return result(count, condition.minimum, observed ? 'Actual inventory quantity checked' : 'Awaiting current inventory observation');
+      return { ...result(count, condition.minimum, observed ? 'Actual inventory quantity checked' : 'Awaiting current inventory observation'), complete: !!observed && count >= condition.minimum };
     }
     case 'container': {
       const observed = observations.filter(o => o.kind === 'container' && sameContainer(o.data.container, condition.container)).reverse().sort((a, b) => b.observedAt - a.observedAt)[0];
       const count = observed?.kind === 'container' ? itemCount(observed.data.items, condition.item) : 0;
-      return result(count, condition.minimum, observed ? 'Shared warehouse quantity checked' : 'Awaiting warehouse observation');
+      return { ...result(count, condition.minimum, observed ? 'Shared warehouse quantity checked' : 'Awaiting warehouse observation'), complete: !!observed && count >= condition.minimum };
+    }
+    case 'warehouse': {
+      if (condition.container.world !== context.world || condition.container.dimension !== context.dimension) return { complete: false, current: 0, target: condition.blocks.length + 1, reason: '창고를 건축한 같은 월드와 차원의 실제 관측이 필요합니다.' };
+      const blocks = verifyCompletion({ kind: 'blocks', blocks: condition.blocks }, context);
+      const container = observations.some(o => o.kind === 'container' && sameContainer(o.data.container, condition.container));
+      const plannedChest = condition.blocks.some(block => positionKey(block.position) === positionKey(condition.container.position) && ['chest', 'trapped_chest', 'barrel'].includes(block.name));
+      return { complete: blocks.complete && container && plannedChest, current: blocks.current + (container && plannedChest ? 1 : 0), target: condition.blocks.length + 1, reason: !blocks.complete ? '창고 건물의 전체 설계도 블록을 이번 시도의 실제 관측으로 다시 확인해야 합니다.' : !plannedChest ? '등록할 상자는 확인한 설계도에 포함되어야 합니다.' : !container ? '이번 시도에서 설계도의 상자를 실제로 열어 내용물을 확인해야 합니다.' : '전체 건물과 실제 열린 창고의 내용물을 확인했습니다.' };
     }
     case 'transfer': {
       let confirmed = 0;

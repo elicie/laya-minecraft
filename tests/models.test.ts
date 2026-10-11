@@ -18,6 +18,18 @@ test('Qwen output must pass runtime goal and registry validation', async () => {
   await assert.rejects(interpret('알 수 없는 새 광물을 준비해', DEFAULT_RULES), /Minecraft 아이템/);
 });
 
+test('warehouse creation commands resolve without model fallback and preserve ordinary item crafting', async () => {
+  const interpret = createGoalInterpreter({ fetchImpl: async () => { throw new Error('supported warehouse command must not depend on a model response'); } });
+  for (const text of ['창고를 만들어 줘', '창고 만들어', '창고 좀 세워 줘']) {
+    const result = await interpret(text, DEFAULT_RULES);
+    assert.equal(result.source, 'code'); assert.equal(result.goal.kind, 'build');
+    assert.equal(result.goal.params.blueprint, 'warehouse'); assert.equal(result.goal.quantity, 1);
+    assert.equal(result.goal.params.origin, undefined);
+  }
+  const crafted = await interpret('창고에서 횃불 2개 만들어', DEFAULT_RULES);
+  assert.equal(crafted.goal.kind, 'craft'); assert.equal(crafted.goal.item, 'torch'); assert.equal(crafted.goal.quantity, 2);
+});
+
 test('saved blueprint names resolve to current catalog IDs before builtin guesses', async () => {
   const small = BlueprintDefinitionSchema.parse({ ...blueprintPreset('warehouse'), id: 'fc3c5625-ea6e-4b32-93b4-f7487bc433d1', title: '창고', version: 1, createdAt: 1, updatedAt: 1 });
   const large = BlueprintDefinitionSchema.parse({ ...small, id: '87492909-c497-4c6c-9faa-1e1a927664a3', title: '큰 창고 2', width: 9 });

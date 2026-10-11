@@ -9,7 +9,7 @@ import { inventory, inventoryObservation, observationBase, position, vector } fr
 import { assessCombat, combatEquipment, rangedThreat, HUNTABLE, HOSTILES } from './combat-policy';
 import { retreatToSafety, safeCombatRoute } from './combat-retreat';
 import { exploreBuildSite } from './village-actions';
-import { ResourceRecovery, safeResourceStand } from './resource-recovery';
+import { ResourceRecovery, resourceClearance, safeResourceStand } from './resource-recovery';
 
 export const EXECUTABLE_ACTIONS: ActionKind[] = ['collect', 'store', 'take', 'craft', 'smelt', 'build', 'farm', 'hunt', 'fight', 'guard', 'explore', 'follow', 'home', 'sleep', 'survive', 'breed'];
 const unsafeBlocks = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'cactus', 'campfire', 'soul_campfire']);
@@ -18,12 +18,18 @@ const smeltInputs: Record<string, string> = { iron_ingot: 'raw_iron', gold_ingot
 const dropBlocks: Record<string, string[]> = { cobblestone: ['stone', 'cobblestone'], raw_iron: ['iron_ore', 'deepslate_iron_ore'], raw_gold: ['gold_ore', 'deepslate_gold_ore'], raw_copper: ['copper_ore', 'deepslate_copper_ore'], coal: ['coal_ore', 'deepslate_coal_ore'], diamond: ['diamond_ore', 'deepslate_diamond_ore'], wheat_seeds: ['short_grass', 'tall_grass'], dirt: ['dirt', 'grass_block'], wheat: ['wheat'], carrot: ['carrots'], potato: ['potatoes'], beetroot: ['beetroots'] };
 const huntDrops: Record<string, string> = { beef: 'cow', leather: 'cow', porkchop: 'pig', chicken: 'chicken', mutton: 'sheep', white_wool: 'sheep', rabbit: 'rabbit' };
 type CraftRecipe = ReturnType<Bot['recipesAll']>[number];
+interface AcquisitionEstimate {
+  cost: number;
+  /** Only the chosen acquisition path, not every rejected recipe variant. */
+  dependencies: Set<string>;
+  depth: number;
+}
 interface RecipeEvaluation {
   remaining: number;
   table: Block | null;
   recipes: Map<string, CraftRecipe[]>;
   sources: Map<string, Block | null>;
-  costs: Map<string, number>;
+  costs: Map<string, AcquisitionEstimate>;
   resourceNames: Set<string>;
 }
 const recipeKey = (recipe: CraftRecipe) => recipe.delta.map(i => `${i.id}:${i.metadata}:${i.count}`).sort().join('|');
@@ -187,26 +193,68 @@ export class MineflayerExecutor {
   }
 
   async observeContainer(container: ContainerRef, s: ActionServices): Promise<ObservationInput> {
-    this.assertContainer(container);
-    await s.near(container.position, 2);
-    const block = this.bot.blockAt(vector(container.position));
-    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 공동 창고를 실제로 확인해야 합니다.');
+    const block = await this.approachContainer(container, s);
     const window = await this.bot.openContainer(block);
     try {
       const result: ObservationInput = { ...observationBase(this.options.world, this.options.dimension()), kind: 'container', data: { container, items: window.containerItems().map((i) => ({ name: i.name, count: i.count })) } };
       s.observations.push(result); this.recordInventory(s); return result;
     } finally { await window.close(); }
   }
+
+  private async registerWarehouse(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
+    if (task.completion.kind !== 'warehouse') throw new ConditionWait('창고 등록에 건물 전체와 실제 창고 확인 조건이 필요합니다.');
+    const { container, blocks } = task.completion;
+    this.assertContainer(container);
+    const min = { x: Math.min(...blocks.map(b => b.position.x)), y: Math.min(...blocks.map(b => b.position.y)), z: Math.min(...blocks.map(b => b.position.z)) };
+    s.checkpoint.buildProtection = { origin: min, width: Math.max(...blocks.map(b => b.position.x)) - min.x + 1, depth: Math.max(...blocks.map(b => b.position.z)) - min.z + 1, height: Math.max(...blocks.map(b => b.position.y)) - min.y };
+    if (!blocks.some(b => b.position.x === container.position.x && b.position.y === container.position.y && b.position.z === container.position.z && ['chest', 'trapped_chest', 'barrel'].includes(b.name)))
+      throw new ConditionWait('설계도에 포함된 실제 창고 블록을 등록해야 합니다.');
+    const observeBuilding = () => {
+      const actual = blocks.flatMap(expected => {
+        const block = this.bot.blockAt(vector(expected.position));
+        return block ? [{ position: expected.position, name: block.name }] : [];
+      });
+      s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks: actual } });
+      const mismatches = blocks.filter(expected => this.bot.blockAt(vector(expected.position))?.name !== expected.name);
+      if (mismatches.length) {
+        s.checkpoint.waitingFor = { kind: 'blocks', causeCode: 'BUILD_OBSERVATION', positions: mismatches.map(b => b.position) };
+        throw new ConditionWait('창고 등록 전에 설계도 전체의 실제 완공 상태를 다시 확인해야 합니다.', s.checkpoint);
+      }
+    };
+    observeBuilding(); s.check(); s.progress('창고 확인', '완성한 창고를 실제로 열어 공동 창고로 사용할 수 있는지 확인합니다.');
+    try { await this.observeContainer(container, s); }
+    catch (error) {
+      s.check(); if (!(error instanceof ConditionWait)) throw error;
+      const feet = vector(this.bot.entity.position).floored(), positions = [container.position, position(feet), position(feet.offset(0, 1, 0)), position(feet.offset(0, -1, 0))];
+      const actual = positions.flatMap(p => { const block = this.bot.blockAt(vector(p)); return block ? [{ position: p, name: block.name }] : []; });
+      s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks: actual } });
+      Object.assign(s.checkpoint, error.checkpoint);
+      s.checkpoint.waitingFor = { kind: 'blocks', causeCode: 'BUILD_ACCESS', positions, watchPosition: true };
+      throw new ConditionWait(error.message, s.checkpoint);
+    }
+    s.check(); observeBuilding(); delete s.checkpoint.waitingFor;
+    return this.result(s, '건물 전체와 창고 내부를 실제로 확인했습니다.');
+  }
   private assertContainer(container: ContainerRef): void {
     if (container.world !== this.options.world || container.dimension !== this.options.dimension()) throw new ConditionWait('공동 창고의 서버와 차원이 현재 연결과 다릅니다.');
+  }
+  private async approachContainer(container: ContainerRef, s: ActionServices): Promise<Block> {
+    this.assertContainer(container); s.check();
+    // A raised chest behind the warehouse wall has no reachable integer path
+    // node inside radius 2. Radius 3 includes the adjacent outside ground.
+    await s.near(container.position, 3); s.check();
+    const block = this.bot.blockAt(vector(container.position));
+    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 창고가 없거나 관측되지 않았습니다.');
+    const eyes = vector(this.bot.entity.position).offset(0, 1.62, 0);
+    const distance = eyes.distanceTo(vector(block.position).offset(0.5, 0.5, 0.5));
+    if (!Number.isFinite(distance) || distance > 4.5) throw new ConditionWait('창고를 열기 전에 실제 상호작용 거리 안의 안전한 위치로 접근해야 합니다.');
+    return block;
   }
   private async transfer(container: ContainerRef, itemName: string, quantity: number, direction: 'store' | 'take', s: ActionServices): Promise<void> {
     this.assertContainer(container); s.check();
     const data = this.bot.registry.itemsByName[itemName];
     if (!data || !Number.isInteger(quantity) || quantity <= 0) throw new ConditionWait('이동할 아이템과 수량을 확인해야 합니다.');
-    await s.near(container.position, 2);
-    const block = this.bot.blockAt(vector(container.position));
-    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 창고가 없거나 관측되지 않았습니다.');
+    const block = await this.approachContainer(container, s);
     const window = await this.bot.openContainer(block);
     let started = false;
     try {
@@ -258,7 +306,7 @@ export class MineflayerExecutor {
     if (!block.boundingBox) return [];
     const feet = vector(this.bot.entity.position).floored();
     if (block.position.equals(feet) || block.position.equals(feet.offset(0, -1, 0))) return [];
-    if (![new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].some(d => ['air', 'cave_air', 'void_air'].includes(this.bot.blockAt(block.position.plus(d))?.name ?? ''))) return [];
+    if (![new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, -1, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)].some(d => resourceClearance(this.bot.blockAt(block.position.plus(d))))) return [];
     const candidates = [feet];
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) for (const dy of [-2, -1, 0, 1, 2]) candidates.push(block.position.offset(dx!, dy, dz!));
     return [...new Map(candidates.map(p => [`${p.x},${p.y},${p.z}`, p])).values()].filter(p => p.distanceTo(block.position) <= 4 && Math.abs(p.y - feet.y) <= 3 && safeResourceStand(this.bot, p, q => this.protectedBuildPosition(q, s)))
@@ -365,57 +413,114 @@ export class MineflayerExecutor {
     return evaluation.recipes.get(item)!;
   }
 
+  private furnaceFuels(): string[] {
+    return ['coal', 'charcoal', ...Object.keys(this.bot.registry.itemsByName).filter(name => name.endsWith('_planks') && !['crimson_planks', 'warped_planks'].includes(name))];
+  }
+
+  private fuelAmount(name: string, smelts: number): number { return Math.ceil(smelts / (name.endsWith('_planks') ? 1.5 : 8)); }
+
+  private async furnaceFuel(itemName: string, amount: number, s: ActionServices, chain: Set<string>) {
+    const stocked = () => this.bot.inventory.items().find(item => this.furnaceFuels().includes(item.name) && item.count >= this.fuelAmount(item.name, amount));
+    const existing = stocked(); if (existing) return existing;
+    const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
+    const evaluation: RecipeEvaluation = { remaining: 1024, table, recipes: new Map(), sources: new Map(), costs: new Map(), resourceNames: new Set() };
+    const candidates = this.furnaceFuels().map(name => ({ name, cost: this.acquisitionCost(name, this.fuelAmount(name, amount), chain, s, evaluation) }))
+      .filter(candidate => Number.isFinite(candidate.cost)).sort((a, b) => a.cost - b.cost);
+    let preparationWait: ConditionWait | undefined;
+    for (const candidate of candidates.slice(0, 5)) {
+      try {
+        await this.ensureItem(candidate.name, this.fuelAmount(candidate.name, amount), s, chain);
+        const fuel = stocked(); if (fuel) return fuel;
+      } catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; preparationWait = error; }
+    }
+    if (preparationWait) throw preparationWait;
+    const recovery = this.resourceRecovery(itemName, [...evaluation.resourceNames].slice(0, 100), s);
+    throw recovery.wait('현재 소지한 연료나 관측한 자연 목재·석탄으로 제련 연료를 확보해야 합니다.', amount);
+  }
+
   private recipeCost(recipe: CraftRecipe, minimum: number, current: number, chain: Set<string>, s: ActionServices, evaluation: RecipeEvaluation): number {
+    return this.recipeEstimate(recipe, minimum, current, chain, s, evaluation).cost;
+  }
+
+  private recipeEstimate(recipe: CraftRecipe, minimum: number, current: number, chain: Set<string>, s: ActionServices, evaluation: RecipeEvaluation): AcquisitionEstimate {
     const times = Math.ceil((minimum - current) / recipe.result.count);
-    let cost = recipe.requiresTable && !evaluation.table ? this.acquisitionCost('crafting_table', 1, chain, s, evaluation) : 0;
+    const estimates: AcquisitionEstimate[] = [];
     for (const ingredient of recipe.delta.filter(i => i.count < 0)) {
       const name = this.bot.registry.items[ingredient.id]?.name;
-      if (!name) return Infinity;
+      if (!name) return { cost: Infinity, dependencies: new Set(), depth: 0 };
       // Evaluate every ingredient so a wait can watch all candidate raw materials.
-      cost += this.acquisitionCost(name, -ingredient.count * times, chain, s, evaluation);
+      estimates.push(this.acquisitionEstimate(name, -ingredient.count * times, chain, s, evaluation));
     }
-    return cost;
+    // Reject absent raw variants before repeatedly evaluating their shared table.
+    if (estimates.every(value => Number.isFinite(value.cost)) && recipe.requiresTable && !evaluation.table) estimates.push(this.acquisitionEstimate('crafting_table', 1, chain, s, evaluation));
+    return { cost: estimates.reduce((sum, value) => sum + value.cost, 0), dependencies: new Set(estimates.flatMap(value => [...value.dependencies])), depth: Math.max(0, ...estimates.map(value => value.depth)) };
   }
 
   private acquisitionCost(item: string, minimum: number, chain: Set<string>, s: ActionServices, evaluation: RecipeEvaluation): number {
+    return this.acquisitionEstimate(item, minimum, chain, s, evaluation).cost;
+  }
+
+  private acquisitionEstimate(item: string, minimum: number, chain: Set<string>, s: ActionServices, evaluation: RecipeEvaluation): AcquisitionEstimate {
     s.check();
     const missing = minimum - this.count(item);
-    if (missing <= 0) return 0;
-    if (chain.has(item) || chain.size > 10 || evaluation.remaining-- <= 0) return Infinity;
-    const cacheKey = `${item}:${minimum}:${[...chain].sort().join(',')}`;
-    if (evaluation.costs.has(cacheKey)) return evaluation.costs.get(cacheKey)!;
+    if (missing <= 0) return { cost: 0, dependencies: new Set(), depth: 0 };
+    const unavailable = (): AcquisitionEstimate => ({ cost: Infinity, dependencies: new Set([item]), depth: 1 });
+    if (chain.has(item) || chain.size > 10) return unavailable();
+    const sharedKey = `${item}:${minimum}`, contextKey = `${sharedKey}:${[...chain].sort().join(',')}`;
+    const shared = evaluation.costs.get(sharedKey);
+    // A finite path can be shared across wood/fuel variants only when none of
+    // its dependencies would close a cycle in the caller's current ancestry.
+    if (shared && chain.size + shared.depth <= 11 && ![...shared.dependencies].some(name => chain.has(name))) return shared;
+    const contextual = evaluation.costs.get(contextKey);
+    if (contextual) return contextual;
+    // Cache reads do not spend the bounded graph evaluation budget.
+    if (evaluation.remaining-- <= 0) return unavailable();
     const next = new Set(chain); next.add(item);
-    let cost = Infinity;
+    let estimate = unavailable();
     if (item in dropBlocks || item.endsWith('_log') || ['sand', 'gravel'].includes(item)) {
       for (const name of dropBlocks[item] ?? [item]) evaluation.resourceNames.add(name);
       if (this.options.config.allowedActions.includes('collect')) {
         if (!evaluation.sources.has(item)) evaluation.sources.set(item, this.bot.findBlock({ matching: b => this.collectMatches(item, b.name), useExtraInfo: b => this.collectible(b, s), maxDistance: 48 }));
         const block = evaluation.sources.get(item);
         if (block) {
-          const toolCost = block.canHarvest(this.bot.heldItem?.type ?? null) || this.bot.inventory.items().some(i => block.canHarvest(i.type)) ? 0 : this.acquisitionCost(this.harvestTool(block.name), 1, next, s, evaluation);
+          const tool = block.canHarvest(this.bot.heldItem?.type ?? null) || this.bot.inventory.items().some(i => block.canHarvest(i.type)) ? { cost: 0, dependencies: new Set<string>(), depth: 0 } : this.acquisitionEstimate(this.harvestTool(block.name), 1, next, s, evaluation);
           // A source is a candidate, not proof of its total yield or accessibility.
-          cost = missing + block.position.distanceTo(vector(this.bot.entity.position)) / 48 + toolCost;
+          estimate = { cost: missing + block.position.distanceTo(vector(this.bot.entity.position)) / 48 + tool.cost, dependencies: new Set([item, ...tool.dependencies]), depth: 1 + tool.depth };
         }
       }
     } else if (smeltInputs[item] && this.options.config.allowedActions.includes('smelt')) {
-      const furnace = this.ownedUtilities.get('furnace');
-      const furnaceCost = furnace && this.bot.blockAt(furnace)?.name === 'furnace' ? 0 : this.acquisitionCost('furnace', 1, next, s, evaluation);
-      const fuelCost = Math.min(...['coal', 'charcoal', 'oak_planks'].map(fuel => this.acquisitionCost(fuel, 1, next, s, evaluation)));
-      cost = this.acquisitionCost(smeltInputs[item], minimum, next, s, evaluation) + furnaceCost + fuelCost;
+      // Observe the actual smelting input first. An unavailable input must
+      // remain a wait source even when facility/fuel alternatives are costly.
+      const input = this.acquisitionEstimate(smeltInputs[item], missing, next, s, evaluation);
+      if (Number.isFinite(input.cost)) {
+        const furnace = this.ownedUtilities.get('furnace');
+        const facility = furnace && this.bot.blockAt(furnace)?.name === 'furnace' ? { cost: 0, dependencies: new Set<string>(), depth: 0 } : this.acquisitionEstimate('furnace', 1, next, s, evaluation);
+        if (Number.isFinite(facility.cost)) {
+          let fuel = unavailable();
+          for (const name of this.furnaceFuels()) {
+            const candidate = this.acquisitionEstimate(name, this.fuelAmount(name, missing), next, s, evaluation);
+            if (candidate.cost < fuel.cost) fuel = candidate;
+          }
+          estimate = { cost: input.cost + facility.cost + fuel.cost, dependencies: new Set([item, ...input.dependencies, ...facility.dependencies, ...fuel.dependencies]), depth: 1 + Math.max(input.depth, facility.depth, fuel.depth) };
+        }
+      }
     } else if (this.options.config.allowedActions.includes('craft')) {
       for (const recipe of this.recipes(item, evaluation)) {
         if (evaluation.remaining-- <= 0) break;
-        cost = Math.min(cost, this.recipeCost(recipe, minimum, this.count(item), next, s, evaluation));
+        const candidate = this.recipeEstimate(recipe, minimum, this.count(item), next, s, evaluation);
+        if (candidate.cost < estimate.cost) estimate = { cost: candidate.cost, dependencies: new Set([item, ...candidate.dependencies]), depth: 1 + candidate.depth };
       }
     }
-    if (!Number.isFinite(cost) && item in huntDrops && this.options.config.allowedActions.includes('hunt')) {
+    if (!Number.isFinite(estimate.cost) && item in huntDrops && this.options.config.allowedActions.includes('hunt')) {
       evaluation.resourceNames.add(huntDrops[item]!);
       const seen = Object.values(this.bot.entities).some(e => e.name === huntDrops[item] && e.position.distanceTo(this.bot.entity.position) <= 40 &&
         !(s.rules.center && Math.hypot(e.position.x - s.rules.center.x, e.position.z - s.rules.center.z) <= s.rules.radius));
-      if (seen) cost = missing;
+      if (seen) estimate = { cost: missing, dependencies: new Set([item]), depth: 1 };
     }
-    evaluation.costs.set(cacheKey, cost);
-    return cost;
+    // Infinity can be caused by the current ancestor cycle, so keep failures
+    // contextual. Only an actually feasible dependency path is shared.
+    evaluation.costs.set(Number.isFinite(estimate.cost) ? sharedKey : contextKey, estimate);
+    return estimate;
   }
 
   async ensureItem(itemName: string, minimum: number, s: ActionServices, chain: Set<string> = new Set()): Promise<void> {
@@ -505,7 +610,19 @@ export class MineflayerExecutor {
     for (const [dx, dz] of offsets) {
       const p = origin.offset(dx, 0, dz), block = this.bot.blockAt(p), below = this.bot.blockAt(p.offset(0, -1, 0));
       if (this.protectedBuildPosition(p, s)) continue;
-      if (block?.name !== 'air' || below?.boundingBox !== 'block' || unsafeBlocks.has(below.name)) continue;
+      if (!resourceClearance(block) || below?.boundingBox !== 'block' || unsafeBlocks.has(below.name)) continue;
+      if (block && !['air', 'cave_air', 'void_air'].includes(block.name)) {
+        await s.near(p, 2); s.check();
+        const actual = this.bot.blockAt(p);
+        if (!actual || !resourceClearance(actual) || this.protectedBuildPosition(p, s)) continue;
+        if (!['air', 'cave_air', 'void_air'].includes(actual.name)) {
+          if (typeof this.bot.canSeeBlock !== 'function' || !this.bot.canSeeBlock(actual)) continue;
+          await this.bot.dig(actual); s.check();
+          const cleared = this.bot.blockAt(p);
+          if (!cleared || !['air', 'cave_air', 'void_air'].includes(cleared.name)) throw new ActionFailure('작업대 공간의 자연 풀 정리 결과를 확인해야 합니다.', 'DIG_UNCERTAIN', false, false);
+          s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks: [{ position: position(p), name: cleared.name }] } });
+        }
+      }
       await this.place(p, itemName, itemName, s);
       this.ownedUtilities.set(itemName, vector(p)); s.checkpoint[`${itemName}Position`] = position(p);
       return this.bot.blockAt(p)!;
@@ -521,9 +638,7 @@ export class MineflayerExecutor {
     if (savedFurnace.success && this.bot.blockAt(vector(savedFurnace.data))?.name === 'furnace') this.ownedUtilities.set('furnace', vector(savedFurnace.data));
     if (!this.ownedUtilities.has('furnace')) await this.ensureItem('furnace', 1, s, chain);
     const furnaceBlock = await this.placeUtility('furnace', s);
-    let fuel = this.bot.inventory.items().find((i) => ['coal', 'charcoal'].includes(i.name) && i.count >= Math.ceil(amount / 8));
-    if (!fuel) { await this.ensureItem('oak_planks', Math.ceil(amount / 1.5), s, chain); fuel = this.bot.inventory.items().find((i) => i.name === 'oak_planks'); }
-    if (!fuel) throw new ConditionWait('제련 연료를 확보해야 합니다.');
+    const fuel = await this.furnaceFuel(itemName, amount, s, chain);
     await s.near(furnaceBlock.position, 2); const furnace = await this.bot.openFurnace(furnaceBlock);
     try {
       const storedInput = furnace.inputItem(), output = furnace.outputItem();
@@ -532,7 +647,7 @@ export class MineflayerExecutor {
       if (!inputItem) throw new ConditionWait('제련 원재료를 확인해야 합니다.');
       const missingInput = Math.max(0, amount - (storedInput?.count ?? 0));
       if (missingInput > 0) await furnace.putInput(inputItem.type, null, missingInput);
-      await furnace.putFuel(fuel.type, null, fuel.name === 'oak_planks' ? Math.ceil(amount / 1.5) : Math.ceil(amount / 8));
+      await furnace.putFuel(fuel.type, null, this.fuelAmount(fuel.name, amount));
       const deadline = Date.now() + amount * 12000 + 15000;
       while (this.count(itemName) < minimum && Date.now() < deadline) {
         s.check(); s.progress('제련', `${itemName} ${this.count(itemName)}/${minimum}`);
@@ -682,6 +797,7 @@ export class MineflayerExecutor {
     s.checkpoint.protectedPositions = Array.isArray(task.params.protectedPositions) ? task.params.protectedPositions.slice(0, 10000) : [];
     s.check(); const item = typeof task.params.item === 'string' ? task.params.item : '';
     const quantity = task.completion.kind === 'inventory' ? task.completion.minimum : typeof task.params.quantity === 'number' ? task.params.quantity : 1;
+    if (task.kind === 'build' && task.params.mode === 'register-warehouse') return this.registerWarehouse(task, s);
     if (['fight', 'guard'].includes(task.kind) && typeof task.params.supportRequestId === 'string') { await this.supportFight(task, s); this.recordInventory(s); s.check(); return this.result(s); }
     switch (task.kind) {
       case 'collect': await this.ensureItem(item, quantity, s); break;

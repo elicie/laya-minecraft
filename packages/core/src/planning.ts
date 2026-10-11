@@ -77,6 +77,7 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'build') {
+    if (input.params.mode === 'register-warehouse') return { tasks, waiting: '창고 연결은 같은 목표의 실제 건축 확인 뒤에만 실행할 수 있습니다.' };
     if (input.params.mode === 'prepare-site' && input.params.siteSelection !== 'preparing') return { tasks, waiting: '부지 정리는 실제 탐색 관측을 승인한 계획에서만 실행할 수 있습니다.' };
     if (input.params.siteSelection === 'preparing') {
       if (!PreparationVerificationSchema.safeParse(input.params.preparationVerification).success) return { tasks, waiting: '중앙에서 실제 탐색 관측으로 승인한 부지 정리 계획이 필요합니다.' };
@@ -123,7 +124,14 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
       if (![origin.x, origin.y, origin.z, height].every(Number.isInteger) || height < 0 || height > 32) return { tasks, waiting: '관측한 부지의 정수 좌표와 건축 범위를 확인해야 합니다.' };
       reserved = buildSiteCells(origin, size.width, size.depth, height);
     }
-    add('build', { ...input.params, ...(origin ? { origin: jsonObject(origin) } : {}), requiredBlocks: blocks.map(b => jsonObject(b)) }, { kind: 'blocks', blocks }, [], reserved.map(b => `block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`));
+    const reservations = reserved.map(b => `block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`);
+    const build = add('build', { ...input.params, ...(origin ? { origin: jsonObject(origin) } : {}), requiredBlocks: blocks.map(b => jsonObject(b)) }, { kind: 'blocks', blocks }, [], reservations);
+    const warehouse = resolveBlueprint(design, input.params.blueprintDefinition).template === 'warehouse';
+    const chest = warehouse ? blocks.find(block => block.name === 'chest') : undefined;
+    if (chest) {
+      const container: ContainerRef = { id: `warehouse-${goal.id}`, world: rules.world, dimension: rules.dimension, position: chest.position };
+      add('build', { mode: 'register-warehouse', design, ...(origin ? { origin: jsonObject(origin) } : {}), ...(input.params.blueprintDefinition ? { blueprintDefinition: input.params.blueprintDefinition } : {}), container: jsonObject(container), requiredBlocks: blocks.map(jsonObject) }, { kind: 'warehouse', container, blocks }, [build.id], [...reservations, containerKey(container)]);
+    }
     return { tasks };
   }
   if (input.kind === 'farm') {
