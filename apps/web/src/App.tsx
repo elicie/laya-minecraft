@@ -11,6 +11,7 @@ import { Events } from "./components/Events";
 import { BotForm, GoalForm, RulesForm, VillageForm } from "./components/Forms";
 import { VillageMap } from "./components/VillageMap";
 import { PreparationProgress } from "./components/PreparationProgress";
+import { BuildGoalProgress, BuildTaskProgress } from "./components/BuildProgress";
 import { useFleet } from "./hooks/useFleet";
 import { errorMessage, patch, post, request } from "./lib/api";
 import { createRequestId } from "./lib/uuid";
@@ -500,11 +501,12 @@ export function App() {
                             />
                           </div>
                         )}
-                        {goal.reason && (
+                        {goal.reason && goal.input.kind !== "build" && (
                           <p className="reason" style={{ marginTop: 9 }}>
                             {goal.reason}
                           </p>
                         )}
+                        <BuildGoalProgress goal={goal} snapshot={snapshot!} now={now} live={live} />
                         {tasks.length > 0 && (
                           <details className="task-plan">
                             <summary>
@@ -519,6 +521,7 @@ export function App() {
                                   </span>
                                   {task.reason && <p>{task.reason}</p>}
                                   <PreparationProgress task={task} />
+                                  <BuildTaskProgress task={task} />
                                 </li>
                               ))}
                             </ol>

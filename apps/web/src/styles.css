@@ -1654,3 +1654,16 @@ dialog::backdrop {
 .recovery-status .muted { font-size: 10px; line-height: 1.6; }
 .recovery-counts { font-size: 12px; line-height: 1.7; }
 .support-status { padding: 8px; background: #fff6de; border-radius: 5px; }
+.build-goal-progress { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
+.build-stage-list { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; padding: 0; margin: 0 0 9px; }
+.build-stage-list li { flex: 1 1 60px; padding: 6px 4px; border-radius: 4px; color: var(--muted); background: var(--surface-2); font-size: 10px; text-align: center; line-height: 1.5; }
+.build-stage-list li.current { background: #293b32; color: #cae39a; font-weight: 650; }
+.build-stage-list small { display: block; font-size: 9px; font-weight: 400; }
+.build-phase { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 12px; margin: 0 0 7px; }
+.build-material-wait, .verified-warehouse { margin: 7px 0; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.build-task-progress { margin-top: 9px; font-size: 11px; line-height: 1.65; }
+.build-task-progress dl { display: grid; gap: 4px; margin: 0 0 7px; }
+.build-task-progress dl > div { display: flex; flex-wrap: wrap; gap: 3px 12px; justify-content: space-between; }
+.build-task-progress dt { color: var(--muted); }
+.build-task-progress dd { margin: 0; overflow-wrap: anywhere; }
+.build-task-progress .muted, .build-goal-progress > .muted { font-size: 10px; line-height: 1.7; margin-top: 7px; }

@@ -23,6 +23,8 @@ import { Events } from "./Events";
 import { Inventory } from "./Inventory";
 import { PreparationProgress } from "./PreparationProgress";
 import { Recovery } from "./Recovery";
+import { BuildTaskProgress } from "./BuildProgress";
+import { waitingFor } from "../lib/build-progress";
 
 export function BotDetail({
   bot,
@@ -59,14 +61,17 @@ export function BotDetail({
   const survival = report?.mode === "survival";
   const localFood = isLocalFoodRecovery(report);
   const recovering = isDeathRecoveryPending(bot) || report?.mode === "recovering";
-  const awaitingRespawn = latestRecovery(bot)?.phase === "waiting-respawn" && !survival && report?.mode !== "emergency";
+  const recovery = latestRecovery(bot);
+  const awaitingRespawn = recovery?.phase === "waiting-respawn" && !survival && report?.mode !== "emergency";
+  const safetyWaiting = recovery?.phase === "resolved" && !recovery.safe && !survival && !localFood && report?.mode !== "emergency";
   const waiting =
     !!task &&
     waitingTaskStates.has(task.state) &&
     report?.mode !== "emergency" &&
     !survival && !localFood && !recovering;
-  const action = awaitingRespawn ? "부활 대기" : waiting
-    ? `${task.params.mode === "prepare-site" ? "부지 정리 " : goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
+  const materialWaiting = waiting && task?.kind === "build" && !task.params.mode && waitingFor(task)?.kind === "inventory";
+  const action = safetyWaiting ? "안전 확인 대기" : awaitingRespawn ? "부활 대기" : waiting
+    ? `${task.params.mode === "prepare-site" ? "부지 정리 " : task.params.mode === "prepare-access" ? "복귀 경로 정리 " : task.params.mode === "register-warehouse" ? "창고 확인 " : materialWaiting ? "건설 재료 " : goal?.input.kind === "build" ? "건설 " : ""}${label(task.state)}`
     : report
       ? label(
           survival && report.action === "idle" ? "survive" : report.action,
@@ -78,7 +83,7 @@ export function BotDetail({
             : actionLabels,
         )
       : "봇 보고 대기";
-  const reason = awaitingRespawn ? latestRecovery(bot)!.reason : waiting
+  const reason = safetyWaiting ? "아이템 회수 단계는 끝났으며, 현재 위치의 안전이 아직 확인되지 않아 일반 작업을 보류합니다." : awaitingRespawn ? recovery!.reason : waiting
     ? task.reason || goal?.reason || "작업 조건이 충족되기를 기다립니다."
     : report?.reason || "연결되면 행동과 판단 이유를 표시합니다.";
   const foodWaitReason = waiting && report?.mode === "idle" &&
@@ -205,13 +210,14 @@ export function BotDetail({
               </p>
             )}
             <p className="reason">{reason}</p>
+            {safetyWaiting && report?.reason && <p className="reason safety-report" style={{ fontSize: 11, marginTop: 7 }}>실제 보고 · {report.reason}</p>}
             {foodWaitReason && (
               <p className="reason local-food-wait" style={{ fontSize: 11, marginTop: 7 }}>
                 식량 대기 · {foodWaitReason}
               </p>
             )}
             {task && !survival && !recovering && report?.mode !== "emergency" && (
-              <PreparationProgress task={task} />
+              <><PreparationProgress task={task} /><BuildTaskProgress task={task} /></>
             )}
             {survival && (
               <p

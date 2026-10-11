@@ -17,7 +17,7 @@ export function Recovery({ bot, events }: { bot: Agent; events: CoreEvent[] }) {
   if (!state && !showSupport) return null;
   return <div className="recovery-status" role="region" aria-label="사망과 복구 상태">
     {state && <>
-      <h3>사망 후 복구 <span className={`tag ${state.safe && state.phase === "resolved" ? "" : "warning"}`}>{phases[state.phase]}</span></h3>
+      <h3>사망 후 복구 <span className={`tag ${state.safe && state.phase === "resolved" ? "" : "warning"}`}>{state.phase === "resolved" && !state.safe ? "회수 확인 종료 · 안전 대기" : phases[state.phase]}</span></h3>
       <p className="muted">사망 {localTime(state.occurredAt)} · {positionText(state.position)}</p>
       <p className="recovery-counts">보유·회수 확인 <b>{state.progress.recoveredCount}개</b> · 미회수 <b>{state.progress.remainingCount}개</b></p>
       <p className="reason">{state.reason}</p>
