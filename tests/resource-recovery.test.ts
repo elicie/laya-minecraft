@@ -13,7 +13,7 @@ function fixture() {
   const blockAt = (p: Vec3) => {
     if (!loaded(p)) return null;
     const name = cells.get(p.toString()) ?? (p.y === 63 ? 'dirt' : 'air');
-    return { name, position: p, boundingBox: ['air', 'cave_air', 'potatoes'].includes(name) ? 'empty' : 'block', canHarvest: () => true, getProperties: () => ['wheat', 'carrots', 'potatoes', 'beetroots'].includes(name) ? { age: ages.get(p.toString()) ?? 7 } : {} };
+    return { name, position: p, boundingBox: ['air', 'cave_air', 'potatoes', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'dandelion'].includes(name) ? 'empty' : 'block', canHarvest: () => true, getProperties: () => ['wheat', 'carrots', 'potatoes', 'beetroots'].includes(name) ? { age: ages.get(p.toString()) ?? 7 } : {} };
   };
   const launch = WorkerLaunchSchema.parse({ botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch', config: { name: 'RecoveryUnit' }, rules: { autonomyEnabled: false } });
   const bot = {
@@ -30,8 +30,8 @@ function fixture() {
       let found: Vec3 | undefined;
       for (let index = 0; index < queue.length && index < 10000; index++) {
         const p = queue[index]; if (p.equals(target)) { found = p; break; }
-        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const next = p.offset(dx!, 0, dz!); if (previous.has(next.toString()) || next.distanceTo(start) > 50 || blockAt(next)?.boundingBox !== 'empty' || blockAt(next.offset(0, 1, 0))?.boundingBox !== 'empty' || blockAt(next.offset(0, -1, 0))?.boundingBox !== 'block') continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const dy of [0, 1, -1]) {
+          const next = p.offset(dx!, dy, dz!); if (previous.has(next.toString()) || next.distanceTo(start) > 50 || blockAt(next)?.boundingBox !== 'empty' || blockAt(next.offset(0, 1, 0))?.boundingBox !== 'empty' || blockAt(next.offset(0, -1, 0))?.boundingBox !== 'block') continue;
           previous.set(next.toString(), p); queue.push(next);
         }
       }
@@ -57,6 +57,64 @@ test('an unreachable exposed source is retained while actual walking discovers a
   const records = f.services.checkpoint.resourceRecovery as Record<string, { origin: Position; failed: { position: Position }[] }>;
   assert.deepEqual(records.cobblestone.origin, { x: 0, y: 64, z: 0 }); assert.ok(records.cobblestone.failed.some(p => p.position.x === 6));
   assert.ok(f.services.observations.some(o => o.kind === 'exploration' && o.data.resources.some(r => r.position.x === discovered.x)));
+});
+
+test('observed empty-collision meadow plants allow walking while leaves, crops, flowers and missing headroom remain protected', () => {
+  const p = new Vec3(8, 64, 0);
+  for (const name of ['short_grass', 'tall_grass', 'fern', 'large_fern']) {
+    const f = fixture(); f.cells.set(p.toString(), name); f.cells.set(p.offset(0, 1, 0).toString(), name);
+    assert.equal(safeResourceStand(f.bot as unknown as Bot, p, () => false), true, name);
+    f.loaded = q => !q.equals(p.offset(0, 1, 0));
+    assert.equal(safeResourceStand(f.bot as unknown as Bot, p, () => false), false);
+  }
+  for (const name of ['oak_leaves', 'potatoes', 'dandelion', 'sweet_berry_bush']) {
+    const f = fixture(); f.cells.set(p.toString(), name);
+    assert.equal(safeResourceStand(f.bot as unknown as Bot, p, () => false), false, name);
+  }
+  const solid = fixture(); solid.cells.set(p.toString(), 'short_grass');
+  const blockAt = solid.bot.blockAt; solid.bot.blockAt = q => { const b = blockAt(q); return b?.name === 'short_grass' ? { ...b, boundingBox: 'block' } : b; };
+  assert.equal(safeResourceStand(solid.bot as unknown as Bot, p, () => false), false, 'plant names cannot override actual collision');
+});
+
+test('collection crosses a grassy one-block slope to an actual exposed resource without digging the route vegetation', async () => {
+  const f = fixture(), source = new Vec3(8, 65, 0);
+  for (let x = -2; x <= 14; x++) for (let z = -5; z <= 5; z++) {
+    const y = x >= 4 ? 65 : 64;
+    if (y === 65) f.cells.set(new Vec3(x, 64, z).toString(), 'grass_block');
+    f.cells.set(new Vec3(x, y, z).toString(), 'short_grass');
+  }
+  f.add(source, 'stone');
+  for (const p of [source.offset(0, 1, 0), source.offset(0, -1, 0), source.offset(0, 0, 1), source.offset(0, 0, -1)]) f.cells.set(p.toString(), p.y === 64 ? 'grass_block' : 'short_grass');
+  await f.executor.ensureItem('cobblestone', 1, f.services);
+  assert.equal(f.stock.get('cobblestone'), 1); assert.deepEqual(f.dug, [source]);
+  assert.ok(f.moved.some(p => p.y === 65));
+  assert.equal(f.cells.get(new Vec3(3, 64, 0).toString()), 'short_grass');
+});
+
+test('full existing floors are walkable and sand requires observed stable layers beneath it', () => {
+  const p = new Vec3(8, 64, 0);
+  for (const name of ['cobblestone', 'oak_planks', 'polished_andesite']) {
+    const f = fixture(); f.cells.set(p.offset(0, -1, 0).toString(), name);
+    assert.equal(safeResourceStand(f.bot as unknown as Bot, p, () => false), true);
+    assert.equal(safeResourceStand(f.bot as unknown as Bot, p, q => q.y === 63 && q.x === p.x), false);
+  }
+  const sand = fixture(); sand.cells.set(p.offset(0, -1, 0).toString(), 'sand'); sand.cells.set(p.offset(0, -2, 0).toString(), 'stone');
+  assert.equal(safeResourceStand(sand.bot as unknown as Bot, p, () => false), true);
+  sand.cells.set(p.offset(0, -2, 0).toString(), 'air'); assert.equal(safeResourceStand(sand.bot as unknown as Bot, p, () => false), false);
+  sand.cells.set(p.offset(0, -2, 0).toString(), 'lava'); assert.equal(safeResourceStand(sand.bot as unknown as Bot, p, () => false), false);
+  sand.loaded = q => q.y !== 62; assert.equal(safeResourceStand(sand.bot as unknown as Bot, p, () => false), false);
+});
+
+test('real route clearance changes wake exhausted searches but vegetation movement and timestamps do not grant another budget', () => {
+  const f = fixture(), blocked = new Vec3(4, 64, 0);
+  f.cells.set(blocked.toString(), 'oak_leaves');
+  const recovery = new ResourceRecovery(f.bot as unknown as Bot, f.services, 'cobblestone', ['stone'], true, () => false);
+  recovery.sample(blocked); recovery.state.destinationsUsed = 5; recovery.wait('blocked canopy');
+  assert.equal(new ResourceRecovery(f.bot as unknown as Bot, f.services, 'cobblestone', ['stone'], true, () => false).state.status, 'exhausted');
+  f.cells.set(blocked.toString(), 'short_grass');
+  const changed = new ResourceRecovery(f.bot as unknown as Bot, f.services, 'cobblestone', ['stone'], true, () => false); assert.equal(changed.state.destinationsUsed, 0);
+  changed.state.destinationsUsed = 5; changed.wait('actual budget exhausted'); f.bot.entity.position.x = 1;
+  assert.equal(new ResourceRecovery(f.bot as unknown as Bot, f.services, 'cobblestone', ['stone'], true, () => false).state.destinationsUsed, 5);
 });
 
 test('critical health food recovery walks to observed ground and harvests a newly loaded crop without hunting', async () => {

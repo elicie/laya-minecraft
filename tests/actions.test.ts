@@ -34,7 +34,7 @@ function navigation(bot: object, sources: Vec3[] = []) {
 }
 
 function woodRecipeFixture(observed: string[], initial: Record<string, number> = {}) {
-  const woods = ['cherry', 'oak', 'birch'], names = [...woods.flatMap(wood => [`${wood}_log`, `${wood}_planks`]), 'stick', 'crafting_table', 'wooden_pickaxe'];
+  const woods = ['cherry', 'oak', 'birch'], names = [...woods.flatMap(wood => [`${wood}_log`, `${wood}_planks`]), 'stick', 'crafting_table', 'wooden_pickaxe', 'furnace', 'sand', 'glass', 'coal', 'charcoal'];
   const ids = Object.fromEntries(names.map((name, index) => [name, index + 1]));
   const stock = new Map(Object.entries(initial)), cells = new Map<string, string>(), locations: Vec3[] = [];
   const crafted: string[] = [], dug: string[] = [];
@@ -97,6 +97,42 @@ test('recipe selection uses inventory first and known preparation failures can c
   const blocked = woodRecipeFixture(['oak', 'birch']); blocked.blockedWood = 'oak';
   await blocked.executor.ensureItem('wooden_pickaxe', 1, blocked.services);
   assert.equal(blocked.stock.get('wooden_pickaxe'), 1); assert.ok(blocked.dug.every(name => name === 'birch_log'));
+});
+
+test('glass smelting uses actual stocked or naturally obtainable birch fuel without requiring oak', async () => {
+  for (const initialPlanks of [2, 0]) {
+    const f = woodRecipeFixture(initialPlanks ? [] : ['birch'], { sand: 2, furnace: 1, birch_planks: initialPlanks });
+    let output = 0, opened = 0, closed = 0;
+    Object.assign(f.bot, { async openFurnace(block: { name: string }) {
+      assert.equal(block.name, 'furnace'); opened++;
+      return { inputItem: () => null, outputItem: () => output ? { name: 'glass', count: output } : null,
+        async putInput(type: number, _metadata: unknown, count: number) { assert.equal(type, f.bot.registry.itemsByName.sand.id); assert.equal(count, 2); f.stock.set('sand', f.stock.get('sand')! - count); },
+        async putFuel(type: number, _metadata: unknown, count: number) { assert.equal(type, f.bot.registry.itemsByName.birch_planks.id); assert.equal(count, 2); assert.ok(f.stock.get('birch_planks')! >= count); f.stock.set('birch_planks', f.stock.get('birch_planks')! - count); output = 2; },
+        async takeOutput() { f.stock.set('glass', (f.stock.get('glass') ?? 0) + output); output = 0; },
+        async close() { closed++; },
+      };
+    } });
+    await f.executor.ensureItem('glass', 2, f.services);
+    assert.equal(f.stock.get('glass'), 2); assert.equal(opened, 1); assert.equal(closed, 1);
+    assert.ok(f.dug.every(name => name === 'birch_log')); assert.equal(f.stock.get('oak_log'), undefined);
+    assert.ok(f.services.observations.some(o => o.kind === 'inventory' && o.data.items.some(i => i.name === 'glass' && i.count === 2)));
+  }
+});
+
+test('crafting clears only the observed natural grass at its own utility cell and preserves protected vegetation', async () => {
+  const f = woodRecipeFixture([], { oak_planks: 16 });
+  const blockAt = f.bot.blockAt, dig = f.bot.dig;
+  f.bot.blockAt = p => {
+    const actual = blockAt(p);
+    if (actual.name === 'air' && p.y === 64 && !f.cells.has(p.toString())) return { ...actual, name: 'short_grass', boundingBox: 'empty' };
+    return actual;
+  };
+  f.bot.dig = async b => { if (b.name === 'short_grass') { f.dug.push(b.name); f.cells.set(b.position.toString(), 'air'); } else await dig(b); };
+  f.services.checkpoint.protectedPositions = [{ x: 2, y: 64, z: 0 }];
+  await f.executor.ensureItem('wooden_pickaxe', 1, f.services);
+  assert.equal(f.stock.get('wooden_pickaxe'), 1); assert.deepEqual(f.dug, ['short_grass']);
+  assert.equal(f.bot.blockAt(new Vec3(2, 64, 0)).name, 'short_grass');
+  assert.equal(f.bot.blockAt(new Vec3(-2, 64, 0)).name, 'crafting_table');
 });
 
 test('unavailable wood recipes watch all raw alternatives and never mine constructed planks or protected logs', async () => {

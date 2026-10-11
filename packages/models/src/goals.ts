@@ -42,7 +42,7 @@ function knownGoal(text: string, rules: Rules, catalog: readonly BlueprintDefini
   else if (/사냥/.test(text)) { kind = 'hunt'; params.targetName = /돼지/.test(text) ? 'pig' : /닭/.test(text) ? 'chicken' : /양/.test(text) ? 'sheep' : 'cow'; }
   else if (/좀비|해골|적.*처치|전투|싸워/.test(text)) { kind = 'fight'; params.targetName = /해골/.test(text) ? 'skeleton' : 'zombie'; }
   else if (/밭|농사|재배|수확/.test(text)) { kind = 'farm'; params.crop = /당근/.test(text) ? 'carrot' : /감자/.test(text) ? 'potato' : /비트/.test(text) ? 'beetroot' : 'wheat'; params.mode = /수확/.test(text) ? 'harvest' : 'setup'; params.plots = 8; }
-  else if (/(?:집|건물|창고|탑|다리|성)\s*.*(?:지어|짓|건설)/.test(text)) {
+  else if (/(?:집|건물|창고|탑|다리|성)\s*.*(?:지어|짓|건설|건축)/.test(text) || /(?:집|건물|창고|탑|다리|성)(?:을|를)?\s*(?:좀\s*)?(?:만들|세워)/.test(text)) {
     kind = 'build'; params.design = /성/.test(text) ? 'castle' : /창고/.test(text) ? 'warehouse' : /탑/.test(text) ? 'tower' : /다리/.test(text) ? 'bridge' : /넓은/.test(text) ? 'house' : 'cabin';
   }
   const item = aliases.find(([pattern]) => pattern.test(text))?.[1] ?? text.match(/\b[a-z]+(?:_[a-z]+)+\b/)?.[0];

@@ -246,7 +246,8 @@ test('build approaches loaded distant sites and returns after recursive material
   assert.equal((await executeVillageTask(task('build', blocks), f.service)).outcome, 'completed');
   assert.deepEqual(calls, ['approach', 'materials', 'approach', 'place']);
   const changed = fixture(); changed.set({ x: 5, y: 0, z: 0 }, 'dirt');
-  changed.service.ensureItem = async () => { changed.set({ x: 5, y: 0, z: 0 }, 'air'); };
+  const changedEnsure = changed.service.ensureItem;
+  changed.service.ensureItem = async (item, quantity) => { await changedEnsure(item, quantity); changed.set({ x: 5, y: 0, z: 0 }, 'air'); };
   const wait = await executeVillageTask(task('build', blocks), changed.service);
   assert.equal(wait.outcome, 'condition-wait'); assert.equal((wait.checkpoint.waitingFor as { causeCode: string }).causeCode, 'BUILD_SUPPORT');
   assert.match(wait.reason!, /5,0,0/); assert.deepEqual(changed.placed, []);

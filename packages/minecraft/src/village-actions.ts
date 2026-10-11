@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
 import { ExpectedBlockSchema, PositionSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, type ExpectedBlock, type JsonObject, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
-import { blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
+import { blueprint, materialRequirements, resolveBlueprint } from '../../contracts/src/blueprints';
 import { BUILD_MATERIALS } from '../../contracts/src/blueprint-catalog';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 import { findBuildSitePreparation, prepareBuildSite } from './terrain';
@@ -60,12 +60,100 @@ function buildWait(s: ActionServices, causeCode: string, message: string, positi
   throw new ConditionWait(`${message} (${unique.slice(0, 4).map(key).join(' / ')})`, s.checkpoint);
 }
 
-async function buildMaterial(s: ActionServices, item: string): Promise<void> {
-  try { await s.ensureItem(item, 1); }
+function materialBatch(s: ActionServices, item: string, blocks: ExpectedBlock[]): { minimum: number; remaining: number } {
+  const pending = blocks.filter(expected => {
+    const actual = at(s, expected.position);
+    return actual && actual.name !== expected.name;
+  });
+  const remaining = materialRequirements(pending)[item] ?? 1;
+  if (count(s, item) > 0) return { minimum: 1, remaining };
+  const stackSize = s.bot.registry?.itemsByName?.[item]?.stackSize;
+  if (typeof s.bot.inventory.emptySlotCount !== 'function' || !Number.isInteger(stackSize) || stackSize <= 0) return { minimum: 1, remaining };
+  const empty = s.bot.inventory.emptySlotCount();
+  if (!Number.isInteger(empty) || empty < 0) return { minimum: 1, remaining };
+  const partial = s.bot.inventory.items().filter(i => i.name === item).reduce((space, i) => space + Math.max(0, (i.stackSize ?? stackSize) - i.count), 0);
+  const capacity = empty * stackSize + partial;
+  return { minimum: Math.max(1, Math.min(16, stackSize, remaining, capacity)), remaining };
+}
+
+async function buildMaterial(s: ActionServices, item: string, minimum = 1, remaining = 1): Promise<void> {
+  const update = () => { s.checkpoint.buildMaterial = { item, minimum, remaining, current: count(s, item) }; };
+  const clearWait = () => {
+    for (const field of ['waitingFor', 'buildCause', 'missingResource', 'missingItem', 'minimum', 'resourceNames', 'resourcePositions', 'failedCause']) delete s.checkpoint[field];
+  };
+  update();
+  if (count(s, item) > 0) { clearWait(); return; }
+  try {
+    await s.ensureItem(item, minimum); s.check(); update();
+    if (count(s, item) < 1) throw new ConditionWait('설치할 재료를 실제 인벤토리에서 확인해야 합니다.', { missingItem: item, minimum });
+    clearWait();
+  }
   catch (error) {
-    if (error instanceof ConditionWait) throw preserveMaterialWait(s, item, error);
+    s.check(); update();
+    if (error instanceof ConditionWait) {
+      const missing = error.checkpoint.missingResource ?? error.checkpoint.missingItem;
+      if (error.checkpoint.minimum === undefined && (missing === undefined || missing === item)) error.checkpoint.minimum = minimum;
+      const wait = preserveMaterialWait(s, item, error);
+      if (minimum > 1 && count(s, item) > 0) {
+        clearWait(); update(); recordInventory(s);
+        s.progress('건축 재료', `${item} ${count(s, item)}/${minimum}개를 실제로 확보했습니다. 확인된 재료부터 설치합니다.`);
+        return;
+      }
+      throw wait;
+    }
     throw error;
   }
+}
+
+async function prepareSmallBuildMaterials(s: ActionServices, blocks: ExpectedBlock[], template?: string): Promise<boolean> {
+  if (!template || !['cabin', 'house', 'warehouse'].includes(template) || typeof s.bot.inventory.emptySlotCount !== 'function') return false;
+  const required = materialRequirements(blocks.filter(expected => at(s, expected.position)?.name !== expected.name));
+  const total = Object.values(required).reduce((sum, amount) => sum + amount, 0), empty = s.bot.inventory.emptySlotCount();
+  const items = s.bot.inventory.items();
+  let slots = 0;
+  for (const [item, minimum] of Object.entries(required)) {
+    const stackSize = s.bot.registry?.itemsByName?.[item]?.stackSize;
+    if (!Number.isInteger(stackSize) || stackSize <= 0) return false;
+    const partial = items.filter(i => i.name === item).reduce((space, i) => space + Math.max(0, (i.stackSize ?? stackSize) - i.count), 0);
+    slots += Math.ceil(Math.max(0, minimum - count(s, item) - partial) / stackSize);
+  }
+  // Leave room for the temporary logs, sand, fuel and tool used by public
+  // recursive acquisition. A large design keeps its bounded per-item batches.
+  if (total > 256 || !Number.isInteger(empty) || empty < slots + 4) return false;
+  const structural = (name: string) => name.endsWith('_planks') ? 2 : BUILD_SUPPORT.has(name) ? 1 : 0;
+  const entries = Object.entries(required).sort(([a], [b]) => structural(a) - structural(b));
+  const materials: JsonObject = {}, partialWaits: JsonObject[] = [];
+  const progress = () => {
+    for (const [item, minimum] of entries) materials[item] = { minimum, current: count(s, item) };
+    s.checkpoint.buildPreflight = { status: 'preparing', total, slots, materials, ...(partialWaits.length ? { partialWaits } : {}) };
+  };
+  for (const [item, minimum] of entries) {
+    s.check(); progress();
+    s.checkpoint.buildMaterial = { item, minimum, remaining: minimum, current: count(s, item) };
+    if (count(s, item) >= minimum) continue;
+    s.progress('건축 재료', `${item} ${count(s, item)}/${minimum}개를 지상에서 준비합니다.`);
+    try { await s.ensureItem(item, minimum); s.check(); }
+    catch (error) {
+      s.check(); progress();
+      if (!(error instanceof ConditionWait)) throw error;
+      const missing = error.checkpoint.missingResource ?? error.checkpoint.missingItem;
+      if (error.checkpoint.minimum === undefined && (missing === undefined || missing === item)) error.checkpoint.minimum = minimum;
+      const wait = preserveMaterialWait(s, item, error);
+      if (count(s, item) < 1) throw wait;
+      partialWaits.push({ item, minimum, current: count(s, item), reason: error.message, waitingFor: s.checkpoint.waitingFor! });
+      recordInventory(s); progress();
+      continue;
+    }
+    progress();
+    s.checkpoint.buildMaterial = { item, minimum, remaining: minimum, current: count(s, item) };
+    if (count(s, item) < minimum) throw preserveMaterialWait(s, item, new ConditionWait('건축 전에 남은 재료 수량을 실제 인벤토리에서 확인해야 합니다.', { missingItem: item, minimum }));
+  }
+  const complete = entries.every(([item, minimum]) => count(s, item) >= minimum);
+  if (!complete && !partialWaits.length) throw new ConditionWait('중간 제작에서 소비한 건축 재료를 다시 확인해야 합니다.', s.checkpoint);
+  s.checkpoint.buildPreflight = { status: complete ? 'ready' : 'partial', total, slots, materials, ...(partialWaits.length ? { partialWaits } : {}) };
+  delete s.checkpoint.waitingFor; delete s.checkpoint.buildCause;
+  recordInventory(s);
+  return true;
 }
 
 async function buildPlace(s: ActionServices, expected: ExpectedBlock, item: string, face?: Position): Promise<void> {
@@ -291,6 +379,13 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     throw error;
   }
   validateBuildSite(task, s, blocks, area, planned);
+  if (await prepareSmallBuildMaterials(s, blocks, resolved?.template)) {
+    // Material acquisition can move the bot far away. Start construction from
+    // the verified ground entrance, then recheck the entire protected site.
+    try { await s.near(offset(entrance, 0.5, 0, 0.5), resolved ? 1 : 3); }
+    catch (error) { s.check(); if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]); throw error; }
+    validateBuildSite(task, s, blocks, area, planned);
+  }
   const access = constructionAccess(s, blocks);
   const postponed = new Set(access?.columns.flat().map(block => key(block.position)) ?? []);
   const fixture = (name: string) => name.endsWith('_door') || name.endsWith('_bed') || ['chest', 'crafting_table', 'furnace', 'wall_torch', 'ladder'].includes(name);
@@ -310,7 +405,8 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       throw new ConditionWait('문 상단이 실제로 생성되지 않았습니다.', s.checkpoint);
     }
     const item = expected.name === 'wall_torch' ? 'torch' : expected.name;
-    await buildMaterial(s, item);
+    const batch = materialBatch(s, item, blocks);
+    await buildMaterial(s, item, batch.minimum, batch.remaining);
     try { await s.near(expected.position, 3); }
     catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [expected.position, ...SUPPORT_FACES.map(face => offset(expected.position, -face.x, -face.y, -face.z))]); throw error; }
     // Recursive gathering/crafting can leave this site or change nearby terrain.
@@ -355,7 +451,8 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     const stand = access.stands[i + 1] ?? access.exit;
     // Fill each column from the top while standing on the next lower step.
     for (const expected of pending) {
-      await buildMaterial(s, expected.name);
+      const batch = materialBatch(s, expected.name, blocks);
+      await buildMaterial(s, expected.name, batch.minimum, batch.remaining);
       validateBuildSite(task, s, blocks, area, planned);
       const support = at(s, offset(stand, 0, -1, 0));
       if (!support || !(BUILD_SUPPORT.has(support.name) || ['dirt', 'grass_block'].includes(support.name)) ||

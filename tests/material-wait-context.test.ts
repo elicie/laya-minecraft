@@ -30,6 +30,16 @@ test('material context replaces stale arbitrary wood, preserves nested budgets a
   const wrapped = preserveMaterialWait(f.services, 'stone_bricks', error); assert.equal(wrapped.checkpoint, f.services.checkpoint); assert.equal(wrapped.message, error.message); assertContext(wrapped.checkpoint);
 });
 
+test('construction wrapping preserves a bounded resource wait that must not retry on its own movement', () => {
+  const f = services(), wrapped = preserveMaterialWait(f.services, 'cobblestone', new ConditionWait('예산 대기', {
+    missingResource: 'cobblestone', minimum: 2, resourceNames: ['stone'], resourceRecovery: recovery,
+    waitingFor: { kind: 'inventory', causeCode: 'RESOURCE_MISSING', item: 'cobblestone', minimum: 2, watchPosition: false },
+  }));
+  const wait = BuildWaitingForSchema.parse(wrapped.checkpoint.waitingFor);
+  assert.equal(wait.kind, 'inventory'); assert.equal(wait.watchPosition, false);
+  assert.deepEqual(wrapped.checkpoint.resourceRecovery, { '$food': { destinationsUsed: 3 }, ...recovery });
+});
+
 test('the actual build executor returns recursive source positions and recovery budget without effects', async () => {
   const f = services(), task: TaskSpec = { id: 'build', goalId: 'goal', kind: 'build', source: 'user', params: {}, completion: { kind: 'blocks', blocks: [{ position: { x: 3, y: 64, z: 3 }, name: 'cobblestone' }] }, dependencies: [], reservationKeys: [] };
   const result = await executeVillageTask(task, f.services); assert.equal(result.outcome, 'condition-wait'); assertContext(result.checkpoint); assert.deepEqual(f.effects, []);

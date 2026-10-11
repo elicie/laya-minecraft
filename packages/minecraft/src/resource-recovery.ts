@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { goals } from 'mineflayer-pathfinder';
-import { PositionSchema, isBuildSiteGround, type JsonObject, type Position } from '../../contracts/src';
+import { BUILD_MATERIALS, PositionSchema, isBuildSiteGround, type JsonObject, type Position } from '../../contracts/src';
 import { ConditionWait, type ActionServices } from './services';
 import { observationBase, position, vector } from './observations';
 
@@ -11,11 +11,30 @@ const probe = z.object({ position: cell, name: z.string().min(1).max(100), state
 const stateSchema = z.object({ origin: cell, visited: z.array(cell).max(5), failed: z.array(probe.extend({ reason: z.string().max(500) })).max(64), probes: z.array(probe).max(64), sourceSnapshot: z.array(probe).max(64).default([]), sourceFingerprint: z.string().max(16000).default(''), destinationsUsed: z.number().int().min(0).max(5), approachesUsed: z.number().int().min(0).max(8), elapsedMs: z.number().min(0).max(100000000), status: z.enum(['searching', 'found', 'exhausted']), reason: z.string().max(500), approachBudgetRepairApplied: z.boolean().optional() });
 export type ResourceRecoveryState = z.infer<typeof stateSchema>;
 const air = new Set(['air', 'cave_air', 'void_air']);
+const vegetation = new Set(['short_grass', 'tall_grass', 'fern', 'large_fern']);
+const constructionGround = new Set<string>(BUILD_MATERIALS);
+const fallingGround = new Set(['sand', 'red_sand', 'gravel']);
 const danger = new Set(['water', 'lava', 'fire', 'soul_fire', 'magma_block', 'cactus', 'campfire', 'soul_campfire', 'powder_snow', 'sweet_berry_bush']);
 const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const keyOf = (p: Position) => `${p.x},${p.y},${p.z}`;
 const approachBudgetReason = '자원 접근 예산을 소진했습니다. 실제 자원이나 접근 지형의 변화를 기다립니다.';
 function resourceProperties(block: ReturnType<Bot['blockAt']>): string { if (!block || typeof block.getProperties !== 'function') return ''; const age = block.getProperties().age; return age === undefined ? '' : `age:${age}`; }
+
+/** Walking through natural grass does not require clearing or harvesting it. */
+export function resourceClearance(block: ReturnType<Bot['blockAt']>): boolean {
+  return !!block && block.boundingBox === 'empty' && (air.has(block.name) || vegetation.has(block.name));
+}
+
+function stableResourceGround(bot: Bot, p: Vec3): boolean {
+  // Walking across an existing full floor is safe; collecting it remains subject
+  // to the executor's separate natural-resource and protected-area checks.
+  for (let depth = 0; depth <= 4; depth++) {
+    const block = bot.blockAt(p.offset(0, -depth, 0));
+    if (!block || block.boundingBox !== 'block' || danger.has(block.name)) return false;
+    if (!fallingGround.has(block.name)) return isBuildSiteGround(block.name) || constructionGround.has(block.name);
+  }
+  return false;
+}
 
 // All route checks use public, loaded block observations. No digging or placing
 // is part of recovery; unknown terrain is never used as a destination.
@@ -23,11 +42,11 @@ export function safeResourceStand(bot: Bot, feet: Position, protectedPosition: (
   const p = vector(feet).floored();
   if ([p, p.offset(0, 1, 0), p.offset(0, -1, 0)].some(protectedPosition)) return false;
   const body = bot.blockAt(p), head = bot.blockAt(p.offset(0, 1, 0)), support = bot.blockAt(p.offset(0, -1, 0));
-  if (!body || !head || !support || !air.has(body.name) || !air.has(head.name) || body.boundingBox !== 'empty' || head.boundingBox !== 'empty' || support.boundingBox !== 'block' || !isBuildSiteGround(support.name)) return false;
+  if (!resourceClearance(body) || !resourceClearance(head) || !support || !stableResourceGround(bot, p.offset(0, -1, 0))) return false;
   for (const [dx, dz] of directions) {
     const adjacent = bot.blockAt(p.offset(dx, 0, dz)), under = bot.blockAt(p.offset(dx, -1, dz));
     const lower = under?.boundingBox === 'empty' ? bot.blockAt(p.offset(dx, -2, dz)) : null;
-    if (!adjacent || !under || danger.has(adjacent.name) || danger.has(under.name) || under.boundingBox !== 'block' && (!lower || lower.boundingBox !== 'block' || !isBuildSiteGround(lower.name))) return false;
+    if (!adjacent || !under || danger.has(adjacent.name) || danger.has(under.name) || under.boundingBox !== 'block' && (!lower || !stableResourceGround(bot, p.offset(dx, -2, dz)))) return false;
   }
   return true;
 }
@@ -104,7 +123,7 @@ export class ResourceRecovery {
     if (this.state.probes.some(p => {
       const current = this.bot.blockAt(vector(p.position)); if (!current) return false;
       if (this.names.includes(p.name) || this.names.includes(current.name)) return current.name !== p.name || resourceProperties(current) !== (p.state ?? '');
-      const safety = (name: string) => `${air.has(name)}:${danger.has(name)}:${isBuildSiteGround(name)}`;
+      const safety = (name: string) => `${air.has(name) || vegetation.has(name)}:${danger.has(name)}:${isBuildSiteGround(name) || constructionGround.has(name) || fallingGround.has(name)}`;
       return safety(current.name) !== safety(p.name);
     })) return true;
     return this.sourceFingerprint() !== this.state.sourceFingerprint;

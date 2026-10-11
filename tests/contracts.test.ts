@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildWaitingForSchema, CentralMessageSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema, RulesSchema, WorkerMessageSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, sameContainer } from '../packages/contracts/src';
+import { BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildWaitingForSchema, CentralMessageSchema, CompletionSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema, RulesSchema, WorkerMessageSchema, buildSiteCells, isBuildSiteAir, isBuildSiteGround, sameContainer } from '../packages/contracts/src';
 
 const base = { protocolVersion: 1, messageId: 'message-1', controllerEpoch: 'epoch-1', botId: 'bot-1', sessionId: 'session-1', sentAt: 1000 };
 const report = { ready: true, world: 'local:25566', dimension: 'overworld', health: 20, food: 20, inventory: [], action: 'idle', reason: 'ready', mode: 'idle', capabilities: ['collect'], rulesVersion: 1 };
+
+test('warehouse completion requires an identified container and the complete building placement', () => {
+  const container = { id: 'warehouse', position: { x: 1, y: 64, z: 2 }, world: 'local:25566', dimension: 'overworld' };
+  const condition = { kind: 'warehouse', container, blocks: [{ position: container.position, name: 'chest' }] };
+  assert.deepEqual(CompletionSchema.parse(condition), condition);
+  assert.equal(CompletionSchema.safeParse({ ...condition, blocks: [] }).success, false);
+  assert.equal(CompletionSchema.safeParse({ ...condition, container: undefined }).success, false);
+  assert.equal(CompletionSchema.safeParse({ ...condition, alreadyVerified: true }).success, false);
+});
 
 test('strict worker contracts reject unknown protocol, malformed payloads and missing attempt ownership', () => {
   assert.equal(WorkerMessageSchema.parse({ ...base, type: 'bot.ready', payload: report }).type, 'bot.ready');
