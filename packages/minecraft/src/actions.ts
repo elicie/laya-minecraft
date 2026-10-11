@@ -193,10 +193,7 @@ export class MineflayerExecutor {
   }
 
   async observeContainer(container: ContainerRef, s: ActionServices): Promise<ObservationInput> {
-    this.assertContainer(container);
-    await s.near(container.position, 2);
-    const block = this.bot.blockAt(vector(container.position));
-    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 공동 창고를 실제로 확인해야 합니다.');
+    const block = await this.approachContainer(container, s);
     const window = await this.bot.openContainer(block);
     try {
       const result: ObservationInput = { ...observationBase(this.options.world, this.options.dimension()), kind: 'container', data: { container, items: window.containerItems().map((i) => ({ name: i.name, count: i.count })) } };
@@ -241,13 +238,23 @@ export class MineflayerExecutor {
   private assertContainer(container: ContainerRef): void {
     if (container.world !== this.options.world || container.dimension !== this.options.dimension()) throw new ConditionWait('공동 창고의 서버와 차원이 현재 연결과 다릅니다.');
   }
+  private async approachContainer(container: ContainerRef, s: ActionServices): Promise<Block> {
+    this.assertContainer(container); s.check();
+    // A raised chest behind the warehouse wall has no reachable integer path
+    // node inside radius 2. Radius 3 includes the adjacent outside ground.
+    await s.near(container.position, 3); s.check();
+    const block = this.bot.blockAt(vector(container.position));
+    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 창고가 없거나 관측되지 않았습니다.');
+    const eyes = vector(this.bot.entity.position).offset(0, 1.62, 0);
+    const distance = eyes.distanceTo(vector(block.position).offset(0.5, 0.5, 0.5));
+    if (!Number.isFinite(distance) || distance > 4.5) throw new ConditionWait('창고를 열기 전에 실제 상호작용 거리 안의 안전한 위치로 접근해야 합니다.');
+    return block;
+  }
   private async transfer(container: ContainerRef, itemName: string, quantity: number, direction: 'store' | 'take', s: ActionServices): Promise<void> {
     this.assertContainer(container); s.check();
     const data = this.bot.registry.itemsByName[itemName];
     if (!data || !Number.isInteger(quantity) || quantity <= 0) throw new ConditionWait('이동할 아이템과 수량을 확인해야 합니다.');
-    await s.near(container.position, 2);
-    const block = this.bot.blockAt(vector(container.position));
-    if (!block || !['chest', 'trapped_chest', 'barrel'].includes(block.name)) throw new ConditionWait('지정한 창고가 없거나 관측되지 않았습니다.');
+    const block = await this.approachContainer(container, s);
     const window = await this.bot.openContainer(block);
     let started = false;
     try {
