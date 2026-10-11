@@ -331,7 +331,7 @@ export class FleetController {
   }
   cancelGoal(goalId: string, commandId?: string): Goal {
     const goal = this.goal(goalId);
-    if (goal.state === 'cancelled') { this.applied(commandId, { goalId }); return clone(goal); }
+    if (goal.state === 'cancelled' || goal.state === 'completed' && goal.input.mode === 'once') { this.applied(commandId, { goalId }); return clone(goal); }
     goal.state = 'cancelling'; goal.updatedAt = this.now();
     this.pending(commandId, 'goal-cancel', goalId);
     for (const task of this.currentTasks(goal)) {

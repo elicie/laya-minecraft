@@ -142,6 +142,32 @@ test('verified warehouse ownership survives the gameplay log retention period', 
   FleetCheckpointSchema.parse(f.core.checkpoint());
 });
 
+test('cancelling a completed one-shot warehouse is an applied no-op that preserves evidence and later collection protection', () => {
+  const f = fixture(), { goal, assignment: build } = f.build(), check = f.built(build); f.result(check, f.registration(check)); f.ready();
+  const before = f.core.getSnapshot(), completed = before.goals.find(value => value.id === goal.id)!;
+  const response = f.core.cancelGoal(goal.id, 'cancel-completed');
+  const after = f.core.getSnapshot();
+  assert.deepEqual(response, completed); assert.deepEqual(after.goals.find(value => value.id === goal.id), completed);
+  assert.deepEqual(after.tasks, before.tasks); assert.deepEqual(after.attempts, before.attempts); assert.deepEqual(after.rules, before.rules);
+  assert.ok(after.events.some(event => event.type === 'command.applied' && event.commandId === 'cancel-completed'));
+  f.receive('bot-0', 'world.observed', { observations: [f.obs('container', { container: after.rules.warehouse!, items: [] })] });
+  f.core.createGoal({ kind: 'collect', item: 'cobblestone', quantity: 1 });
+  const collect = f.latest(); assert.equal(collect.payload.task.kind, 'collect');
+  assert.ok((collect.payload.task.params.protectedPositions as Position[]).some(position => position.x === origin.x && position.y === origin.y && position.z === origin.z));
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
+test('cancelling an executing maintain goal still waits for safe cancellation and then becomes cancelled', () => {
+  const f = fixture(), goal = f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 32, mode: 'maintain' }), assignment = f.latest();
+  f.core.cancelGoal(goal.id, 'cancel-maintain');
+  assert.equal(f.core.getSnapshot().goals.find(value => value.id === goal.id)!.state, 'cancelling');
+  assert.ok(f.sent.some(message => message.type === 'task.cancel' && message.attemptId === assignment.attemptId));
+  assert.equal(f.core.getSnapshot().events.some(event => event.type === 'command.applied' && event.commandId === 'cancel-maintain'), false);
+  f.receive(assignment.botId, 'task.cancelled', { safeStopped: true, checkpoint: {}, observations: [], evidence: [] }, assignment);
+  const after = f.core.getSnapshot(); assert.equal(after.goals.find(value => value.id === goal.id)!.state, 'cancelled');
+  assert.ok(after.events.some(event => event.type === 'command.applied' && event.commandId === 'cancel-maintain'));
+});
+
 test('restored unplanned coordinate-free warehouse goals retain their identity and parameters while adopting nearby discovery', () => {
   const f = fixture(0), goal = f.core.createGoal({ kind: 'build', params: { design: 'warehouse', wood: 'birch', annotation: { request: 'original' } } });
   const saved = f.core.checkpoint(), legacy = saved.goals.find(value => value.id === goal.id)!;
