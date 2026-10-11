@@ -20,7 +20,7 @@ const materials: Record<string, string> = {
   cobbled_deepslate: "심층암 조약돌",
 };
 
-export function PreparationProgress({ task }: { task: Task }) {
+export function PreparationProgress({ task, label = "부지 정리 진행" }: { task: Task; label?: string }) {
   if (task.kind !== "build" || task.params.mode !== "prepare-site") return null;
   const value = task.checkpoint.preparationProgress;
   const progress =
@@ -65,7 +65,7 @@ export function PreparationProgress({ task }: { task: Task }) {
       `${materials[waiting.data.item] ?? waiting.data.item.replaceAll("_", " ")} ${waiting.data.minimum}개 보유 필요`,
     ]);
   return (
-    <section className="preparation-progress" aria-label="부지 정리 진행">
+    <section className="preparation-progress" aria-label={label}>
       {rows.length > 0 && (
         <dl>
           {rows.map(([name, value]) => (

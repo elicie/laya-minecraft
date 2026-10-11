@@ -43,6 +43,10 @@ export function taskActionLabel(
 ): string {
   if (task.kind === "build" && task.params.mode === "prepare-site")
     return "부지 정리";
+  if (task.kind === "build" && task.params.mode === "prepare-access")
+    return "복귀 경로 정리";
+  if (task.kind === "build" && task.params.mode === "register-warehouse")
+    return "상자 사용 확인 · 창고 연결";
   if (task.kind === "explore" && task.params.mode === "build-site")
     return "건설 부지 탐색";
   if (task.kind === "build") {

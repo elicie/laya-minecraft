@@ -304,6 +304,9 @@ test("death recovery shows confirmed partial items, unavailable support and the 
   await send();
   await expect(card).toContainText("회수 확인 종료");
   await expect(card).toContainText("현재 위치 안전 확인 대기");
+  await expect(detail.locator(".current-action")).toHaveText("안전 확인 대기");
+  await expect(detail).toContainText("현재 위치의 안전이 아직 확인되지 않아 일반 작업을 보류합니다.");
+  await expect(detail.locator(".safety-report")).toContainText(report.reason);
   await expect(detail).not.toContainText(task.reason!);
   hunter.recovery = { ...hunter.recovery, safe: true, updatedAt: now + 4 }; report.recovery = structuredClone(hunter.recovery);
   await send();
