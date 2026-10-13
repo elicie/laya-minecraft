@@ -161,3 +161,20 @@ test('a blocked warehouse with no natural food records exact access observations
   assert.ok(f.s.observations.some(o => o.kind === 'blocks' && o.data.blocks.some(b => b.name === 'chest')));
   assert.equal(f.opened, 0); assert.equal(f.withdrawn, 0); assert.deepEqual(f.dug, []); assert.equal(f.s.checkpoint.foodWarehouse, undefined);
 });
+
+test('fresh warehouse food can be taken after an exhausted natural-food search without renewing its search budget', async () => {
+  const f = fixture({ warehouse: true });
+  await assert.rejects(f.executor.ensureFood(f.s), ConditionWait);
+  assert.deepEqual(f.s.checkpoint.foodWarehouse, { container: f.container, items: [] });
+  const state = (f.s.checkpoint.resourceRecovery as Record<string, { destinationsUsed: number; elapsedMs: number; status: string; origin: unknown }>).$food;
+  state.destinationsUsed = 5; state.elapsedMs = 60000;
+  const before = JSON.stringify(state);
+  // This is a fresh public container observation when the worker wakes, not a
+  // new time/report ID or a grant of another natural-resource search budget.
+  f.stored.set('bread', 2);
+  await f.executor.ensureFood(f.s);
+  assert.equal(f.stock.get('bread'), 1); assert.equal(f.stored.get('bread'), 1); assert.equal(f.withdrawn, 1);
+  assert.equal(JSON.stringify(state), before);
+  assert.deepEqual(f.s.checkpoint.foodWarehouse, { container: f.container, items: [{ name: 'bread', count: 1 }] });
+  assert.equal(await f.executor.eat(f.s), true); assert.equal(f.bot.food, 20); assert.deepEqual(f.dug, []);
+});
