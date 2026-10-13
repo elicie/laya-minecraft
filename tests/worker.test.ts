@@ -59,7 +59,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
 }
 async function settle() { await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); }
 
-test('critical health waits for actual regeneration after a meal and resumes without requiring full health', async () => {
+test('critical health waits for actual full regeneration after a meal before resuming work', async () => {
   const f = fixture({ meal: true }); f.emitter.emit('spawn'); f.emitter.emit('health');
   try {
     f.bot.health = 5; f.bot.food = 17; f.worker.pollSafety();
@@ -68,10 +68,10 @@ test('critical health waits for actual regeneration after a meal and resumes wit
     const recovering = f.messages.filter(m => m.type === 'bot.status').at(-1);
     assert.ok(recovering?.type === 'bot.status'); assert.equal(recovering.payload.mode, 'survival'); assert.equal(recovering.payload.action, '회복 대기');
     await f.worker.receive(f.assign('critical')); assert.equal(f.executions, 0);
-    f.bot.health = f.launch.rules.combat.retreatHealth + 1; f.emitter.emit('health');
+    f.bot.health = 20; f.emitter.emit('health');
     await new Promise(resolve => setTimeout(resolve, 1050));
     await f.worker.receive(f.assign('recovered')); assert.equal(f.executions, 1);
-    assert.ok(f.bot.health < 20);
+    assert.equal(f.bot.health, 20);
   } finally { await f.worker.shutdown(); }
 });
 

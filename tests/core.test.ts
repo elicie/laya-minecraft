@@ -392,7 +392,7 @@ for (const vital of [{ health: 5.333, food: 17, retreatHealth: 6 }, { health: 6,
   const goal = f.core.createGoal({ kind: 'build', params: { requiredBlocks: [block] } }); const taskId = f.core.getSnapshot().tasks[0].id;
   for (let i = 0; i < 7; i++) { f.advance(40000); f.receive('bot-0', 'bot.status', blockedReport); f.core.tick(); }
   assert.equal(f.assignments().length, 0); assert.equal(f.core.getSnapshot().tasks[0].retryCount, 0); assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'queued');
-  f.receive('bot-0', 'bot.status', { ...blockedReport, health: vital.retreatHealth + 0.1, food: 7 });
+  f.receive('bot-0', 'bot.status', { ...blockedReport, health: 20, food: 18 });
   assert.equal(f.assignments().length, 1); const resumed = f.latest(); assert.equal(resumed.taskId, taskId); assert.equal(f.core.getSnapshot().tasks[0].retryCount, 0);
   f.result(resumed, { outcome: 'completed', observations: [f.obs('blocks', { blocks: [block] })] });
   assert.equal(f.core.getSnapshot().goals.find(g => g.id === goal.id)?.state, 'completed');
@@ -403,7 +403,7 @@ test('an interrupted construction checkpoint waits for healthy idle status befor
   f.receive('bot-0', 'task.interrupted', { safeStopped: true, checkpoint: { build: { placed: 3 } }, observations: [], reason: '기본 생존 유지' }, task);
   f.receive('bot-0', 'bot.status', { ...f.core.getSnapshot().agents[0].session!.report!, health: 5.333, food: 17, mode: 'idle' });
   f.advance(6000); f.core.tick(); assert.equal(f.assignments().length, 1); assert.equal(f.core.getSnapshot().tasks[0].retryCount, 0);
-  f.receive('bot-0', 'bot.status', { ...f.core.getSnapshot().agents[0].session!.report!, health: 7, food: 17, mode: 'idle' });
+  f.receive('bot-0', 'bot.status', { ...f.core.getSnapshot().agents[0].session!.report!, health: 20, food: 18, mode: 'idle' });
   const resumed = f.latest(); assert.equal(f.assignments().length, 2); assert.equal(resumed.taskId, task.taskId); assert.deepEqual(resumed.payload.checkpoint.build, { placed: 3 }); assert.equal(f.core.getSnapshot().tasks[0].retryCount, 0);
 });
 
@@ -414,7 +414,7 @@ test('critical survival status does not interrupt autonomy to make room for reje
   f.receive('bot-0', 'bot.status', report);
   f.core.createGoal({ kind: 'build', params: { requiredBlocks: [{ position: { x: 8, y: 64, z: 8 }, name: 'cobblestone' }] } });
   assert.equal(f.sent.filter(m => m.type === 'task.cancel').length, 0);
-  f.receive('bot-0', 'bot.status', { ...report, health: 7 });
+  f.receive('bot-0', 'bot.status', { ...report, health: 20, food: 18 });
   assert.equal(f.sent.filter(m => m.type === 'task.cancel').length, 1, 'healthy recovery restores ordinary user priority and safe cancellation');
   f.receive('bot-0', 'task.cancelled', { safeStopped: true, observations: [] }, autonomous);
   assert.equal(f.latest().payload.task.kind, 'build');
