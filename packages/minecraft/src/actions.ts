@@ -15,7 +15,7 @@ export const EXECUTABLE_ACTIONS: ActionKind[] = ['collect', 'store', 'take', 'cr
 const unsafeBlocks = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'cactus', 'campfire', 'soul_campfire']);
 const foodNames = new Set(['carrot', 'potato', 'beetroot', 'bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken', 'cooked_mutton', 'cooked_rabbit', 'baked_potato', 'apple', 'melon_slice', 'sweet_berries', 'beef', 'porkchop', 'mutton', 'rabbit']);
 const smeltInputs: Record<string, string> = { iron_ingot: 'raw_iron', gold_ingot: 'raw_gold', copper_ingot: 'raw_copper', glass: 'sand', stone: 'cobblestone', smooth_stone: 'stone', charcoal: 'oak_log', cooked_beef: 'beef', cooked_porkchop: 'porkchop', cooked_chicken: 'chicken', cooked_mutton: 'mutton', cooked_rabbit: 'rabbit', baked_potato: 'potato' };
-const dropBlocks: Record<string, string[]> = { cobblestone: ['stone', 'cobblestone'], raw_iron: ['iron_ore', 'deepslate_iron_ore'], raw_gold: ['gold_ore', 'deepslate_gold_ore'], raw_copper: ['copper_ore', 'deepslate_copper_ore'], coal: ['coal_ore', 'deepslate_coal_ore'], diamond: ['diamond_ore', 'deepslate_diamond_ore'], wheat_seeds: ['short_grass', 'tall_grass'], dirt: ['dirt', 'grass_block'], wheat: ['wheat'], carrot: ['carrots'], potato: ['potatoes'], beetroot: ['beetroots'] };
+const dropBlocks: Record<string, string[]> = { cobblestone: ['stone', 'cobblestone'], raw_iron: ['iron_ore', 'deepslate_iron_ore'], raw_gold: ['gold_ore', 'deepslate_gold_ore'], raw_copper: ['copper_ore', 'deepslate_copper_ore'], coal: ['coal_ore', 'deepslate_coal_ore'], diamond: ['diamond_ore', 'deepslate_diamond_ore'], wheat_seeds: ['short_grass', 'tall_grass'], dirt: ['dirt', 'grass_block'], wheat: ['wheat'], carrot: ['carrots'], potato: ['potatoes'], beetroot: ['beetroots'], melon_slice: ['melon'] };
 const huntDrops: Record<string, string> = { beef: 'cow', leather: 'cow', porkchop: 'pig', chicken: 'chicken', mutton: 'sheep', white_wool: 'sheep', rabbit: 'rabbit' };
 type CraftRecipe = ReturnType<Bot['recipesAll']>[number];
 interface AcquisitionEstimate {
@@ -658,6 +658,21 @@ export class MineflayerExecutor {
     } finally { await furnace.close(); }
   }
 
+  private async warehouseFood(s: ActionServices): Promise<boolean> {
+    const container = s.rules.warehouse;
+    if (!container || !this.options.config.allowedActions.includes('take') || container.world !== this.options.world || container.dimension !== this.options.dimension()) return false;
+    const observation = await this.observeContainer(container, s);
+    if (observation.kind !== 'container') return false;
+    s.checkpoint.foodWarehouse = { container, items: observation.data.items.map(item => ({ name: item.name, count: item.count })) };
+    const food = observation.data.items.find(item => foodNames.has(item.name) && item.count > 0 && this.bot.registry.itemsByName[item.name]);
+    if (!food) return false;
+    s.progress('식량 확보', `공동 창고에서 실제 ${food.name} 1개를 가져옵니다.`);
+    await this.transfer(container, food.name, 1, 'take', s);
+    const after = [...s.observations].reverse().find(o => o.kind === 'container' && o.data.container.id === container.id);
+    if (after?.kind === 'container') s.checkpoint.foodWarehouse = { container, items: after.data.items.map(item => ({ name: item.name, count: item.count })) };
+    return this.count(food.name) > 0;
+  }
+
   async ensureFood(s: ActionServices): Promise<void> {
     s.check();
     if (this.bot.inventory.items().some(i => foodNames.has(i.name))) return;
@@ -665,6 +680,17 @@ export class MineflayerExecutor {
     s.checkpoint.resourceRecoveryScope = '$food';
     let waiting: ConditionWait | undefined;
     try {
+      const warehouseStarted = Date.now();
+      try { if (await this.warehouseFood(s)) return; }
+      catch (error) {
+        s.check(); if (!(error instanceof ConditionWait)) throw error;
+        const container = s.rules.warehouse, feet = vector(this.bot.entity.position).floored();
+        const positions = [position(feet), position(feet.offset(0, 1, 0)), position(feet.offset(0, -1, 0)), ...(container ? [container.position] : [])];
+        const blocks = positions.flatMap(p => { const actual = this.bot.blockAt(vector(p)); return actual ? [{ position: p, name: actual.name }] : []; });
+        s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks } });
+        waiting = new ConditionWait(error.message, { ...error.checkpoint, resourcePositions: positions });
+      }
+      const warehouseElapsed = Math.max(0, Date.now() - warehouseStarted);
       for (let round = 0; round <= 5; round++) {
         s.check();
         const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
@@ -677,7 +703,9 @@ export class MineflayerExecutor {
         }).map(item => ({ item, cost: this.acquisitionCost(item, 1, new Set(), s, evaluation) }))
           .filter(candidate => Number.isFinite(candidate.cost)).sort((a, b) => a.cost - b.cost);
         const recovery = this.resourceRecovery('$food', [...evaluation.resourceNames].slice(0, 100), s);
+        if (round === 0) recovery.state.elapsedMs = Math.min(80000, recovery.state.elapsedMs + warehouseElapsed);
         for (const { item } of candidates.slice(0, 5)) {
+          if (recovery.state.elapsedMs >= 60000) break;
           const started = Date.now();
           try { await this.ensureItem(item, 1, s); if (this.count(item) > 0) { recovery.progress(); return; } }
           catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; waiting = error; }
