@@ -5,8 +5,8 @@ import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import {
-  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PROTOCOL_VERSION,
-  type BotReport, type BuildWaitingFor, type CentralMessage, type ItemStack, type JsonObject, type Position, type RecoveryState, type ResultPayload, type WorkerLaunch, type WorkerMessage,
+  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PROTOCOL_VERSION, survivalRecoveryNeeded,
+  type BotReport, type BuildWaitingFor, type CentralMessage, type ItemStack, type JsonObject, type Position, type RecoveryState, type ResultPayload, type SurvivalRecovery, type WorkerLaunch, type WorkerMessage,
 } from '../../contracts/src';
 import { MineflayerExecutor, EXECUTABLE_ACTIONS, type ExecutorOptions } from './actions';
 import { executeVillageTask } from './village-actions';
@@ -62,6 +62,7 @@ export class MinecraftWorker {
   private readonly buildWatches = new Map<string, { attemptId: string; condition: BuildWaitingFor }>();
   private readonly foodCheckpoint: JsonObject = {};
   private readonly foodKnowledge: FoodRecoveryKnowledge = { blocks: new Map() };
+  private survivalRecovery?: SurvivalRecovery;
   private foodWait?: { fingerprint: string; reason: string };
   private pendingRules?: Extract<CentralMessage, { type: 'rules.update' }>;
   private viewer?: Awaited<ReturnType<typeof createBotViewer>>;
@@ -77,6 +78,13 @@ export class MinecraftWorker {
 
   constructor(readonly launch: WorkerLaunch, readonly bot: Bot, private readonly transport: (message: WorkerMessage) => void, private readonly dependencies: WorkerDependencies = {}) {
     if (launch.restoreRecovery) { this.recovery = structuredClone(launch.restoreRecovery); this.recovery.safe = false; copyBuildProtection(this.recovery.checkpoint, this.foodCheckpoint); }
+    if (launch.restoreSurvivalRecovery) {
+      this.survivalRecovery = structuredClone(launch.restoreSurvivalRecovery);
+      Object.assign(this.foodCheckpoint, this.survivalRecovery.checkpoint);
+      this.foodWait = this.survivalRecovery.wait && structuredClone(this.survivalRecovery.wait);
+      this.foodKnowledge.origin = this.survivalRecovery.knowledge?.origin && structuredClone(this.survivalRecovery.knowledge.origin);
+      for (const block of this.survivalRecovery.knowledge?.blocks ?? []) this.foodKnowledge.blocks.set(`${block.position.x},${block.position.y},${block.position.z}`, structuredClone(block));
+    }
     this.executor = (dependencies.executorFactory ?? ((bot, options) => new MineflayerExecutor(bot, options)))(bot, {
       config: launch.config, rules: launch.rules, world: `${launch.config.connection.host}:${launch.config.connection.port}`,
       dimension: () => String(bot.game?.dimension ?? launch.rules.dimension), villageTask: executeVillageTask,
@@ -140,6 +148,7 @@ export class MinecraftWorker {
     const deathPosition = this.bot.entity?.position ? position(this.bot.entity.position) : this.lastLivePosition;
     this.dead = true; this.life++; this.ready = false; this.spawnPending = false; this.settlingLife = true;
     this.healthReceived = false; this.emergencyPending = false; this.combatWait = undefined;
+    this.survivalRecovery = undefined;
     this.lastHitAt = 0; this.hitSource = undefined; this.recoverySupport = undefined;
     this.lastRecoveryAttemptAt = 0;
     for (const field of ['resourceRecovery', 'resourceNames', 'resourcePositions', 'missingResource', 'missingFood', 'foodCause', 'failedCause']) delete this.foodCheckpoint[field];
@@ -196,6 +205,7 @@ export class MinecraftWorker {
   }
   private report(): BotReport {
     this.rememberLive();
+    const survival = this.ready && this.survivalUrgent();
     const config = this.launch.config;
     const view = this.ready && !this.stopping && this.bot.inventory ? inventoryView(this.bot) : undefined;
     return {
@@ -206,9 +216,10 @@ export class MinecraftWorker {
       inventory: this.ready && this.bot.inventory ? inventory(this.bot) : [], action: this.action, reason: this.reason,
       ...(view ? { inventoryView: view } : {}),
       ...(this.recovery ? { recovery: structuredClone(this.recovery) } : {}),
-      // Noncritical local food work yields to a central assignment. Actual
-      // recovery action/reason still describes the work until safely stopped.
-      mode: this.stopping ? 'stopping' : this.emergencyActive() ? 'emergency' : this.ready && this.survivalUrgent() ? 'survival' : this.recoveryPending() ? 'recovering' : !config.enabled ? 'paused' : this.mode === 'survival' ? 'idle' : this.mode,
+      ...(this.survivalRecovery ? { survivalRecovery: this.survivalRecoverySnapshot() } : {}),
+      // A healthy body's moderate food search yields to central work. A health
+      // recovery episode keeps priority through both progress and food waits.
+      mode: this.stopping ? 'stopping' : this.emergencyActive() ? 'emergency' : survival ? 'survival' : this.recoveryPending() ? 'recovering' : !config.enabled ? 'paused' : this.mode === 'survival' ? 'idle' : this.mode,
       capabilities: EXECUTABLE_ACTIONS.filter((action) => config.allowedActions.includes(action)),
       ...(this.active ? { currentAttemptId: this.active.message.attemptId } : {}), rulesVersion: this.launch.rules.version, viewerReady: !!this.viewer,
     };
@@ -238,6 +249,10 @@ export class MinecraftWorker {
       this.recovery!.safe = false; this.recovery!.updatedAt = this.now();
       this.action = '사망 후 복구'; this.reason = '실제 부활을 확인했습니다. 안전한 회수와 남은 작업을 확인합니다.'; this.mode = 'recovering';
     } else { this.action = this.launch.config.role === 'guard' ? '주변 경계' : '대기'; this.reason = '실제 월드 관측과 중앙 배정을 기다립니다.'; this.mode = 'idle'; }
+    if (this.survivalUrgent()) {
+      this.mode = 'survival'; this.action = this.bot.food < 18 ? '식량 대기' : '회복 대기';
+      this.reason = this.foodWait?.reason ?? '서버의 실제 체력 20과 허기 18 이상을 확인한 뒤 보존한 작업을 재개합니다.';
+    }
     this.message('bot.ready', this.report());
     this.publishRecovery();
     this.message('rules.applied', { version: this.launch.rules.version });
@@ -327,6 +342,7 @@ export class MinecraftWorker {
   private async assign(message: Assignment): Promise<void> {
     if (this.completedAttempts.has(message.attemptId) || this.active?.message.attemptId === message.attemptId) return;
     if (!this.ready || this.stopping || this.settlingLife || !this.centralConnected || !this.launch.config.enabled || this.active || this.emergencyActive() || this.survivalUrgent() || this.recoveryPending()) {
+      if (this.ready && this.survivalUrgent()) this.message('bot.status', this.report());
       this.taskMessage(message, 'task.rejected', { reason: '현재 상태에서는 일반 작업을 시작할 수 없습니다.', retryable: true }); return;
     }
     if (!this.launch.config.allowedActions.includes(message.payload.task.kind) || !EXECUTABLE_ACTIONS.includes(message.payload.task.kind)) {
@@ -336,6 +352,7 @@ export class MinecraftWorker {
     await this.stopLocal();
     if (this.pendingRules) this.applyRules(this.pendingRules);
     if (!this.ready || this.stopping || this.settlingLife || !this.centralConnected || !this.launch.config.enabled || this.emergencyActive() || this.survivalUrgent() || this.recoveryPending() || message.payload.rulesVersion !== this.launch.rules.version) {
+      if (this.ready && this.survivalUrgent()) this.message('bot.status', this.report());
       this.taskMessage(message, 'task.rejected', { reason: '작업 준비 중 월드 상태나 규칙이 바뀌었습니다.', retryable: true }); return;
     }
     const controller = new AbortController(), services = this.executor.services(controller.signal, structuredClone(message.payload.checkpoint));
@@ -388,7 +405,18 @@ export class MinecraftWorker {
   }
   private async stopLocal(): Promise<void> { const local = this.local; if (!local) return; local.controller.abort(); this.executor.stopControls(); await local.promise; }
   private emergencyActive(): boolean { return this.emergencyPending || this.local?.mode === 'emergency' || !!this.combatWait; }
-  private survivalUrgent(): boolean { return this.bot.food <= 6 || this.bot.health <= this.launch.rules.combat.retreatHealth; }
+  private survivalUrgent(): boolean {
+    if (this.ready && this.healthReceived && this.bot.health > 0) {
+      if (this.bot.health >= 20 && this.bot.food >= 18) this.survivalRecovery = undefined;
+      else if (!this.survivalRecovery && survivalRecoveryNeeded(this.bot.health, this.bot.food, this.launch.rules.combat)) this.survivalRecovery = { startedAt: this.now(), targetHealth: 20, checkpoint: {} };
+    }
+    return !!this.survivalRecovery || survivalRecoveryNeeded(this.bot.health, this.bot.food, this.launch.rules.combat);
+  }
+  private survivalRecoverySnapshot(): SurvivalRecovery {
+    return { startedAt: this.survivalRecovery!.startedAt, targetHealth: 20, checkpoint: structuredClone(this.foodCheckpoint),
+      ...(this.foodWait ? { wait: structuredClone(this.foodWait) } : {}),
+      knowledge: { ...(this.foodKnowledge.origin ? { origin: { ...this.foodKnowledge.origin } } : {}), blocks: [...this.foodKnowledge.blocks.values()].map(block => structuredClone(block)) } };
+  }
   private startLocal(action: (s: ActionServices) => Promise<void>, mode: BotReport['mode'], checkpoint: JsonObject = {}, timeoutMs?: number): void {
     if (this.local || this.stopping || !this.ready || this.settlingLife) return;
     const controller = new AbortController(); this.mode = mode;
@@ -495,10 +523,10 @@ export class MinecraftWorker {
       this.startLocal(async (s) => {
         if (urgentSurvival) await this.cancelActive('기본 생존 상태를 회복하기 위해 진행을 보존합니다.', 'task.interrupted');
         this.mode = 'survival';
-        while (this.bot.food < 18 || this.bot.health <= this.launch.rules.combat.retreatHealth) {
+        while (this.bot.food < 18 || this.survivalUrgent()) {
           s.check();
           if (this.bot.food >= 18) {
-            this.action = '회복 대기'; this.reason = '허기가 충분하므로 서버에서 실제 체력이 회복되는지 확인합니다.';
+            this.action = '회복 대기'; this.reason = '허기가 충분하므로 서버에서 체력이 20까지 실제로 회복되는지 확인합니다.';
             this.message('bot.status', this.report()); await s.pause(1000); continue;
           }
           this.action = '식량 확보'; this.reason = '기본 생존에 필요한 식량을 확보합니다.';
@@ -515,7 +543,11 @@ export class MinecraftWorker {
     const warehouse = this.launch.rules.warehouse;
     if (this.centralConnected && warehouse && Date.now() - this.lastWarehouseAt > 10000) {
       this.lastWarehouseAt = Date.now();
-      this.startLocal(async (s) => { await this.executor.observeContainer(warehouse, s); this.message('world.observed', { observations: s.observations }); }, 'idle');
+      this.startLocal(async (s) => {
+        const observation = await this.executor.observeContainer(warehouse, s);
+        if (observation.kind === 'container') this.foodCheckpoint.foodWarehouse = { container: { ...observation.data.container, position: { ...observation.data.container.position } }, items: observation.data.items.map(item => ({ ...item })) };
+        this.message('world.observed', { observations: s.observations });
+      }, 'idle');
     }
   }
   centralDisconnected(): void {

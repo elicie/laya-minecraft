@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BuildAccessPreparationSchema, accessPreparationFinalBlocks, validateBuildAccessPreparation, BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, ContainerRefSchema, DeathRecordSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
-  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, validateBuildSitePreparation,
+  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
   type DeathRecord, type RecoveryState, type BlueprintDefinition, type BlueprintInput, type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type GoalDefinition, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
@@ -62,6 +62,9 @@ export class FleetController {
     this.state.observations = [];
     this.messageIds = new Set(this.state.processedMessageIds ?? []);
     for (const agent of this.state.agents) {
+      const report = agent.session?.report;
+      if (!agent.survivalRecovery && report?.survivalRecovery) agent.survivalRecovery = clone(report.survivalRecovery);
+      if (!agent.survivalRecovery && report?.ready && survivalRecoveryNeeded(report.health, report.food, this.state.rules.combat)) agent.survivalRecovery = { startedAt: agent.session!.lastReportAt, targetHealth: 20, checkpoint: {} };
       if (agent.session && agent.session.state !== 'stopped') {
         agent.session.state = 'abnormal';
         agent.session.report = undefined;
@@ -389,6 +392,7 @@ export class FleetController {
     if (death.occurredAt > this.now() + 1000 || agent.deaths?.some(d => d.deathId === death.deathId)) return;
     // Old deaths may be replayed after IPC restoration, but cannot supersede a later death.
     if (agent.recovery && death.occurredAt < agent.recovery.occurredAt) return;
+    agent.survivalRecovery = undefined;
     agent.deaths = [...(agent.deaths ?? []), clone(death)].slice(-20);
     agent.recovery = { ...clone(death), phase: 'waiting-respawn', reason: '사망을 확인했습니다. 재생성과 안전한 물품 복구를 기다립니다.', attemptCount: 0, progress: { recoveredCount: 0, remainingCount: death.priorInventory.reduce((n, item) => n + item.count, 0) }, safe: false, updatedAt: death.occurredAt, checkpoint: {} };
     if (agent.session?.report) { agent.session.report.ready = false; agent.session.report.health = 0; agent.session.report.mode = 'recovering'; }
@@ -420,7 +424,7 @@ export class FleetController {
     const config = agent.desiredConfig ?? agent.config;
     // A busy helper can have queued rules. Select it for a safe stop first;
     // candidateTasks still requires the latest rules acknowledgement to assign.
-    return agent.id !== requester.id && agent.config.enabled && config.enabled && !['removed', 'removing', 'paused'].includes(agent.status) && session?.state === 'ready' && !!report?.ready && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) && report.health > this.state.rules.combat.supportHealth && report.food > 6 && report.world === requester.session?.report?.world && report.dimension === requester.session?.report?.dimension && config.allowedActions.includes('fight') && report.capabilities.includes('fight') && !!report.position && distance(report.position, position) <= 32 && (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && !this.state.tasks.some(t => t.attemptId === session.activeAttemptId && typeof t.params.supportRequestId === 'string');
+    return agent.id !== requester.id && agent.config.enabled && config.enabled && !['removed', 'removing', 'paused'].includes(agent.status) && session?.state === 'ready' && !!report?.ready && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) && !this.survivalBlocked(agent) && report.health > this.state.rules.combat.supportHealth && report.food > 6 && report.world === requester.session?.report?.world && report.dimension === requester.session?.report?.dimension && config.allowedActions.includes('fight') && report.capabilities.includes('fight') && !!report.position && distance(report.position, position) <= 32 && (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && !this.state.tasks.some(t => t.attemptId === session.activeAttemptId && typeof t.params.supportRequestId === 'string');
   }
   private supportUnavailable(agent: Agent, key: string, reason: string): void {
     if (this.state.events.some(e => e.type === 'support.unavailable' && e.botId === agent.id && e.data?.key === key && this.now() - e.time < 15000)) return;
@@ -484,6 +488,9 @@ export class FleetController {
     switch (message.type) {
       case 'bot.ready': case 'bot.status': {
         session.lastReportAt = this.now(); session.report = clone(message.payload);
+        if (message.payload.survivalRecovery && message.payload.survivalRecovery.startedAt <= this.now() + 1000) agent.survivalRecovery = clone(message.payload.survivalRecovery);
+        else if (message.payload.ready && message.payload.health >= 20 && message.payload.food >= 18) agent.survivalRecovery = undefined;
+        else if (!agent.survivalRecovery && message.payload.ready && survivalRecoveryNeeded(message.payload.health, message.payload.food, this.state.rules.combat)) agent.survivalRecovery = { startedAt: this.now(), targetHealth: 20, checkpoint: {} };
         if (message.payload.recovery) this.recordRecovery(agent, message.payload.recovery);
         if (message.payload.ready) session.state = 'ready';
         if (agent.status !== 'removing') agent.status = (agent.desiredConfig ?? agent.config).enabled ? message.payload.ready ? 'ready' : 'connecting' : 'paused';
@@ -531,7 +538,18 @@ export class FleetController {
         if (attempt.state === 'cancelling') return;
         this.observe(agent, message.payload.observations, attempt.id); task.progress = message.payload.progress ?? task.progress; task.checkpoint = clone(message.payload.checkpoint); task.reason = message.payload.reason;
         this.changed('task.progress', task.reason, { taskId: task.id, botId: agent.id }, false); return;
-      case 'task.rejected': this.finishResult(agent, task, attempt, { outcome: 'failed', observations: [], evidence: [], checkpoint: task.checkpoint, error: { code: 'TASK_REJECTED', message: message.payload.reason, retryable: message.payload.retryable, effectsKnown: true } }); return;
+      case 'task.rejected':
+        // Rejection precedes acceptance/effects. A recovery transition between
+        // scheduling and receipt preserves work instead of spending retries.
+        if (message.payload.retryable && attempt.state === 'assigned' && this.survivalBlocked(agent)) {
+          attempt.state = 'interrupted'; attempt.finishedAt = this.now(); this.release(attempt.id); session.activeAttemptId = undefined;
+          task.state = this.goal(task.goalId).state === 'cancelling' || terminalGoals.has(this.goal(task.goalId).state) ? 'cancelled' : 'interrupted';
+          task.resumeCount++; task.updatedAt = this.now(); task.reason = '체력·허기를 실제로 회복한 뒤 보존한 작업을 재개합니다.';
+          this.changed('task.recovery-wait', task.reason, { taskId: task.id, attemptId: attempt.id, botId: agent.id });
+          if (agent.status === 'removing') this.send(agent, 'bot.shutdown', { reason: '회복 거절 후 봇 제거' }); else this.applyAgentRules(agent);
+          this.finishGoalCancellation(this.goal(task.goalId)); return;
+        }
+        this.finishResult(agent, task, attempt, { outcome: 'failed', observations: [], evidence: [], checkpoint: task.checkpoint, error: { code: 'TASK_REJECTED', message: message.payload.reason, retryable: message.payload.retryable, effectsKnown: true } }); return;
       case 'task.result': this.finishResult(agent, task, attempt, message.payload); return;
       case 'task.cancelled': case 'task.interrupted': {
         this.observe(agent, message.payload.observations, attempt.id);
@@ -858,7 +876,7 @@ export class FleetController {
   private inventoryStock(goal: Goal): number | undefined { const proof = this.inventoryProof(goal); return proof.length ? proof.reduce((count, row) => count + row.count, 0) : undefined; }
   private inventoryCollectors(goal: Goal): Agent[] {
     const known = new Set(this.inventoryProof(goal).map(p => p.botId));
-    return this.state.agents.filter(agent => known.has(agent.id) && agent.config.allowedActions.includes(goal.input.kind) && agent.session!.report!.capabilities.includes(goal.input.kind) && agent.session!.rulesVersion === this.state.rules.version && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session!.report!.mode) && agent.session!.report!.health > this.state.rules.combat.retreatHealth && agent.session!.report!.food > 6 && inventoryCapacity(agent, goal.input.item!) > 0);
+    return this.state.agents.filter(agent => known.has(agent.id) && agent.config.allowedActions.includes(goal.input.kind) && agent.session!.report!.capabilities.includes(goal.input.kind) && agent.session!.rulesVersion === this.state.rules.version && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session!.report!.mode) && !this.survivalBlocked(agent) && inventoryCapacity(agent, goal.input.item!) > 0);
   }
   private reserveInventoryQuota(task: Task, agent: Agent): boolean {
     if (task.completion.kind !== 'inventory') return false;
@@ -976,9 +994,13 @@ export class FleetController {
     else if (frontier.some(t => isPreparationTask(t) && !this.taskHasActor(t) && this.otherResourceActor(t))) { goal.state = 'condition-wait'; goal.reason = '부지 보호를 위해 먼저 시작한 자원 작업의 실제 종료를 기다립니다.'; }
     else if (goal.state === 'condition-wait') { goal.state = 'queued'; goal.reason = undefined; }
   }
+  private survivalBlocked(agent: Agent): boolean {
+    const report = agent.session?.report;
+    return !!agent.survivalRecovery || !!report?.survivalRecovery || !!report && (report.mode === 'survival' || survivalRecoveryNeeded(report.health, report.food, this.state.rules.combat));
+  }
   private candidateTasks(agent: Agent): Task[] {
     if (agent.recovery && !(agent.recovery.phase === 'resolved' && agent.recovery.safe)) return [];
-    if (!agent.config.enabled || agent.desiredConfig?.enabled === false || agent.status === 'removing' || agent.status === 'removed' || agent.session?.state !== 'ready' || !agent.session.report?.ready || agent.session.activeAttemptId || agent.session.rulesVersion !== this.state.rules.version || this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session.report.mode) || agent.session.report.health <= this.state.rules.combat.retreatHealth || agent.session.report.food <= 6) return [];
+    if (!agent.config.enabled || agent.desiredConfig?.enabled === false || agent.status === 'removing' || agent.status === 'removed' || agent.session?.state !== 'ready' || !agent.session.report?.ready || agent.session.activeAttemptId || agent.session.rulesVersion !== this.state.rules.version || this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session.report.mode) || this.survivalBlocked(agent)) return [];
     const pinned = this.state.tasks.some(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
@@ -1010,7 +1032,7 @@ export class FleetController {
     return this.state.agents.some(agent => {
       const session = agent.session, report = session?.report;
       if (agent.recovery && !(agent.recovery.phase === 'resolved' && agent.recovery.safe)) return false;
-      if (!agent.config.enabled || agent.desiredConfig?.enabled === false || ['removed', 'removing'].includes(agent.status) || session?.state !== 'ready' || !report?.ready || session.rulesVersion !== this.state.rules.version || this.now() - session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) || report.health <= this.state.rules.combat.retreatHealth || report.food <= 6 || report.world !== this.state.rules.world || report.dimension !== this.state.rules.dimension || !agent.config.allowedActions.includes('build') || !report.capabilities.includes('build')) return false;
+      if (!agent.config.enabled || agent.desiredConfig?.enabled === false || ['removed', 'removing'].includes(agent.status) || session?.state !== 'ready' || !report?.ready || session.rulesVersion !== this.state.rules.version || this.now() - session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) || this.survivalBlocked(agent) || report.world !== this.state.rules.world || report.dimension !== this.state.rules.dimension || !agent.config.allowedActions.includes('build') || !report.capabilities.includes('build')) return false;
       if (task.affinityBotId && task.affinityBotId !== agent.id) return false;
       if (this.state.tasks.some(t => t.affinityBotId === agent.id && t.id !== task.id && t.id !== task.params.parentTaskId && !['completed', 'cancelled'].includes(t.state) && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)))) return false;
       return !task.reservationKeys.some(key => this.state.reservations.some(r => r.key === key && r.attemptId !== task.attemptId));
@@ -1113,7 +1135,7 @@ export class FleetController {
       if (this.state.agents.some(a => this.candidateTasks(a).some(t => t.id === task.id))) continue;
       const agent = this.state.agents.find(a => {
         const active = this.state.tasks.find(t => t.attemptId === a.session?.activeAttemptId);
-        return active && active.state !== 'cancelling' && this.goal(active.goalId).input.source === 'autonomous' && a.status === 'ready' && a.config.enabled && a.desiredConfig?.enabled !== false && a.session?.state === 'ready' && a.session.report && a.session.report.mode !== 'emergency' && a.session.report.health > this.state.rules.combat.retreatHealth && a.session.report.food > 6 && a.config.allowedActions.includes(task.kind) && a.session.report.capabilities.includes(task.kind) && (!task.affinityBotId || task.affinityBotId === a.id);
+        return active && active.state !== 'cancelling' && this.goal(active.goalId).input.source === 'autonomous' && a.status === 'ready' && a.config.enabled && a.desiredConfig?.enabled !== false && a.session?.state === 'ready' && a.session.report && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(a.session.report.mode) && !this.survivalBlocked(a) && a.config.allowedActions.includes(task.kind) && a.session.report.capabilities.includes(task.kind) && (!task.affinityBotId || task.affinityBotId === a.id);
       });
       if (!agent) continue;
       const active = this.state.tasks.find(t => t.attemptId === agent.session?.activeAttemptId)!;

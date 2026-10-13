@@ -18,9 +18,10 @@ function setup() {
   writeFileSync(workerPath, `
     const { randomUUID } = require('node:crypto');
     const boot = JSON.parse(process.env.LAYA_WORKER_BOOTSTRAP);
+    const survivalRecovery = boot.restoreSurvivalRecovery;
     let version = boot.rules.version, enabled = boot.config.enabled, position = { x: 0, y: 64, z: 0 };
     const send = (type, payload, extra = {}) => process.connected && process.send({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: boot.controllerEpoch, botId: boot.botId, sessionId: boot.sessionId, sentAt: Date.now(), type, payload, ...extra });
-    const report = () => ({ ready: true, world: boot.rules.world, dimension: boot.rules.dimension, health: 20, food: 20, inventory: [], position, mode: enabled ? 'idle' : 'paused', action: 'idle', reason: 'fake worker ready', capabilities: ['home'], rulesVersion: version });
+    const report = () => ({ ready: true, world: boot.rules.world, dimension: boot.rules.dimension, health: survivalRecovery ? 14 : 20, food: survivalRecovery ? 17 : 20, inventory: [], position, mode: survivalRecovery ? 'survival' : enabled ? 'idle' : 'paused', action: 'idle', reason: 'fake worker ready', capabilities: ['home'], rulesVersion: version, ...(survivalRecovery ? { survivalRecovery } : {}) });
     process.on('message', message => {
       if (message.controllerEpoch !== boot.controllerEpoch || message.sessionId !== boot.sessionId) return;
       if (message.type === 'rules.update') { version = message.payload.rules.version; enabled = message.payload.config.enabled; send('rules.applied', { version }); }
@@ -143,5 +144,25 @@ test('a reused worker PID never signals an unrelated process', async () => {
     const store = new ControlStore(join(f.dir, 'control.sqlite')); store.saveCheckpoint(seed.checkpoint()); store.saveWorker({ botId: 'paused-bot', sessionId: 'not-this-process', controllerEpoch: 'old-runtime', pid: process.pid, startedAt: Date.now() }); store.close();
     runtime = await startRuntime(f.options);
     assert.equal(isAlive(process.pid), true); assert.deepEqual(runtime.store.workers(), []); assert.deepEqual(runtime.supervisor.records(), []);
+  } finally { await runtime?.close(); f.remove(); }
+});
+
+test('runtime sends persisted survival recovery evidence and exhausted budget through the actual worker fork bootstrap', async () => {
+  const f = setup(); let runtime: Awaited<ReturnType<typeof startRuntime>> | undefined;
+  try {
+    const seed = new FleetController({ send: () => {}, rules: { autonomyEnabled: false } });
+    seed.addAgent({ id: 'survival-worker', name: 'SurvivalRestore' }); seed.startSession('survival-worker', 'old-session');
+    const episode = { startedAt: Date.now(), targetHealth: 20 as const, checkpoint: { resourceRecovery: { $food: { origin: { x: 0, y: 64, z: 0 }, destinationsUsed: 5, status: 'exhausted' } } }, wait: { fingerprint: 'unchanged actual sources', reason: '실제 식량 변화를 기다립니다.' } };
+    seed.receive({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: seed.controllerEpoch, botId: 'survival-worker', sessionId: 'old-session', sentAt: Date.now(), type: 'bot.ready', payload: { ready: true, world: DEFAULT_RULES.world, dimension: DEFAULT_RULES.dimension, health: 14, food: 17, inventory: [], position: { x: 0, y: 64, z: 0 }, mode: 'survival', survivalRecovery: episode, action: '식량 대기', reason: episode.wait.reason, capabilities: ['home'], rulesVersion: 1 } });
+    const goal = seed.createGoal({ kind: 'home', params: { position: { x: 8, y: 64, z: 0 } } }); saveCheckpoint(f.dir, seed.checkpoint());
+    runtime = await startRuntime(f.options);
+    await until(() => runtime!.core.getSnapshot().agents[0]!.session?.state === 'ready', 'new worker must actually report ready after bootstrap');
+    const state = runtime.core.getSnapshot(), agent = state.agents[0]!;
+    assert.notEqual(agent.session!.id, 'old-session'); assert.deepEqual(agent.session!.report!.survivalRecovery, episode);
+    assert.deepEqual(agent.survivalRecovery, episode); assert.equal(state.goals.find(value => value.id === goal.id)!.state, 'queued');
+    assert.equal(state.attempts.length, 0, 'healing cannot be displaced by restored ordinary work');
+    await runtime.close(); const store = new ControlStore(join(f.dir, 'control.sqlite'));
+    try { assert.deepEqual(store.loadCheckpoint<FleetCheckpoint>()!.agents[0]!.survivalRecovery, episode); }
+    finally { store.close(); }
   } finally { await runtime?.close(); f.remove(); }
 });

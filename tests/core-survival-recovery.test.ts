@@ -167,3 +167,64 @@ test('agent death history stays bounded while retaining the newest recovery reco
   assert.equal(f.core.getSnapshot().events.filter(e => e.type === 'bot.died').length, 25);
   FleetCheckpointSchema.parse(f.core.checkpoint());
 });
+
+test('moderate low health and an in-progress survival episode prevent ordinary assignments without consuming retries', () => {
+  const f = fixture(); f.status('bot', { health: 6.333, food: 17 });
+  const goal = f.core.createGoal({ kind: 'build', params: { requiredBlocks: [{ position: { x: 8, y: 64, z: 8 }, name: 'cobblestone' }] } });
+  const task = f.core.getSnapshot().tasks.find(task => task.goalId === goal.id)!;
+  for (let i = 0; i < 8; i++) { f.advance(6000); f.status('bot', { health: i < 4 ? 6.333 : 14, food: 17, mode: 'idle' }); }
+  assert.equal(f.assignments().length, 0); assert.equal(f.core.getSnapshot().tasks.find(value => value.id === task.id)!.retryCount, 0);
+  f.status('bot', { health: 20, food: 17 }); assert.equal(f.assignments().length, 0);
+  f.status('bot', { health: 20, food: 18 }); assert.equal(f.assignments().length, 1); assert.equal(f.assignments()[0]!.taskId, task.id);
+  assert.equal(f.core.getSnapshot().agents[0]!.survivalRecovery, undefined);
+});
+
+test('a survival rejection before actual execution preserves the task instead of spending its retry budget', () => {
+  const f = fixture(), goal = f.core.createGoal({ kind: 'craft', item: 'oak_planks' }), assigned = f.assignments()[0]!;
+  f.status('bot', { health: 6.333, food: 17, mode: 'survival' });
+  f.receive('bot', 'task.rejected', { reason: '회복 진행을 먼저 확인해야 합니다.', retryable: true }, assigned);
+  const snapshot = f.core.getSnapshot(), task = snapshot.tasks.find(task => task.id === assigned.taskId)!;
+  assert.equal(task.state, 'interrupted'); assert.equal(task.retryCount, 0); assert.equal(snapshot.attempts.find(attempt => attempt.id === assigned.attemptId)!.state, 'interrupted');
+  assert.equal(snapshot.reservations.some(reservation => reservation.attemptId === assigned.attemptId), false);
+  assert.equal(snapshot.agents[0]!.session!.activeAttemptId, undefined);
+  for (let i = 0; i < 7; i++) { f.advance(6000); f.status('bot', { health: 14, food: 20, mode: 'idle' }); }
+  assert.equal(f.assignments().length, 1);
+  f.status('bot', { health: 20, food: 20 }); const resumed = f.assignments()[1]!;
+  assert.equal(resumed.taskId, task.id); assert.equal(resumed.payload.task.goalId, goal.id); assert.notEqual(resumed.attemptId, assigned.attemptId);
+  assert.equal(f.core.getSnapshot().tasks.find(value => value.id === task.id)!.retryCount, 0);
+  assert.equal(f.receive('bot', 'task.rejected', { reason: 'stale duplicate', retryable: true }, assigned), false);
+});
+
+test('ordinary execution failures and nonretryable capability rejection retain their existing failure policy', () => {
+  for (const retryable of [true, false]) {
+    const f = fixture(); f.core.createGoal({ kind: 'craft', item: 'oak_planks' }); const assigned = f.assignments()[0]!;
+    if (!retryable) f.status('bot', { health: 6.333, food: 17 });
+    f.receive('bot', 'task.rejected', { reason: '실행 능력 확인 실패', retryable }, assigned);
+    const task = f.core.getSnapshot().tasks[0]!;
+    assert.equal(task.state, retryable ? 'retry-wait' : 'held'); assert.equal(task.retryCount, retryable ? 1 : 0);
+  }
+});
+
+test('survival wait evidence and exhausted search remain persisted across central restart until a fresh body confirms full recovery', () => {
+  const f = fixture(), episode = { startedAt: f.now(), targetHealth: 20 as const, checkpoint: { resourceRecovery: { $food: { origin: { x: 0, y: 64, z: 0 }, destinationsUsed: 5, elapsedMs: 60000, status: 'exhausted' } } }, wait: { fingerprint: 'actual unchanged food inputs', reason: '식량 탐색 예산 소진' }, knowledge: { origin: { x: 0, y: 64, z: 0 }, blocks: [{ position: { x: 1, y: 64, z: 1 }, name: 'wheat', state: 'age:0' }] } };
+  f.status('bot', { health: 6.333, food: 17, mode: 'survival', survivalRecovery: episode });
+  const goal = f.core.createGoal({ kind: 'craft', item: 'oak_planks' });
+  f.status('bot', { health: 14, food: 20, mode: 'survival', survivalRecovery: episode });
+  const saved = f.core.checkpoint(), sent: CentralMessage[] = [], restored = new FleetController({ checkpoint: saved, controllerEpoch: 'new-epoch', now: f.now, send: (_id, message) => sent.push(message) });
+  assert.deepEqual(restored.getSnapshot().agents[0]!.survivalRecovery, episode);
+  restored.confirmWorkerStopped('bot', 'bot-session'); restored.startSession('bot', 'new-session');
+  const receive = (type: string, payload: unknown, overrides = {}) => restored.receive({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: 'new-epoch', botId: 'bot', sessionId: 'new-session', sentAt: f.now(), type, payload, ...overrides });
+  const report = (health: number) => ({ ...f.report(), health, food: 20, mode: 'idle' });
+  receive('bot.ready', report(14)); receive('rules.applied', { version: restored.getSnapshot().rules.version });
+  assert.equal(sent.filter(message => message.type === 'task.assign').length, 0);
+  assert.equal(receive('bot.status', report(20), { sessionId: 'bot-session' }), false);
+  assert.deepEqual(restored.getSnapshot().agents[0]!.survivalRecovery, episode);
+  receive('bot.status', report(20)); assert.equal(restored.getSnapshot().agents[0]!.survivalRecovery, undefined);
+  const assigned = sent.find(message => message.type === 'task.assign'); assert.ok(assigned?.type === 'task.assign'); assert.equal(assigned.payload.task.goalId, goal.id); FleetCheckpointSchema.parse(restored.checkpoint());
+});
+
+test('a healing support helper is not sent into another fight while its recovery episode is pending', () => {
+  const f = fixture(1); f.status('helper-0', { health: 6.333, food: 17 }); f.status('helper-0', { health: 14, food: 20, mode: 'idle' });
+  f.alert(); assert.equal(f.assignments().length, 0); assert.equal(f.core.getSnapshot().goals.length, 0);
+  f.status('helper-0', { health: 20, food: 20 }); f.alert(); assert.equal(f.assignments().length, 1);
+});
