@@ -454,13 +454,7 @@ export class FleetController {
         const attempt = this.state.attempts.find(a => a.id === task.attemptId);
         if (this.taskHasActor(task) && attempt?.botId !== parsed.requiredBotId) this.cancelTask(task, '지정한 봇에게 진행을 보존해 인계합니다.', true);
       }
-      for (const task of this.state.tasks) {
-        if (task.blockedByGoalId !== goal.id || task.source !== 'autonomous' || !task.affinityBotId || task.affinityBotId === parsed.requiredBotId || this.taskHasActor(task)) continue;
-        // This entire user job now belongs to a different worker. Its former
-        // helper must be able to resume farming before construction finishes.
-        delete task.blockedByGoalId;task.updatedAt=this.now();
-        this.changed('autonomy.returned', '다른 봇에게 고정된 사용자 작업의 이전 자율 작업을 같은 진행에서 재개합니다.', { taskId:task.id,goalId:task.goalId,botId:task.affinityBotId });
-      }
+      this.releaseUnrelatedAutonomy();
       goal.updatedAt = this.now();
       this.changed('goal.assignment-bound', '기존 작업과 탐색 예산을 보존하고 담당 봇을 고정했습니다.', { goalId, commandId });
       this.applied(commandId, { goalId }); this.tick(); return clone(goal);
@@ -1469,10 +1463,20 @@ export class FleetController {
     }
   }
 
+  private releaseUnrelatedAutonomy():void {
+    for(const task of this.state.tasks){
+      if(task.source!=='autonomous'||!task.blockedByGoalId||this.taskHasActor(task))continue;
+      const blocker=this.goal(task.blockedByGoalId),autonomous=this.goal(task.goalId),owner=task.affinityBotId??autonomous.input.requiredBotId??autonomous.input.preferredBotId??this.state.attempts.find(a=>a.id===task.attemptId)?.botId;
+      if(!blocker.input.requiredBotId||!owner||owner===blocker.input.requiredBotId)continue;
+      delete task.blockedByGoalId;task.updatedAt=this.now();
+      this.changed('autonomy.returned','다른 봇에게 고정된 사용자 작업의 이전 자율 작업을 같은 진행에서 재개합니다.',{taskId:task.id,goalId:task.goalId,botId:owner});
+    }
+  }
   tick(): void {
     if (this.ticking || this.disposed) return;
     this.ticking = true;
     try {
+      this.releaseUnrelatedAutonomy();
       for (const agent of this.state.agents) {
         if (agent.session?.state === 'ready' && this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs) { agent.session.state = 'abnormal'; if (agent.status !== 'removing') agent.status = 'abnormal'; this.changed('bot.abnormal', '10초 이상 상태 보고가 없어 접속 이상으로 표시합니다.', { botId: agent.id }); }
         this.applyAgentRules(agent);

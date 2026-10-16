@@ -23,7 +23,7 @@ function fixture() {
     const position = p.floored();
     if (position.x < 3078 || position.x > 3104 || position.z < 3078 || position.z > 3116 || position.y < 76 || position.y > 88) return null;
     const name = cells.get(key(position)) ?? (position.y <= 79 ? 'dirt' : 'air');
-    return { position, name, boundingBox: name === 'air' ? 'empty' : 'block' };
+    return { position, name, boundingBox: name === 'air' ? 'empty' : 'block',shapes:name==='air'?[]:[[0,0,0,1,1,1]] };
   };
   const walkable = (p: Vec3) => blockAt(p)?.boundingBox === 'empty' && blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && blockAt(p.offset(0, -1, 0))?.boundingBox === 'block';
   const getPathTo = (_movement: unknown, goal: { x: number; y: number; z: number; rangeSq: number }) => {
@@ -82,6 +82,23 @@ test('actual warehouse exterior has no radius-2 node but radius-3 access observe
   assert.equal(f.stock, 4); assert.equal(f.stored, 0);
   assert.ok(withdrawn.evidence.some(e => e.kind === 'transfer' && e.beforeInventory === 0 && e.afterInventory === 4 && e.beforeContainer === 4 && e.afterContainer === 0));
   assert.equal(f.opened, 3); assert.equal(f.closed, 3); assert.equal(f.transfers, 2); assert.equal(f.mutations, 0); assert.equal(JSON.stringify([...f.cells]), before);
+});
+
+test('passive warehouse observation opens a visible reachable chest without approaching it',async()=>{
+ const f=fixture();Object.assign(f.bot.entity,{position:new Vec3(3089.5,81,3089.5),onGround:true});Object.assign(f.bot,{canSeeBlock:()=>true});
+ const before=f.bot.entity.position.clone(),s=f.executor.services(new AbortController().signal);s.near=async()=>assert.fail('passive observation must not approach the chest');
+ assert.equal(f.executor.canObserveContainerHere(f.container),true);const o=await f.executor.observeContainer(f.container,s,false);
+ assert.equal(o.kind,'container');assert.equal(f.opened,1);assert.equal(f.closed,1);assert.ok(f.bot.entity.position.equals(before));assert.equal(f.transfers,0);
+});
+
+for(const defect of ['nearby-but-out-of-reach','hidden','airborne','unsupported','wrong-world','missing-chest'] as const)test(`passive warehouse observation refuses ${defect} without moving`,async()=>{
+ const f=fixture();Object.assign(f.bot.entity,{position:new Vec3(3089.5,81,3089.5),onGround:true});Object.assign(f.bot,{canSeeBlock:()=>defect!=='hidden'});
+ if(defect==='nearby-but-out-of-reach')f.bot.entity.position=new Vec3(3088.5,80,3095.5);
+ if(defect==='airborne')Object.assign(f.bot.entity,{onGround:false});
+ if(defect==='unsupported')f.cells.set(f.key(f.bot.entity.position.offset(0,-1,0)),'air');
+ if(defect==='missing-chest')f.cells.set(f.key(f.container.position),'air');
+ const container=defect==='wrong-world'?{...f.container,world:'other:25565'}:f.container,before=f.bot.entity.position.clone(),s=f.executor.services(new AbortController().signal);s.near=async()=>assert.fail('a passive refresh must not acquire movement');
+ assert.equal(f.executor.canObserveContainerHere(container),false);await assert.rejects(f.executor.observeContainer(container,s,false),ConditionWait);assert.equal(f.opened,0);assert.equal(f.transfers,0);assert.ok(f.bot.entity.position.equals(before));
 });
 
 test('registration uses the same exterior interaction access and retains actual full-building proof', async () => {

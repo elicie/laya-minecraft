@@ -25,6 +25,7 @@ function fixture(options: { health?: number; food?: number; restore?: SurvivalRe
     clearControlStates() {}, deactivateItem() {}, stopDigging() {}, quit(reason: string) { events.emit('end', reason); },
   }) as unknown as Bot;
   class Executor extends MineflayerExecutor {
+    override canObserveContainerHere(container:ContainerRef):boolean{return bot.entity.position.distanceTo(new Vec3(container.position.x,container.position.y,container.position.z))<=4;}
     override async ensureFood(s: ActionServices): Promise<void> { foodAttempts++; foodRunning = true; try { if (options.ensureFood) await options.ensureFood(s); else throw new ConditionWait('실제 식량이 없습니다.'); } finally { foodRunning = false; } }
     override async eat(): Promise<boolean> { const bread = items.find(item => item.name === 'bread' && item.count > 0); if (!bread) return false; bread.count--; if (!bread.count) items.splice(items.indexOf(bread), 1); bot.food = Math.min(20, bot.food + 5); return true; }
     override async execute(_task: TaskSpec, s: ActionServices): Promise<ResultPayload> { executions++; overlap ||= foodRunning; s.checkpoint.step = 7; await s.pause(120000); throw new Error('fixture timeout'); }
