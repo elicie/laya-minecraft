@@ -439,14 +439,25 @@ export class MineflayerExecutor {
     const protectedPosition=(q:Position)=>this.protectedBuildPosition(q,s),feet=vector(p).floored();
     return safeResourceStand(this.bot,p,protectedPosition)||s.checkpoint.materialExpedition===true&&s.checkpoint.resourceRecoveryScope!=='$food'&&this.bot.health>s.rules.combat.retreatHealth&&this.bot.food>6&&![feet,feet.offset(0,1,0),feet.offset(0,-1,0)].some(protectedPosition)&&observedGroundStand(this.bot,p);
   }
+  private directHarvestStand(p:Position,s:ActionServices):boolean {
+    const feet=vector(p).floored();
+    return this.collectionStand(p,s)||s.checkpoint.resourceRecoveryScope!=='$food'&&![feet,feet.offset(0,1,0),feet.offset(0,-1,0)].some(q=>this.protectedBuildPosition(q,s))&&observedGroundStand(this.bot,p);
+  }
   /** Existing safe footing and a harvestable block already in reach need no
-   * further route search. This never issues movement or renews its allowance. */
-  private directlyHarvestable(block:Block,s:ActionServices):boolean {
+   * further route search. This never renews the search allowance. */
+  private directlyHarvestable(block:Block,s:ActionServices,centered=true):boolean {
     const feet=walkingFeet(this.bot),actual=this.bot.entity.position;
-    if(this.bot.entity.onGround!==true||Math.abs(actual.y-feet.y)>.1||Math.abs(actual.x-feet.x-.5)>.15||Math.abs(actual.z-feet.z-.5)>.15||this.bot.health<=s.rules.combat.retreatHealth||this.bot.food<=6)return false;
-    if(vector(actual).offset(0,1.62,0).distanceTo(block.position.offset(.5,.5,.5))>4.5||!this.collectionStand(feet,s)||Object.values(this.bot.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(actual)<12))return false;
+    if(this.bot.entity.onGround!==true||Math.abs(actual.y-feet.y)>.1||centered&&(Math.abs(actual.x-feet.x-.5)>.15||Math.abs(actual.z-feet.z-.5)>.15)||this.bot.health<=s.rules.combat.retreatHealth||this.bot.food<=6)return false;
+    if(vector(actual).offset(0,1.62,0).distanceTo(block.position.offset(.5,.5,.5))>4.5||!this.directHarvestStand(feet,s)||Object.values(this.bot.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(actual)<12))return false;
     if(!this.collectible(block,s)||this.currentSupport(block)||typeof this.bot.canSeeBlock!=='function'||!this.bot.canSeeBlock(block)||typeof this.bot.canDigBlock!=='function'||!this.bot.canDigBlock(block))return false;
     return block.canHarvest(this.bot.heldItem?.type??null)||this.bot.inventory.items().some(i=>block.canHarvest(i.type));
+  }
+  private async settleDirectHarvest(names:string[],s:ActionServices,recovery:ResourceRecovery):Promise<void> {
+    if(recovery.canApproach())return;
+    const block=this.bot.findBlock({matching:b=>names.includes(b.name),useExtraInfo:b=>this.directlyHarvestable(b,s,false),maxDistance:5});
+    // Public pathfinding can stop away from the cell center. Settle only on
+    // the existing support, with no new cell, route search or allowance.
+    if(block&&!this.directlyHarvestable(block,s))await centerSupportedCell(this.bot,s);
   }
   private resourceStands(block: Block, s: ActionServices): Position[] {
     if (!block.boundingBox) return [];
@@ -513,6 +524,7 @@ export class MineflayerExecutor {
         }
       }
       if (this.bot.inventory.emptySlotCount() === 0 && !this.bot.inventory.items().some((i) => i.name === itemName && i.count < i.stackSize)) throw new ConditionWait('인벤토리 공간을 확보해야 합니다.');
+      await this.settleDirectHarvest(dropBlocks[itemName]??[itemName],s,recovery);
       const eligible = (b: Block) => this.collectMatches(itemName,b.name) && !skipped.has(`${b.position}`) && this.collectible(b,s) && (this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position));
       const selected = selectedSource ? this.bot.blockAt(vector(selectedSource)) : undefined;
       const block = selectedSource ? selected && eligible(selected) ? selected : null : this.bot.findBlock({ matching: b => this.collectMatches(itemName,b.name), useExtraInfo: eligible, maxDistance:48 });
@@ -531,7 +543,7 @@ export class MineflayerExecutor {
         throw recovery.wait('현재 위치의 자원 후보 128개를 확인했지만 접근 가능한 노출면을 찾지 못했습니다. 실제 자원이나 접근 지형의 변화를 기다립니다.', minimum);
       }
       recovery.sample(block.position);
-      const stands = this.resourceStands(block, s);
+      const stands = direct?[position(walkingFeet(this.bot))]:this.resourceStands(block, s);
       if (!stands.length) { skipped.add(`${block.position}`); recovery.reject(block.position, block.name, '자원까지 노출된 면과 안전하게 설 수 있는 지상 발판을 확인하지 못했습니다.'); continue; }
       let stand: Position | undefined=direct?position(walkingFeet(this.bot)):undefined, approachReason = '';
       for (const candidate of stands) {
@@ -574,7 +586,7 @@ export class MineflayerExecutor {
         if (tool) await this.bot.equip(tool, 'hand');
       }
       current = this.bot.blockAt(block.position);
-      if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current) || !this.collectionStand(vector(this.bot.entity.position).floored(),s)) { skipped.add(`${block.position}`); continue; }
+      if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current) || !this.directlyHarvestable(current,s)&&!this.collectionStand(vector(this.bot.entity.position).floored(),s)) { skipped.add(`${block.position}`); continue; }
       if (typeof this.bot.canSeeBlock !== 'function' || !this.bot.canSeeBlock(current)) { skipped.add(`${current.position}`); recovery.reject(current.position, current.name, '현재 안전한 발판에서 자원까지 실제 시야를 확보하지 못했습니다.'); continue; }
       if (typeof this.bot.canDigBlock==='function'&&!this.bot.canDigBlock(current)) {skipped.add(`${current.position}`);recovery.reject(current.position,current.name,'현재 발판에서 자원까지 실제 채굴 거리를 확인하지 못했습니다.');continue;}
       s.check(); const before = this.count(itemName);
@@ -599,6 +611,7 @@ export class MineflayerExecutor {
       // Falling logs can enter the inventory while scouting another stand.
       // Recheck actual stock before choosing another species or search leg.
       if(stocked()){recovery.progress();return;}
+      await this.settleDirectHarvest(names,s,recovery);
       const block = this.bot.findBlock({ matching:b=>names.includes(b.name),useExtraInfo:b=>this.collectible(b,s)&&(this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position)&&this.resourceStands(b,s).some(p=>recovery.route(vector(p)))),maxDistance:48 });
       if (block && (recovery.canApproach()||this.directlyHarvestable(block,s))) {
         try { await this.collect(block.name,this.count(block.name)+1,s,position(block.position),recovery); continue; }

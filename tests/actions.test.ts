@@ -114,6 +114,14 @@ test('an exhausted shared utility-wood search uses a real adjacent log to craft 
  await f.executor.ensureItem('crafting_table',1,f.services);assert.equal(f.stock.get('crafting_table'),1);assert.deepEqual(f.dug,['oak_log']);
 });
 
+test('direct harvesting uses the actual full support beside a dry ledge without requiring an exploration stand',async()=>{
+ const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
+ f.cells.set(new Vec3(9,63,5).toString(),'air');
+ f.services.checkpoint.resourceRecovery={oak_log:{origin:{x:-100,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted',reason:'spent'}};
+ f.services.near=async()=>assert.fail('the existing ledge support must not require a new approach');
+ await f.executor.ensureItem('oak_log',1,f.services);assert.equal(f.stock.get('oak_log'),1);assert.equal(f.dug.length,1);assert.equal(f.bot.blockAt(new Vec3(9,63,6)).name,'dirt');
+});
+
 for(const defect of ['airborne','edge','hidden','out-of-reach','threat','protected','unsafe-support'] as const)test(`direct harvesting with a spent search refuses ${defect}`,async()=>{
  const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
  if(defect==='airborne')Object.assign(f.bot.entity,{onGround:false});
