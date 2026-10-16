@@ -10,6 +10,7 @@ import {
 import { containerKey, goalTitle, jsonObject, planGoal, roleFits } from './planning';
 import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 import { inventoryCapacity, inventoryStocks, type InventoryStock } from './inventory-stock';
+import { dashboardSnapshot } from './dashboard-snapshot';
 import { distance, footprintInside, freshObservations, positionKey, verifyCompletion } from './verification';
 import { collectionHints } from './resource-hints';
 import { warehouseShelter } from './warehouse-shelter';
@@ -202,6 +203,12 @@ export class FleetController {
   getSnapshot(): FleetSnapshot {
     const { processedMessageIds: _messages, pendingRuleCommands: _rules, pendingCommands: _commands, stoppedSessionIds: _stopped, ...snapshot } = this.state;
     return clone(snapshot);
+  }
+  getDashboardSnapshot(now = this.now()): FleetSnapshot {
+    const { processedMessageIds: _messages, pendingRuleCommands: _rules, pendingCommands: _commands, stoppedSessionIds: _stopped, ...snapshot } = this.state;
+    // Project first: history and opaque execution proof never need to be
+    // copied for the dashboard. Clone the result to preserve read isolation.
+    return clone(dashboardSnapshot(snapshot, now));
   }
   getAgents(): Agent[] { return clone(this.state.agents); }
   getRules(): Rules { return clone(this.state.rules); }
