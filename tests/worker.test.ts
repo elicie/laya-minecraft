@@ -6,12 +6,12 @@ import type { Bot } from 'mineflayer';
 import type { Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
-import { WorkerLaunchSchema, type CentralMessage, type ResultPayload, type TaskSpec, type WorkerMessage } from '../packages/contracts/src';
+import { WorkerLaunchSchema, type CentralMessage, type ContainerRef, type ObservationInput, type ResultPayload, type TaskSpec, type WorkerMessage } from '../packages/contracts/src';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait, pause, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean } = {}) {
+function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean } = {}) {
   const emitter = new EventEmitter();
   const messages: WorkerMessage[] = [];
   let executions = 0;
@@ -31,6 +31,12 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class ControlledExecutor extends MineflayerExecutor {
+    override async observeContainer(container:ContainerRef,s:ActionServices):Promise<ObservationInput>{
+      if(!options.warehouseObservation)return super.observeContainer(container,s);
+      s.progress('창고 출입','실제 문과 양쪽 발판을 확인하며 출입합니다.');
+      if(options.warehouseFailure)throw new ConditionWait('상자가 가려져 실제 재고를 확인하지 못했습니다.');
+      const o:ObservationInput={id:randomUUID(),observedAt:Date.now(),world:launch.rules.world,dimension:'overworld',kind:'container',data:{container,items:[]}};s.observations.push(o);return o;
+    }
     override async execute(_task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
       executions += 1;
       try { await s.pause(120_000); }
@@ -58,6 +64,11 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     get executions() { return executions; }, get fights() { return fights; }, get retreats() { return retreats; }, get foodAttempts() { return foodAttempts; } };
 }
 async function settle() { await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); }
+
+for(const failed of [false,true])test(`background warehouse observation clears the door label and ${failed?'preserves failure':'reports completion'}`,async()=>{
+ const f=fixture({warehouseObservation:true,warehouseFailure:failed});f.launch.rules.warehouse={id:'base',world:f.launch.rules.world,dimension:'overworld',position:{x:1,y:64,z:1}};f.emitter.emit('spawn');f.emitter.emit('health');
+ try{await settle();f.worker.pollSafety();await settle();const m=f.messages.filter(m=>m.type==='bot.status').at(-1);assert.ok(m?.type==='bot.status');assert.equal(m.payload.mode,'idle');assert.equal(m.payload.action,'대기');assert.match(m.payload.reason!,failed?/상자가 가려져/:/재고 관측을 마쳤습니다/);}finally{await f.worker.shutdown();}
+});
 
 test('critical health waits for actual full regeneration after a meal before resuming work', async () => {
   const f = fixture({ meal: true }); f.emitter.emit('spawn'); f.emitter.emit('health');

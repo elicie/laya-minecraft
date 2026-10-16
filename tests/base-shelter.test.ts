@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {Bot} from 'mineflayer';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {mkdtempSync,rmSync,writeFileSync,readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {withWarehouseDoor} from '../packages/minecraft/src/warehouse-door-lease';
+import {foodRecoveryFingerprint} from '../packages/minecraft/src/worker-recovery';
 import {Vec3} from 'vec3';
 import {RulesSchema,type Position} from '../packages/contracts/src';
 import {blueprint} from '../packages/contracts/src/blueprints';
@@ -46,4 +53,40 @@ test('normal daytime base entry and exit close their door without creating a nig
 test('daytime exit first approaches the doorway from a deeper closed room',async()=>{
  const f=fixture();f.bot.time.isDay=true;f.bot.time.timeOfDay=0;f.bot.entity.position=new Vec3(3.4047,65,2.3815);
  assert.equal(await restInWarehouse(f.s,()=>true,undefined,'exit'),true);assert.equal(f.opened,false);assert.equal(f.toggles,2);assert.equal(Math.round(f.bot.entity.position.y),64);
+});
+
+test('two workers serialize a full door passage and release the lease after cancellation',async()=>{
+ const f=fixture(),dir=mkdtempSync(join(tmpdir(),'laya-door-')),events:string[]=[];
+ f.s.pause=async()=>{await new Promise(r=>setTimeout(r,2));};
+ let release!:()=>void,ready!:()=>void;const gate=new Promise<void>(r=>{release=r;}),started=new Promise<void>(r=>{ready=r;});
+ try{
+  const first=withWarehouseDoor(f.s,async()=>{events.push('first-open');ready();await gate;events.push('first-close');},dir);
+  await started;
+  const second=withWarehouseDoor(f.s,async()=>{events.push('second-open');throw Error('cancelled passage');},dir);second.catch(()=>{});
+  await new Promise(r=>setTimeout(r,10));assert.deepEqual(events,['first-open']);release();await first;await assert.rejects(second,/cancelled passage/);
+  assert.deepEqual(events,['first-open','first-close','second-open']);assert.equal(readdirSync(dir).filter(p=>p.endsWith('.lock')).length,1,'stable lock inode is retained for queued workers');
+  await withWarehouseDoor(f.s,async()=>events.push('third-open'),dir);assert.equal(events.at(-1),'third-open');
+ }finally{release();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('warehouse wait reacts to observed door/daylight changes without replenishing resource budgets',()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(f.base.inside.x+.5,f.base.inside.y,f.base.inside.z+.5);
+ f.s.checkpoint.nightBasePending=true;f.s.checkpoint.nightBase={door:f.base.door,phase:'closed'};f.s.checkpoint.resourceRecovery={$food:{destinationsUsed:5}};
+ const knowledge={blocks:new Map()};const initial=foodRecoveryFingerprint(f.bot,f.s.checkpoint,6,knowledge);
+ f.bot.time.timeOfDay=14000;assert.equal(foodRecoveryFingerprint(f.bot,f.s.checkpoint,6,knowledge),initial);
+ f.bot.time.timeOfDay=0;f.bot.time.isDay=true;assert.notEqual(foodRecoveryFingerprint(f.bot,f.s.checkpoint,6,knowledge),initial);
+ f.bot.time.timeOfDay=13000;f.bot.time.isDay=false;
+ void f.bot.activateBlock(f.bot.blockAt(new Vec3(f.base.door.x,f.base.door.y,f.base.door.z))!);
+ assert.notEqual(foodRecoveryFingerprint(f.bot,f.s.checkpoint,6,knowledge),initial);
+ assert.equal((f.s.checkpoint.resourceRecovery as any).$food.destinationsUsed,5);
+});
+
+test('a killed worker releases the shared door lock for the next worker',async()=>{
+ const f=fixture(),dir=mkdtempSync(join(tmpdir(),'laya-door-crash-'));
+ const code="const {withWarehouseDoor}=require('./packages/minecraft/src/warehouse-door-lease');const p=JSON.parse(process.argv[1]);const s={rules:{baseShelter:p.base},signal:new AbortController().signal,check(){},progress(){}};withWarehouseDoor(s,async()=>{process.stdout.write('held\\n');await new Promise(()=>{});},p.dir).catch(e=>{console.error(e);process.exit(1);});";
+ const child=spawn(process.execPath,['--import','tsx','-e',code,JSON.stringify({base:f.base,dir})],{stdio:['ignore','pipe','pipe']});child.stderr.resume();
+ try{
+  await once(child.stdout,'data');const ended=once(child,'exit');child.kill('SIGKILL');await ended;
+  let acquired=false;await withWarehouseDoor(f.s,async()=>{acquired=true;},dir);assert.equal(acquired,true);
+ }finally{child.kill('SIGKILL');rmSync(dir,{recursive:true,force:true});}
 });

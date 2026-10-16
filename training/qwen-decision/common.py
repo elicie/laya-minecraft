@@ -1,8 +1,9 @@
 """A single next-token decision, using stock Transformers and PEFT APIs."""
 import json
+import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get('LAYA_MODEL_ARTIFACT_ROOT', str(Path(__file__).resolve().parents[2]))).resolve()
 BASE = ROOT / 'models/Qwen3.5-9B'
 REVISION = 'c202236235762e1c871ad0ccb60c8ee5ba337b9a'
 MODEL_ID = 'Qwen/Qwen3.5-9B'

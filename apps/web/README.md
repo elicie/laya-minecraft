@@ -32,3 +32,7 @@ npx playwright test --config apps/web/playwright.config.ts
 설정 요청, 늦은 응답의 상태 역전 방지, 관전 전환·재접속, 보고 지연과 작은
 화면을 확인하며 Minecraft 월드에 접속하지 않습니다. 실제 게임 검증은
 별도의 `minecraft-laya-validation:25566`에서 수행합니다.
+
+상단의 **생산·학습 현황 보기**를 열면 `/api/v1/operations`를 5초마다 조회합니다. 창고의 빵·밀·씨앗·원목, 등록 농지의 파종·실제 수분·성숙도, 봇의 대기 이유, 실제 모델 결정과 학습·평가 결과를 표시합니다. 누락·오래된 관측은 0개와 구분하며, 원문 평가와 질문 정규화의 승인도 따로 보여 줍니다. API는 모델 health를 짧게 캐시하며 화면 조회가 GPU 추론을 발생시키지 않습니다. 비공개 학습 자료는 노출하지 않습니다.
+
+이 호스트의 대시보드는 `laya-minecraft-dashboard.service`로 자동 시작하며 `http://gti12-1:5173`에서 접속합니다. 설치 예시는 `deployment/systemd/laya-minecraft-dashboard.service`에 있습니다. 주소는 Tailscale 연결과 호스트별 네트워크 설정에 따릅니다.

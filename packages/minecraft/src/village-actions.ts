@@ -583,7 +583,7 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   if (!(normalized in CROPS)) throw new ConditionWait('지원하는 작물은 밀·당근·감자·비트입니다.');
   const crop = CROPS[normalized as keyof typeof CROPS];
   const requested = completion?.plots ?? Number(task.params.plots ?? 8);
-  if (!Number.isInteger(requested) || requested < 1 || requested > 8) throw new ConditionWait('첫 밭 구획은 1~8개 경작지로 설정해 주세요.');
+  if (!Number.isInteger(requested) || requested < 1 || requested > (Array.isArray(task.params.positions)?32:8)) throw new ConditionWait('기본 밭은 1~8칸, 좌표를 명시한 밭은 1~32칸으로 설정해 주세요.');
   const center = position(task.params.origin) ?? (s.rules.center ? { x: Math.floor(s.rules.center.x), y: Math.floor(s.rules.center.y) - 1, z: Math.floor(s.rules.center.z) } : undefined);
   if (!center) throw new ConditionWait('밭의 중심 좌표가 필요합니다.');
   const explicit = Array.isArray(task.params.positions) ? task.params.positions.map(position) : undefined;
@@ -648,6 +648,10 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
     const pending=s.checkpoint.farmPendingHarvest as JsonObject|undefined,pendingHere=pending?.crop===cropName&&key(position(pending.position)??{x:NaN,y:NaN,z:NaN})===key(p);
     if (harvesting && (plant.name === normalized && Number(plant.getProperties().age ?? 0) >= crop.age||pendingHere)) {
       if(crop.seed!==crop.produce&&count(s,crop.seed)<1)await s.ensureItem(crop.seed,1);
+      // On a registered dense farm, stand on the same-level crop before breaking it.
+      // Public walking controls avoid jumping; nearby drops are picked up before
+      // they can drift off the river bank. This does not change the crop early.
+      if(!pendingHere&&s.checkpoint.farmDryGround===true&&Array.isArray(s.checkpoint.farmPlotPositions)&&s.checkpoint.farmPlotPositions.length&&typeof s.bot.pathfinder?.movements?.getNeighbors==='function')await s.near(target,0);
       const before = pendingHere?Number(pending!.beforeProduce):count(s,crop.produce),seedsBefore=pendingHere?Number(pending!.beforeSeeds):count(s,crop.seed);
       if(plant.name===normalized&&Number(plant.getProperties().age??0)>=crop.age){
         s.checkpoint.farmPendingHarvest={crop:cropName,position:p,beforeProduce:before,beforeSeeds:seedsBefore,droppedAt:Date.now()};

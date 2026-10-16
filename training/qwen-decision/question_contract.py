@@ -2,6 +2,7 @@
 from robustness import validate_question
 
 CANONICAL_BASE_PROFILE = 'canonical-base-v1'
+NORMALIZED_BASE_PROFILE = 'audited-normalized-base-v1'
 
 
 def validate_request_question(task, supplied, config):
@@ -23,3 +24,23 @@ def validate_request_question(task, supplied, config):
         validate_question(task, supplied[task], config['questions'])
     elif supplied != {task: config['questions'][task]}:
         raise ValueError('Action schema differs from trained checkpoint')
+
+
+def inference_question(task, supplied, config):
+    """Normalize only the audited semantic equivalents, retaining all raw scores.
+    Unknown instructions/descriptions and duplicate actions are still rejected.
+    This is input compatibility code, not an improvement claim about raw weights.
+    """
+    validate_request_question(task, supplied, config)
+    if config.get('deployment_profile') == NORMALIZED_BASE_PROFILE and task == 'base_action':
+        order = validate_question(task, supplied[task], config['questions'])
+        return {task: config['questions'][task]}, dict(zip(supplied[task]['criteria'], order))
+    return supplied, None
+
+
+def remap_answer(answer, aliases):
+    if aliases is None:
+        return answer
+    inverse = {action: key for key, action in aliases.items()}
+    return {**answer, 'choice': inverse[answer['choice']],
+            'probabilities': {key: answer['probabilities'][action] for key, action in aliases.items()}}

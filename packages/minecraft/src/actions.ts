@@ -20,6 +20,7 @@ import { restUnderCover } from './night-shelter';
 import { duskOrNight, restInNightBurrow } from './night-burrow';
 import { prepareMaterialAccess } from './material-access';
 import { restInWarehouse, warehouseInterior } from './base-shelter';
+import {farmSurfaceWalk} from './farm-surface-walk';
 
 export const EXECUTABLE_ACTIONS: ActionKind[] = ['collect', 'store', 'take', 'craft', 'smelt', 'build', 'farm', 'hunt', 'fight', 'guard', 'explore', 'follow', 'home', 'sleep', 'survive', 'breed'];
 const unsafeBlocks = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'cactus', 'campfire', 'soul_campfire']);
@@ -70,6 +71,7 @@ export class MineflayerExecutor {
   stopControls(): void { this.bot.pathfinder.setGoal(null); this.bot.clearControlStates(); this.bot.deactivateItem(); if (this.bot.targetDigBlock) this.bot.stopDigging(); }
 
   services(signal: AbortSignal, checkpoint: ActionServices['checkpoint'] = {}): ActionServices {
+    let farmSurfaceRouting=false;
     const s: ActionServices = {
       bot: this.bot, rules: this.options.rules, signal, checkpoint, observations: [], evidence: [],
       check: () => checkAbort(signal), pause: (ms) => pause(ms, signal),
@@ -85,6 +87,7 @@ export class MineflayerExecutor {
         const activeTrip=!!trip&&trip.phase!=='complete';
         const farmDryGround=s.checkpoint.farmDryGround===true||s.checkpoint.dryGroundApproach===true;
         const plots=(Array.isArray(s.checkpoint.farmPlotPositions)?s.checkpoint.farmPlotPositions:[]).flatMap(raw=>{const parsed=PositionSchema.safeParse(raw);return parsed.success?[parsed.data]:[];});
+        if(farmDryGround&&plots.length&&!farmSurfaceRouting&&(radius??0)===0){if(await farmSurfaceWalk(s,p,plots,async q=>{farmSurfaceRouting=true;try{await s.near(q,0);}finally{farmSurfaceRouting=false;}}))return;}
         const blocked=(p:Position)=>plots.some(soil=>p.x===soil.x&&p.z===soil.z&&p.y===soil.y+1&&(!['air','cave_air','void_air'].includes(this.bot.blockAt(vector(soil).offset(0,1,0))?.name??'')||(this.bot.blockAt(vector(soil))?.name!=='farmland'&&!(s.checkpoint.farmRepairBarePlots===true&&['dirt','grass_block'].includes(this.bot.blockAt(vector(soil))?.name??'')))));
         if (activeTrip || s.checkpoint.safeDetourRequired === true || farmDryGround) {
           // A real collision box may rest on the neighboring full block while
@@ -100,7 +103,7 @@ export class MineflayerExecutor {
             if(!activeTrip&&await walkVerified(this.bot,path,signal,stand,(p,childSignal)=>this.near(p,childSignal,0),farmDryGround?2:1))return;
             if(farmDryGround){
               for(const step of path){
-                const current=this.bot.entity.position.floored(),points:Position[]=[];
+                const current=walkingFeet(this.bot),points:Position[]=[];
                 if(current.x!==step.x&&current.z!==step.z){const corner=walkCorner(current,step,stand);if(!corner)throw new ConditionWait('밭 모서리의 실제 마른 발판을 확인해야 합니다.',s.checkpoint);points.push(corner);}
                 points.push(step);
                 for(const point of points){s.check();if(!stand(point)||!await walkVerified(this.bot,[point],signal,stand,(p,child)=>this.near(p,child,0),2))throw new ConditionWait('밭 가장자리의 실제 육지 보행을 완료해야 합니다.',s.checkpoint);}
@@ -603,7 +606,7 @@ export class MineflayerExecutor {
         // is not a reachable stand position; reobserve until it has ground.
         const feet = walkingFeet(this.bot,drop.position), support = this.bot.blockAt(feet.offset(0, -1, 0));
         const body = this.bot.blockAt(feet), head = this.bot.blockAt(feet.offset(0, 1, 0));
-        if (avoidSupports.some(p => p.x === feet.x && p.y === feet.y - 1 && p.z === feet.z)) continue;
+        if (s.checkpoint.farmDryGround!==true&&avoidSupports.some(p => p.x === feet.x && p.y === feet.y - 1 && p.z === feet.z)) continue;
         if (support?.boundingBox !== 'block' || body?.boundingBox !== 'empty' || head?.boundingBox !== 'empty' ||
           [support.name, body.name, head.name].some(name => unsafeBlocks.has(name))) continue;
         try { await s.near({ x: drop.position.x, y: feet.y, z: drop.position.z }, 0); await s.pause(150); }

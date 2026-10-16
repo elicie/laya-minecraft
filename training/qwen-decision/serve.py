@@ -11,7 +11,7 @@ from peft import PeftModel
 from transformers import AutoTokenizer
 from transformers.utils import logging
 from common import ROOT, load_base, predict, read_json, score
-from question_contract import CANONICAL_BASE_PROFILE, validate_request_question
+from question_contract import CANONICAL_BASE_PROFILE, NORMALIZED_BASE_PROFILE, inference_question, remap_answer
 
 
 def prepare_inference_base(base):
@@ -47,6 +47,14 @@ def main():
             raise ValueError('Canonical deployment qualification does not match these weights')
     torch.set_num_threads(6)
     logging.disable_progress_bar()
+    if config.get('deployment_profile') == NORMALIZED_BASE_PROFILE:
+        proof = (adapter/'normalized-profile-report.json').read_bytes()
+        report = json.loads(proof)
+        if (hashlib.sha256(proof).hexdigest() != config.get('normalized_profile_report_sha256')
+                or report.get('deployment_approved') is not True
+                or report.get('adapter_sha256') != config.get('adapter_sha256')
+                or report.get('deployment_profile') != NORMALIZED_BASE_PROFILE):
+            raise ValueError('Normalized profile qualification differs from deployed weights')
     tokenizer = AutoTokenizer.from_pretrained(str(adapter), padding_side='left')
     base = prepare_inference_base(load_base())
     model = PeftModel.from_pretrained(base, str(adapter)).eval()
@@ -85,14 +93,14 @@ def main():
                 if task not in config['questions'] or not isinstance(state, str) or not state.strip() or len(state) > 6000:
                     raise ValueError('Invalid task or observation')
                 supplied = value.get('questions')
-                validate_request_question(task, supplied, config)
+                question, aliases = inference_question(task, supplied, config)
                 # One model call at a time; callers fall back promptly under contention.
                 if not lock.acquire(blocking=False):
                     return self.reply(503, {'error': 'Decision model busy'})
                 try:
                     started = time.perf_counter()
-                    values, tokens = score(model, tokenizer, task, state, supplied)
-                    answer = predict(values, task, supplied, config['temperatures'][task]['temperature'])
+                    values, tokens = score(model, tokenizer, task, state, question)
+                    answer = remap_answer(predict(values, task, question, config['temperatures'][task]['temperature']), aliases)
                     answer['type'] = 'choice'
                     self.reply(200, {'model': config['name'], 'backend': 'qwen', 'base': config['base'],
                                      'answers': {task: answer}, 'calibrated': True, 'state_truncated': False,

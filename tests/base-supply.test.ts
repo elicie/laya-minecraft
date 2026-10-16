@@ -57,3 +57,10 @@ test('a cancelled bootstrap does not prevent a fresh farm once actual supplies e
  const f=fixture(),cancelled=f.goal({kind:'farm',source:'user',params:{baseSupplyId:'shore',baseSupplyStep:'farm-setup',plots:2}});cancelled.state='cancelled';
  assert.ok(f.choose([cancelled],[f.stock([{name:'wheat_seeds',count:2},{name:'oak_log',count:1}])]).some(g=>g.params?.baseSupplyStep==='farm-setup'));
 });
+
+test('a partial ripe harvest needs only its actual replant seeds rather than the entire farm reserve',()=>{
+ const f=fixture(),setup=f.goal({kind:'farm',source:'autonomous',params:{baseSupplyId:'shore',baseSupplyStep:'farm-setup'}});setup.state='completed';
+ const harvest=f.choose([setup],[f.stock([{name:'wheat_seeds',count:1}]),f.crop(1)]).find(g=>g.params?.mode==='harvest');
+ assert.ok(harvest);assert.deepEqual(harvest.params!.warehouseInputs,[{item:'wheat_seeds',quantity:1}]);
+ assert.equal(f.choose([setup],[f.stock([]),f.crop(1)]).some(g=>g.params?.mode==='harvest'),false);
+});
