@@ -10,6 +10,7 @@ import json
 import math
 import pathlib
 import sqlite3
+from fleet_run_continuity import continuity_problem, expected_wait
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -70,11 +71,12 @@ starts = {}
 for a in agents:
     r = a['session']['report']
     assert a['session']['state'] == 'ready' and r['ready'] and r['health'] > 0
-    starts[a['id']] = {'name': a['config']['name'], 'sessionId': a['session']['id'],
+    starts[a['id']] = {'name': a['config']['name'], 'sessionId': a['session']['id'], 'world': r['world'], 'dimension': r['dimension'],
                        'worldAge': r['worldAge'], 'report': compact(r)}
 start = {'startedAt': stamp(), 'startedAtMs': int(time.time()*1000),
          'controllerEpoch': state['controllerEpoch'], 'startSeq': seq, 'bots': starts,
          'sourceSha256': source_hash(), 'requiredWorldTicks': args.ticks,
+         'monitorSha256': hashlib.sha256(pathlib.Path(__file__).read_bytes()+(ROOT/'scripts/fleet_run_continuity.py').read_bytes()).hexdigest(),
          'scope': f'{len(agents)} selected production workers, same final runtime source and uninterrupted sessions',
          'administrativeWorldChanges': False}
 write('start.json', start)
@@ -82,7 +84,7 @@ tracking = {bid: {'anchor': s['report']['position'], 'items': s['report']['inven
                  'changed': time.monotonic(), 'minHealth': s['report']['health'],
                  'minFood': s['report']['food'], 'lastAge': s['worldAge'],
                  'lastTime': s['report']['timeOfDay'], 'dayWraps': 0, 'nightSamples': 0,
-                 'blockedSamples': 0, 'stalls': [], 'openStall': None}
+                 'blockedSamples': 0, 'respawnSamples': 0, 'exposedNightSamples': 0, 'stalls': [], 'openStall': None}
             for bid, s in starts.items()}
 assigned, completed, failed, deaths, decisions = {}, {}, {}, {}, {}
 samples = 0
@@ -115,6 +117,7 @@ while True:
                 target[e['attemptId']] = e
             if e['type'] == 'bot.died':
                 deaths[e['id']] = e
+                tracking[e['botId']]['minHealth'] = 0
     goals = {g['id']: g for g in state['goals']}
     attempts = {a['id']: a for a in state['attempts']}
     reports, elapsed = {}, []
@@ -122,10 +125,11 @@ while True:
         a = next(a for a in state['agents'] if a['id'] == bid)
         session = a.get('session', {})
         r, stats = session.get('report', {}), tracking[bid]
-        if session.get('id') != original['sessionId'] or session.get('state') != 'ready' or not r.get('ready'):
-            invalid = 'worker disconnected or session changed: '+bid
-        if now-session.get('lastReportAt', 0) > 20000:
-            invalid = 'worker report stale: '+bid
+        problem = continuity_problem(a, original, now, {e.get('data', {}).get('deathId'): e for e in deaths.values()})
+        if problem:
+            invalid = problem+': '+bid
+        elif not r.get('ready'):
+            stats['respawnSamples'] += 1
         age = r.get('worldAge', stats['lastAge'])
         if age < stats['lastAge']:
             invalid = 'worldAge moved backwards: '+bid
@@ -154,7 +158,9 @@ while True:
         shelter = '야간' in r.get('action', '')
         actual_night = r.get('isDay') is False or 9000 <= (r.get('timeOfDay') or 0) < 23000
         night = shelter and actual_night
-        expected = 'night-shelter' if night else 'no-active-work' if not active else None
+        expected = expected_wait(r, active)
+        if expected == 'night-without-shelter':
+            stats['exposedNightSamples'] += 1
         if night:
             stats['nightSamples'] += 1
         if any(t['state'] == 'condition-wait' for t in active) and not night:
