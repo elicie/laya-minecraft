@@ -14,6 +14,7 @@ import { createControlServer, type FleetControlPort } from '../apps/server/src/c
 import type { ControlServerOptions } from '../apps/server/src/control-server';
 import { ControlStore } from '../apps/server/src/store';
 import { reconcileCommandReceipts } from '../apps/server/src/reconciliation';
+import { createViewerAssets } from '../apps/server/src/viewer-assets';
 
 function fixture(options: Partial<ControlServerOptions> = {}) {
   const store = new ControlStore(':memory:');
@@ -67,6 +68,29 @@ function fixture(options: Partial<ControlServerOptions> = {}) {
 function headers(key: string = randomUUID()): Record<string, string> {
   return { 'content-type': 'application/json', 'x-laya-control': '1', 'idempotency-key': key };
 }
+
+test('controller serves shared static assets without state reads while iframe HTML keeps actual viewer readiness fencing', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'laya-viewer-static-'));
+  writeFileSync(join(directory, 'index.js'), 'original-index'); writeFileSync(join(directory, 'worker.js'), 'original-worker');
+  const assets = await createViewerAssets({ publicRoot: directory });
+  const f = fixture({ viewerAssets: assets, viewerPortBase: 4200 });
+  let reads = 0; const originalSnapshot = f.core.getSnapshot;
+  f.core.getSnapshot = () => { reads++; return originalSnapshot(); };
+  const address = await f.api.listen(), base = `http://127.0.0.1:${address.port}`;
+  try {
+    const before = reads;
+    assert.equal(await (await fetch(`${base}${assets.basePath}/worker.js`)).text(), 'original-worker'); assert.equal(reads, before);
+    const agent = f.core.addAgent({ name: 'AssetBot' }); agent.session = { id: 'actual-session', state: 'ready', lastReportAt: Date.now(), rulesVersion: 1 };
+    await fetch(`${base}/api/v1/bots/${agent.id}/viewer`, { method: 'POST', headers: headers(), body: '{}' });
+    assert.equal((await fetch(`${base}/viewer/${agent.id}/`)).status, 503);
+    agent.viewer = { state: 'ready', port: 4200, prefix: `/viewer/${agent.id}` };
+    const html = await fetch(`${base}/viewer/${agent.id}/`); assert.equal(html.status, 200); assert.equal(html.headers.get('cache-control'), 'no-store'); assert.ok((await html.text()).includes(`<base href="${assets.basePath}/">`));
+    const redirect = await fetch(`${base}/viewer/${agent.id}/worker.js`, { redirect: 'manual' }); assert.equal(redirect.status, 307); assert.equal(redirect.headers.get('location'), `${assets.basePath}/worker.js`);
+    agent.viewer = { state: 'stopped' };
+    assert.equal((await fetch(`${base}/viewer/${agent.id}/`)).status, 503);
+    assert.equal(await (await fetch(`${base}${assets.basePath}/worker.js`)).text(), 'original-worker', 'distribution caching is independent of bot lifecycle');
+  } finally { await f.api.close(); f.store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
 
 test('HTTP validates commands, defaults to disposable port, and deduplicates goal creation', async () => {
   const f = fixture();

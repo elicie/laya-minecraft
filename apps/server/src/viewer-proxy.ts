@@ -1,11 +1,18 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
+import { viewerHtml } from './viewer-assets';
 
 export interface ViewerTarget { botId: string; sessionId: string; port: number; prefix: string }
 
 /** Target is a locally allocated worker port, never a user-supplied URL. */
-export function proxyViewerHttp(req: IncomingMessage, res: ServerResponse, target: ViewerTarget): void {
+export function proxyViewerHttp(req: IncomingMessage, res: ServerResponse, target: ViewerTarget, assetBase?: string): void {
   validateTarget(target);
+  const path = (req.url ?? '').split('?')[0];
+  if (assetBase && ['GET', 'HEAD'].includes(req.method ?? '') && (path === `${target.prefix}/` || path === `${target.prefix}/index.html`)) {
+    const html = viewerHtml(assetBase);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(html), 'x-content-type-options': 'nosniff' });
+    res.end(req.method === 'HEAD' ? undefined : html); return;
+  }
   const upstream = http.request({ hostname: '127.0.0.1', port: target.port,
     path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${target.port}` } }, response => {
     res.writeHead(response.statusCode ?? 502, { ...response.headers, 'cache-control': 'no-store' });
