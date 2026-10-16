@@ -53,6 +53,35 @@ test('terrain exploration proposes observed shallow cut and fill with an escape 
   assert.equal(f.dug.length, 0); assert.equal(f.placed.length, 0); assert.equal(f.visited.length, 0);
 });
 
+test('fixed-site re-observation proposes and prepares the original coordinates instead of selecting an easier different plot', async () => {
+  const f = fixture(), origin = { x: 5, y: 64, z: 5 };
+  f.stock.set('dirt', 64); // Fixed-site fill needs actual soil in this fixture.
+  f.explore.params = { ...f.explore.params, fixedOrigin: origin, searchRadius: 32 };
+  const proposed = await exploreBuildSite(f.explore, f.services);
+  assert.equal(proposed.outcome, 'completed');
+  const plan = proposed.checkpoint.buildSitePreparation as BuildSitePreparation;
+  assert.ok(plan); assert.deepEqual(plan.origin, origin);
+  assert.equal(f.dug.length, 0); assert.equal(f.placed.length, 0);
+  const prepared = await prepareBuildSite(f.prep(plan), f.services);
+  assert.equal(prepared.outcome, 'completed'); assert.ok(f.placed.length > 0);
+  assert.deepEqual((prepared.checkpoint.buildSite as { origin: Position }).origin, origin);
+  assert.ok(validateBuildSitePreparation(plan, observePreparation(f.services, plan), { allowCompletedEdits: true }).ok);
+});
+
+test('a fixed plot above the actual spawn uses observed one-block slope steps without moving its origin', async () => {
+  const f = fixture(), origin = { x: 6, y: 66, z: -2 };
+  for (let x = -4; x <= 16; x++) for (let z = -5; z <= 7; z++) for (let y = 59; y <= 72; y++) {
+    const top = x <= 0 ? 63 : x === 1 ? 64 : 65;
+    f.cells.set(`${x},${y},${z}`, y < top ? 'dirt' : y === top ? 'grass_block' : 'air');
+  }
+  f.explore.params = { ...f.explore.params, fixedOrigin: origin, searchRadius: 32 };
+  const proposed = findBuildSitePreparation(f.explore, f.services); assert.ok(proposed);
+  assert.deepEqual(proposed.plan.origin, origin); assert.ok(proposed.plan.path.some(p => p.y === 65));
+  assert.equal(proposed.plan.path.at(-1)!.y, 66); assert.ok(validateBuildSitePreparation(proposed.plan, proposed.blocks).ok);
+  const result = await prepareBuildSite(f.prep(proposed.plan), f.services); assert.equal(result.outcome, 'completed');
+  assert.deepEqual((result.checkpoint.buildSite as { origin: Position }).origin, origin); assert.equal(f.dug.length, 0);
+});
+
 test('custom dimensions and pinned definition survive terrain proposal and actual site preparation', async () => {
   const f = fixture(), definition = BlueprintDefinitionSchema.parse({ id: randomUUID(), version: 2, createdAt: 1, updatedAt: 2, title: '사용자 창고', template: 'warehouse', width: 6, depth: 5, height: 3, wood: 'spruce',
     materials: { floor: 'cobblestone', wall: 'stone_bricks', roof: 'spruce_planks', window: 'glass' }, furniture: { chest: false, craftingTable: false, furnace: false, bed: false, lighting: false } });

@@ -15,6 +15,9 @@ import { ControlStore, type CommandReceipt, type StoredEvent } from './store';
 import { proxyViewerHttp, proxyViewerUpgrade, type ViewerTarget } from './viewer-proxy';
 
 export interface FleetControlPort {
+  readonly controllerEpoch?: string;
+  getAgents?(): Agent[];
+  getRules?(): Rules;
   getSnapshot(): FleetSnapshot;
   checkpoint(): FleetCheckpoint;
   addAgent(input: BotInput, commandId?: string): Agent;
@@ -73,10 +76,16 @@ export function createControlServer(options: ControlServerOptions) {
 
   /** Connect this function to FleetController.onChange after constructing the controller. */
   function observe(_snapshot: FleetSnapshot, event: CoreEvent): void {
+    observeEvent(event);
+  }
+  function observeEvent(event: CoreEvent): void {
     if (closed) return;
     dirtySnapshot = true;
-    const heartbeat = event.type === 'bot.status';
-    if (heartbeat) checkpointDirty = true;
+    const transient = ['bot.status', 'world.observed', 'task.progress'].includes(event.type);
+    if (transient) {
+      checkpointDirty = true;
+      if (event.type !== 'bot.status') { store.appendEvent(event as unknown as StoredEvent); broadcast('event', event, event.id); }
+    }
     else {
       store.saveCheckpoint(core.checkpoint(), event as unknown as StoredEvent);
       checkpointDirty = false;
@@ -87,7 +96,7 @@ export function createControlServer(options: ControlServerOptions) {
   }
 
   function viewerTarget(botId: string): ViewerTarget | undefined {
-    const agent = core.getSnapshot().agents.find(bot => bot.id === botId);
+    const agent = (core.getAgents?.() ?? core.getSnapshot().agents).find(bot => bot.id === botId);
     if (!agent?.session || agent.session.state === 'stopped' || agent.viewer.state !== 'ready') return undefined;
     const expected = viewerPorts.get(botId);
     const prefix = `/viewer/${encodeURIComponent(botId)}`;
@@ -140,7 +149,7 @@ export function createControlServer(options: ControlServerOptions) {
         return;
       }
       if (req.method === 'GET' && path === '/api/v1/health') {
-        json(res, 200, { ok: true, controllerEpoch: core.getSnapshot().controllerEpoch }); return;
+        json(res, 200, { ok: true, controllerEpoch: core.controllerEpoch ?? core.getSnapshot().controllerEpoch }); return;
       }
       if (req.method === 'GET' && path === '/api/v1/snapshot') { json(res, 200, core.getSnapshot()); return; }
       if (req.method === 'GET' && path === '/api/v1/blueprints') { json(res, 200, core.getSnapshot().blueprints); return; }
@@ -260,12 +269,12 @@ export function createControlServer(options: ControlServerOptions) {
 
   const snapshotTimer = setInterval(() => {
     if (checkpointDirty) { store.saveCheckpoint(core.checkpoint()); checkpointDirty = false; }
-    if (dirtySnapshot) { broadcast('snapshot', core.getSnapshot()); dirtySnapshot = false; }
+    if (dirtySnapshot) { if (clients.size) broadcast('snapshot', core.getSnapshot()); dirtySnapshot = false; }
   }, 1000);
   snapshotTimer.unref();
   const keepAliveTimer = setInterval(() => { for (const client of clients) client.write(': heartbeat\n\n'); }, 15_000);
   keepAliveTimer.unref();
-  const pruneTimer = setInterval(() => store.prune(core.getSnapshot().rules.logRetentionDays), 60 * 60 * 1000);
+  const pruneTimer = setInterval(() => store.prune((core.getRules?.() ?? core.getSnapshot().rules).logRetentionDays), 60 * 60 * 1000);
   pruneTimer.unref();
 
   async function listen(): Promise<AddressInfo> {
@@ -273,7 +282,7 @@ export function createControlServer(options: ControlServerOptions) {
       server.once('error', reject);
       server.listen(options.port ?? 3001, options.host ?? '127.0.0.1', () => { server.off('error', reject); resolve(); });
     });
-    store.prune(core.getSnapshot().rules.logRetentionDays);
+    store.prune((core.getRules?.() ?? core.getSnapshot().rules).logRetentionDays);
     return server.address() as AddressInfo;
   }
   async function close(): Promise<void> {
@@ -285,7 +294,7 @@ export function createControlServer(options: ControlServerOptions) {
     clients.clear();
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
-  return { server, listen, close, observe, broadcastCommand: (receipt: CommandReceipt) => broadcast('command', receipt) };
+  return { server, listen, close, observe, observeEvent, broadcastCommand: (receipt: CommandReceipt) => broadcast('command', receipt) };
 }
 
 class HttpError extends Error {

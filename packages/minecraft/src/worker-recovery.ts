@@ -1,6 +1,9 @@
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { ContainerRefSchema, ItemStackSchema, PositionSchema, type BuildWaitingFor, type JsonObject, type Position } from '../../contracts/src';
+import { HOSTILES } from './combat-policy';
+import { foodSearchObservationArea } from './resource-recovery';
+import { duskOrNight } from './night-burrow';
 
 export function watchedPositions(condition: BuildWaitingFor): Position[] {
   return condition.kind === 'blocks' ? condition.positions : condition.resourcePositions ?? [];
@@ -35,16 +38,18 @@ export interface FoodRecoveryKnowledge {
 export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retreatHealth: number, knowledge: FoodRecoveryKnowledge): string {
   const names = new Set<string>(Array.isArray(checkpoint.resourceNames) ? checkpoint.resourceNames.filter((name): name is string => typeof name === 'string') : []);
   const records = checkpoint.resourceRecovery;
+  const searchArea = foodSearchObservationArea(checkpoint);
   if (!knowledge.origin && records && typeof records === 'object' && !Array.isArray(records)) for (const state of Object.values(records)) {
     if (!state || typeof state !== 'object' || Array.isArray(state)) continue;
     const parsed = PositionSchema.safeParse(state.origin);
     if (parsed.success) { knowledge.origin = parsed.data; break; }
   }
   knowledge.origin ??= { x: Math.floor(bot.entity.position.x), y: Math.floor(bot.entity.position.y), z: Math.floor(bot.entity.position.z) };
+  const scanCenter = searchArea?.center ?? knowledge.origin, radius = searchArea?.radius ?? 48;
   const cells = new Map([...knowledge.blocks].map(([key, block]) => [key, block.position]));
   for (const p of recoveryPositions(checkpoint)) cells.set(`${p.x},${p.y},${p.z}`, p);
   if (names.size && bot.findBlocks) {
-    for (const p of bot.findBlocks({ point: new Vec3(knowledge.origin.x, knowledge.origin.y, knowledge.origin.z), matching: block => names.has(block.name), maxDistance: 48, count: 64, useExtraInfo: true })) {
+    for (const p of bot.findBlocks({ point: new Vec3(scanCenter.x, scanCenter.y, scanCenter.z), matching: block => names.has(block.name), maxDistance: radius, count: 64, useExtraInfo: true })) {
       cells.set(`${p.x},${p.y},${p.z}`, { x: p.x, y: p.y, z: p.z });
     }
   }
@@ -58,8 +63,10 @@ export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retrea
     knowledge.blocks.set(key, { position: p, name: block.name, state: age === undefined ? '' : `age:${age}` });
   }
   const blocks = [...knowledge.blocks].map(([key, block]) => [key, block.name, block.state]).sort((a, b) => a[0].localeCompare(b[0]));
-  const anchor = knowledge.origin;
-  const entities = Object.values(bot.entities).filter(entity => names.has(entity.name ?? '') && Math.hypot(entity.position.x - anchor.x, entity.position.z - anchor.z) <= 48 && Math.abs(entity.position.y - anchor.y) <= 8).map(entity => [entity.id, entity.name, Math.floor(entity.position.x), Math.floor(entity.position.y), Math.floor(entity.position.z)]).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const threats = Object.values(bot.entities).filter(entity => HOSTILES.has(entity.name ?? ''));
+  const threatened = [...knowledge.blocks].filter(([, block]) => threats.some(entity => Math.hypot(entity.position.x - block.position.x, entity.position.y - block.position.y, entity.position.z - block.position.z) < 20)).map(([key]) => key).sort();
+  const anchor = scanCenter;
+  const entities = Object.values(bot.entities).filter(entity => names.has(entity.name ?? '') && Math.hypot(entity.position.x - anchor.x, entity.position.z - anchor.z) <= radius && Math.abs(entity.position.y - anchor.y) <= 8).map(entity => [entity.id, entity.name, Math.floor(entity.position.x), Math.floor(entity.position.y), Math.floor(entity.position.z)]).sort((a, b) => Number(a[0]) - Number(b[0]));
   const items = new Map<string, number>();
   for (const item of bot.inventory.items()) items.set(item.name, (items.get(item.name) ?? 0) + item.count);
   const saved = checkpoint.foodWarehouse;
@@ -67,7 +74,10 @@ export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retrea
   const warehouseItems = saved && typeof saved === 'object' && !Array.isArray(saved) && Array.isArray(saved.items) ? ItemStackSchema.array().safeParse(saved.items) : undefined;
   const stock = new Map<string, number>();
   if (warehouseItems?.success) for (const item of warehouseItems.data) stock.set(item.name, (stock.get(item.name) ?? 0) + item.count);
-  return JSON.stringify({ items: [...items].sort(([a], [b]) => a.localeCompare(b)), food: bot.food, criticalHealth: bot.health <= retreatHealth, dimension: bot.game?.dimension, blocks, entities,
+  const burrow=checkpoint.nightBurrow,outside=burrow&&typeof burrow==='object'&&!Array.isArray(burrow)?PositionSchema.safeParse(burrow.outside):undefined;
+  const displaced=outside?.success&&burrow&&typeof burrow==='object'&&!Array.isArray(burrow)&&burrow.phase==='digging'?bot.entity.position.distanceTo(new Vec3(outside.data.x,outside.data.y,outside.data.z))>6:false;
+  return JSON.stringify({ items: [...items].sort(([a], [b]) => a.localeCompare(b)), food: bot.food, criticalHealth: bot.health <= retreatHealth, dimension: bot.game?.dimension, blocks, entities, threatened,
+    ...(checkpoint.nightBurrowPending===true?{shelterWindow:duskOrNight(bot),shelterDisplaced:displaced}:{}),
     ...(warehouse?.success && warehouseItems?.success ? { warehouse: { container: warehouse.data, items: [...stock].sort(([a], [b]) => a.localeCompare(b)) } } : {}) });
 }
 

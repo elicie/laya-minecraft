@@ -20,6 +20,7 @@ export interface ActionServices {
   check(): void;
   pause(ms: number): Promise<void>;
   near(position: Position, radius?: number): Promise<void>;
+  walkVerified?(path: Position[], stand: (p: Position) => boolean): Promise<boolean>;
   ensureItem(item: string, quantity: number): Promise<void>;
   place(position: Position, item: string, expectedName?: string, face?: Position): Promise<void>;
   recoverDrops?(position: Position, item: string, minimum: number, avoidSupports?: Position[]): Promise<void>;

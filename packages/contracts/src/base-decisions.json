@@ -1,0 +1,18 @@
+{
+  "type": "choice",
+  "instructions": "Select the next Minecraft base workflow from the observations and available_actions. Respect user priority and permissions. Handle safe dusk return before distant work. Prefer food production prerequisites when food stock is low. Use observed inventory, warehouse stock and crop maturity; never invent supplies or completed work. Wait when none of the permitted workflows can make progress.",
+  "criteria": {
+    "seed_supply": "Collect missing wheat seeds in a small batch and return them to the registered warehouse.",
+    "wood_supply": "Collect missing natural wood in a small batch for tools and return it to the warehouse.",
+    "farm_setup": "Use available seeds and a hoe to establish or replant the verified irrigated wheat farm.",
+    "farm_harvest": "Harvest actually mature wheat, replant and deposit the produce.",
+    "bake_food": "Use at least three actually observed wheat, withdrawing warehouse supplies if needed, to craft bread at the existing worktable and deposit it.",
+    "base_return": "Return through verified ground and the real doorway to the registered base.",
+    "warehouse_store": "Deposit actually held supplies into the registered warehouse and verify both inventory changes.",
+    "warehouse_take": "Withdraw actually observed warehouse supplies required by the next permitted task.",
+    "tool_craft": "Craft a missing required tool from available materials using the existing worktable.",
+    "explore": "Observe new safe ground for a missing resource when the local verified options are exhausted.",
+    "shelter": "Close the verified base door and remain inside until daylight and a safe exit are observed.",
+    "wait": "Preserve progress and wait for an actual resource, crop, daylight or route condition to change."
+  }
+}

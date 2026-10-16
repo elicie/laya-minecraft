@@ -13,13 +13,13 @@ import { recoverDeathStep } from '../packages/minecraft/src/death-recovery';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { checkAbort, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { restore?: RecoveryState; movementsFactory?(bot: Bot): Movements; execute?(task: TaskSpec, s: ActionServices): Promise<ResultPayload>; retreat?(entity: Entity, s: ActionServices): Promise<void> } = {}) {
+function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movementsFactory?(bot: Bot): Movements; execute?(task: TaskSpec, s: ActionServices): Promise<ResultPayload>; retreat?(entity: Entity, s: ActionServices): Promise<void>; ensureFood?(s: ActionServices): Promise<void> } = {}) {
   const emitter = new EventEmitter(), messages: WorkerMessage[] = [], items: ItemStack[] = [], moved: Position[] = [];
   let clock = Date.now(), executions = 0, retreats = 0, fights = 0, collected = 0;
   const cells = new Map<string, { name: string; boundingBox: 'empty' | 'block'; stateId?: number } | null>();
   const launch = WorkerLaunchSchema.parse({ botId: 'SurvivalBot', sessionId: 'session', controllerEpoch: 'epoch', config: { name: 'SurvivalBot' }, rules: { world: '127.0.0.1:25566' }, ...(options.restore ? { restoreRecovery: options.restore } : {}) });
   const bot = Object.assign(emitter, {
-    health: 20, food: 20, game: { dimension: 'overworld' }, entity: { id: 1, position: new Vec3(0, 64, 0) }, entities: {} as Record<number, Entity>, players: {},
+    health: 20, food: 20, game: { dimension: 'overworld', minY: -64 }, entity: { id: 1, position: new Vec3(0, 64, 0) }, entities: {} as Record<number, Entity>, players: {},
     inventory: Object.assign(new EventEmitter(), { items: () => items, slots: Array.from({ length: 46 }, () => null) }),
     currentWindow: { items: () => [{ name: 'diamond', count: 64 }] },
     pathfinder: {
@@ -35,13 +35,15 @@ function fixture(options: { restore?: RecoveryState; movementsFactory?(bot: Bot)
     blockAt(raw: Vec3) {
       const p = raw.floored(), k = `${p.x},${p.y},${p.z}`;
       const value = cells.has(k) ? cells.get(k) : { name: p.y < 64 ? 'grass_block' : 'air', boundingBox: p.y < 64 ? 'block' : 'empty', stateId: p.y < 64 ? 1 : 0 };
-      return value ? { ...value, position: p, getProperties: () => ({}) } : null;
+      return value ? { ...value, type: bot.registry?.blocksByName[value.name]?.id, shapes: value.boundingBox === 'block' ? [[0,0,0,1,1,1]] : [], position: p, getProperties: () => ({}) } : null;
     },
     clearControlStates() {}, deactivateItem() {}, stopDigging() {}, quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class Executor extends MineflayerExecutor {
+    override async ensureFood(s: ActionServices): Promise<void> { if (options.ensureFood) return options.ensureFood(s); return super.ensureFood(s); }
     override async near(p: Position, signal: AbortSignal): Promise<void> {
-      checkAbort(signal); moved.push({ ...p }); bot.entity.position = new Vec3(p.x, p.y, p.z);
+      checkAbort(signal); if (options.moveDelayMs) await new Promise(resolve => setTimeout(resolve, options.moveDelayMs)); checkAbort(signal);
+      moved.push({ ...p }); bot.entity.position = new Vec3(p.x, p.y, p.z);
       for (const [id, entity] of Object.entries(bot.entities)) {
         if (entity.name !== 'item' || entity.position.distanceTo(bot.entity.position) > 1.5) continue;
         const drop = entity.getDroppedItem?.(); if (!drop) continue;
@@ -76,6 +78,104 @@ function fixture(options: { restore?: RecoveryState; movementsFactory?(bot: Bot)
     get executions() { return executions; }, get retreats() { return retreats; }, get fights() { return fights; }, get collected() { return collected; },
   };
 }
+
+test('vanished hit sources and alternating nearest pillagers share one passive emergency instead of restarting every poll', async () => {
+  const attempted: string[] = [];
+  const f = fixture({ async retreat(e) { attempted.push(e.name!); throw new ConditionWait('observed routes blocked'); } });
+  const stale = { id: 9, uuid: 'vanished-phantom', name: 'phantom', position: new Vec3(1,64,0) } as unknown as Entity;
+  const first = { id: 2, uuid: 'pillager-a', name: 'pillager', position: new Vec3(10.1,64,0) } as unknown as Entity;
+  const second = { id: 3, uuid: 'pillager-b', name: 'pillager', position: new Vec3(10.2,64,0) } as unknown as Entity;
+  f.bot.entities[2] = first; f.bot.entities[3] = second; f.emitter.emit('entityHurt', f.bot.entity, stale);
+  try {
+    f.worker.pollSafety(); await settle(); assert.deepEqual(attempted, ['pillager']);
+    for (let i = 0; i < 20; i++) {
+      first.position.x = i % 2 ? 10.2 : 10.1; second.position.x = i % 2 ? 10.1 : 10.2;
+      f.advance(300); f.worker.pollSafety(); await settle();
+    }
+    assert.equal(f.retreats, 1); assert.equal(f.messages.filter(m => m.type === 'safety.alert').length, 2);
+    f.bot.health = 5; f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 2, 'a real survival change is re-evaluated after the cooldown');
+    delete f.bot.entities[2]; delete f.bot.entities[3]; f.bot.health = 20;
+    f.worker.pollSafety(); await settle(); await f.worker.receive(f.assign('after-threat-left'));
+    assert.equal(f.executions, 1, 'confirmed absence releases the original work gate');
+  } finally { await f.worker.shutdown(); }
+});
+
+test('dusk interrupts ordinary work before an enemy appears and preserves its actual progress for shelter',async()=>{
+ const f=fixture({async execute(_task,s){s.checkpoint.verifiedProgress='kept';await s.pause(60000);return{outcome:'completed',observations:[],evidence:[],checkpoint:s.checkpoint};}});let shelters=0;
+ f.worker.executor.shelterAtNight=async s=>{shelters++;s.checkpoint.nightBasePending=true;await s.pause(60000);return true;};
+ try{
+  await f.worker.receive(f.assign('before-dusk'));await settle();
+  Object.assign(f.bot,{time:{isDay:true,timeOfDay:9000,doDaylightCycle:true}});f.worker.pollSafety();await settle();
+  assert.equal(shelters,1);assert.ok(f.messages.some(m=>m.type==='task.interrupted'&&m.payload.checkpoint.verifiedProgress==='kept'));
+ }finally{await f.worker.shutdown();}
+});
+
+test('an actually observed phantom is included in danger handling and is never remembered after leaving', async () => {
+  const f = fixture({ async retreat() { throw new ConditionWait('observed routes blocked'); } });
+  const phantom = { id: 4, uuid: 'phantom-present', name: 'phantom', position: new Vec3(2,64,0) } as unknown as Entity;
+  try {
+    f.bot.entities[4] = phantom; f.bot.health = 5; f.emitter.emit('entityHurt', f.bot.entity, phantom);
+    f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 1);
+    delete f.bot.entities[4]; f.bot.health = 20; f.worker.pollSafety(); await settle();
+    await f.worker.receive(f.assign('phantom-left')); assert.equal(f.executions, 1);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('an enabled unprotected worker leaves an actually visible nearby ranged threat before the first hit', async () => {
+  for (const mode of ['visible', 'covered', 'paused'] as const) {
+    const f = fixture({ async retreat() { throw new ConditionWait('observed escape needs support'); } });
+    const enemy = { id: 2, uuid: 'visible-pillager', name: 'pillager', position: new Vec3(18,64,0), height: 1.8 } as unknown as Entity;
+    Object.assign(f.bot, { world: { raycast: () => mode === 'covered' ? { position: new Vec3(4,65,0) } : null } });
+    if (mode === 'paused') f.launch.config.enabled = false;
+    try {
+      f.bot.entities[2] = enemy; f.worker.pollSafety(); await settle();
+      assert.equal(f.retreats,mode === 'visible' ? 1 : 0);
+      assert.equal(f.fights,0,'observing exposure authorizes escape, never an unprovoked attack');
+    } finally { await f.worker.shutdown(); }
+  }
+});
+
+test('a visible close melee mob also triggers escape before an unarmed resource worker is struck',async()=>{
+  const f=fixture({async retreat(){throw new ConditionWait('observed escape still needs support');}});
+  Object.assign(f.bot,{world:{raycast:()=>null}});f.bot.entities[2]={id:2,uuid:'approaching-zombie',name:'zombie',position:new Vec3(10,64,0)} as unknown as Entity;
+  try{f.worker.pollSafety();await settle();assert.equal(f.retreats,1);assert.equal(f.fights,0);}finally{await f.worker.shutdown();}
+});
+
+test('an armed worker also escapes a visible creeper before the first hit while cover and pause still gate proactive movement',async()=>{
+  for(const mode of ['visible','covered','paused','already-attacked'] as const){
+    let escaped:Entity|undefined;const f=fixture({async retreat(e){escaped=e;throw new ConditionWait('actual blast escape needs a verified route');}});
+    f.items.push({name:'wooden_axe',count:1});Object.assign(f.bot,{world:{raycast:()=>mode==='covered'?{position:new Vec3(4,65,0)}:null}});
+    const creeper={id:2,uuid:'actual-close-creeper',name:'creeper',position:new Vec3(10,64,0)} as unknown as Entity;f.bot.entities[2]=creeper;
+    if(mode==='paused')f.launch.config.enabled=false;
+    if(mode==='already-attacked'){const zombie={id:3,uuid:'prior-attacker',name:'zombie',position:new Vec3(2,64,0)} as unknown as Entity;f.bot.entities[3]=zombie;f.emitter.emit('entityHurt',f.bot.entity,zombie);}
+    try{f.worker.pollSafety();await settle();assert.equal(f.retreats,mode==='covered'||mode==='paused'?0:1);assert.equal(f.fights,0);if(f.retreats)assert.equal(escaped?.uuid,creeper.uuid);}finally{await f.worker.shutdown();}
+  }
+});
+
+test('urgent hunger does not veto a verified safe exit after item recovery is already resolved', async () => {
+  let foodChecks=0;
+  const state=recovery(Date.now(),[]);state.phase='resolved';state.safe=false;
+  const f=fixture({restore:state,async ensureFood(){foodChecks++;throw new ConditionWait('fresh food routes still need an actual source');}});
+  try {
+    f.cells.set('-1,63,0',{name:'air',boundingBox:'empty'});f.cells.set('-1,62,0',{name:'air',boundingBox:'empty'});f.bot.health=6.333;f.bot.food=17;f.items.push({name:'oak_log',count:5});
+    f.worker.pollSafety();await settle();
+    assert.ok(f.moved.length>0,'the low-health food episode may first leave its actually stable cliff-adjacent starting tile');
+    assert.equal(latestRecovery(f.messages).safe,true);assert.equal(f.items[0]!.count,5);
+    f.advance();f.worker.pollSafety();await settle();assert.equal(foodChecks,1);assert.equal(f.executions,0,'safe footing does not manufacture food or complete the wood goal');
+  } finally { await f.worker.shutdown(); }
+});
+
+test('a departed enemy releases a cliff-edge emergency only after an actual safe exit and does not strand the work gate', async () => {
+  const f = fixture({ async retreat() { throw new ConditionWait('cliff exit blocked by enemy'); } });
+  const target = { id: 2, uuid: 'edge-skeleton', name: 'skeleton', position: new Vec3(2,64,0) } as unknown as Entity;
+  try {
+    f.cells.set('-1,63,0', { name: 'air', boundingBox: 'empty' }); f.cells.set('-1,62,0', { name: 'air', boundingBox: 'empty' });
+    f.bot.entities[2] = target; f.emitter.emit('entityHurt', f.bot.entity, target); f.worker.pollSafety(); await settle();
+    assert.equal(f.retreats, 1); assert.equal(f.moved.length, 0);
+    delete f.bot.entities[2]; f.advance(5001); f.worker.pollSafety(); await settle();
+    assert.ok(f.moved.length > 0); await f.worker.receive(f.assign('safe-after-departure')); assert.equal(f.executions, 1);
+  } finally { await f.worker.shutdown(); }
+});
 async function settle() { for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve)); }
 function latestRecovery(messages: WorkerMessage[]): RecoveryState {
   const message = messages.filter(message => message.type === 'bot.recovery').at(-1);
@@ -92,9 +192,18 @@ test('movement never uses recovered dirt as an implicit bridge or tower inside a
     assert.equal(new Movements(f.bot).countScaffoldingItems(), 1, 'the installed library normally accepts this dirt for bridges');
     assert.equal(f.bot.pathfinder.movements.countScaffoldingItems(), 0);
     assert.equal(f.bot.pathfinder.movements.getScaffoldingItem(), null);
+    assert.equal(f.bot.pathfinder.movements.maxDropDown, 2, 'pathfinder counts to support: two means a one-block foot descent');
+    f.cells.set('1,63,0', { name: 'air', boundingBox: 'empty' });
+    f.cells.set('0,63,1', { name: 'air', boundingBox: 'empty' }); f.cells.set('0,62,1', { name: 'air', boundingBox: 'empty' });
+    const node = Object.assign(new Vec3(0,64,0), { remainingBlocks: 0, cost: 0, toBreak: [], toPlace: [], parkour: false, hash: '0,64,0' });
+    const neighbors = f.bot.pathfinder.movements.getNeighbors(node);
+    assert.ok(neighbors.some(p => p.x === 1 && p.y === 63 && p.z === 0), 'the installed library must generate a real one-block foot descent');
+    assert.equal(neighbors.some(p => p.x === 0 && p.y === 62 && p.z === 1), false, 'two-block foot descents remain excluded');
+    assert.equal(f.bot.pathfinder.movements.infiniteLiquidDropdownDistance, false);
     await f.die(); f.respawn(); await settle();
     f.items.push({ name: 'dirt', count: 1, ...{ type: f.bot.registry.itemsByName.dirt!.id } });
     assert.equal(f.bot.pathfinder.movements.countScaffoldingItems(), 0, 'respawn also prevents the real library from using recovered dirt');
+    assert.equal(f.bot.pathfinder.movements.maxDropDown, 2);
   } finally { await f.worker.shutdown(); }
 });
 
@@ -286,6 +395,36 @@ test('paused recovery and expired drops preserve truthful counts without optiona
   } finally { await f.worker.shutdown(); }
 });
 
+test('resolved empty-inventory recovery leaves a stable cliff-adjacent respawn and admits the preserved ordinary task only after safe arrival', async () => {
+  const state = recovery(Date.now(), []); state.phase = 'resolved'; state.safe = false;
+  state.checkpoint.deathRecovery = { anchor: { x: 0, y: 64, z: 0 }, lastInventory: [], credited: {}, elapsedMs: 60000, failed: [], probes: [] };
+  const f = fixture({ restore: state, moveDelayMs: 10 });
+  try {
+    f.cells.set('-1,63,0', { name: 'air', boundingBox: 'empty' }); f.cells.set('-1,62,0', { name: 'air', boundingBox: 'empty' });
+    await f.worker.receive(f.assign('before-exit')); assert.equal(f.executions, 0);
+    f.worker.pollSafety(); await new Promise(resolve => setTimeout(resolve, 30)); await settle();
+    const resolved = latestRecovery(f.messages); assert.equal(resolved.phase, 'resolved'); assert.equal(resolved.safe, true);
+    assert.equal(resolved.attemptCount, 0); assert.equal(f.collected, 0); assert.ok(f.moved.length > 0);
+    assert.equal((resolved.checkpoint.deathRecovery as JsonObject).elapsedMs, 60000, 'finished item-recovery time cannot cancel the distinct safety exit');
+    assert.ok(f.bot.entity.position.x >= 1); assert.equal((resolved.checkpoint.recoverySafety as JsonObject).attempts, 1);
+    await f.worker.receive(f.assign('after-exit')); assert.equal(f.executions, 1);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('resolved recovery never starts on missing support or near a hostile and keeps its safety wait across clocks', async () => {
+  for (const reason of ['unknown-support', 'hostile', 'paused'] as const) {
+    const f = fixture(), state = recovery(f.now(), []); state.phase = 'resolved';
+    try {
+      f.cells.set('-1,63,0', { name: 'air', boundingBox: 'empty' }); f.cells.set('-1,62,0', { name: 'air', boundingBox: 'empty' });
+      if (reason === 'unknown-support') f.cells.set('0,63,0', null);
+      if (reason === 'hostile') f.bot.entities[2] = { id: 2, name: 'zombie', position: new Vec3(3,64,0) } as unknown as Entity;
+      for (let i = 0; i < 3; i++) { await recoverDeathStep(f.bot, state, f.service(state), () => {}, reason !== 'paused', f.now); f.advance(); }
+      assert.equal(state.phase, 'resolved'); assert.equal(state.safe, false); assert.equal(f.moved.length, 0); assert.equal(state.attemptCount, 0);
+      if (reason !== 'paused') assert.equal((state.checkpoint.recoverySafety as JsonObject).attempts, 0);
+    } finally { await f.worker.shutdown(); }
+  }
+});
+
 test('a nearby recovery threat requests deduplicated support, preserves recovery, and never approaches the hostile corpse', async () => {
   const f = fixture({ restore: recovery(Date.now()) });
   try {
@@ -320,9 +459,43 @@ test('failed emergency response does not retry on a clock or unknown terrain; a 
     f.cells.set('1,64,1', null); f.advance(); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 1);
     f.cells.set('1,64,1', { name: 'air', boundingBox: 'empty', stateId: 1 });
     f.advance(); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 2, 'a loaded state change can re-evaluate the safe route');
-    skeleton.position.x += 1; f.advance(100); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 2, 'real changes still obey minimum cooldown');
-    f.advance(5001); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 3);
+    skeleton.position.x += 0.1; f.advance(5001); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 2, 'minor motion within the same threat area does not restart blocked routes');
+    skeleton.position.x += 2; f.advance(100); f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 3, 'a new observed threat area re-evaluates routes after the cooldown');
     const support = f.messages.filter(message => message.type === 'safety.alert').at(-1);
     assert.ok(support?.type === 'safety.alert'); assert.equal(support.payload.threats[0]?.entityId, 'support-uuid');
+  } finally { await f.worker.shutdown(); }
+});
+
+test('an emergency admission rejection reports the actual threat mode and resumes only after the real emergency ends', async () => {
+  const f = fixture({ async retreat() { throw new ConditionWait('actual threat still blocks safe work'); } });
+  try {
+    Object.assign(f.bot, { world: { raycast: () => null } });
+    f.bot.entities[2] = { id: 2, uuid: 'actual-nearby-zombie', name: 'zombie', position: new Vec3(6,64,0) } as unknown as Entity;
+    f.worker.pollSafety(); await settle();
+    await f.worker.receive(f.assign('emergency-race'));
+    const index = f.messages.findIndex(m => m.type === 'task.rejected' && m.attemptId === 'emergency-race'), rejected = f.messages[index]!;
+    assert.equal(rejected.type, 'task.rejected'); if (rejected.type === 'task.rejected') assert.equal(rejected.payload.blockedBy, 'emergency');
+    const prior = f.messages[index - 1]!; assert.equal(prior.type, 'bot.status'); if (prior.type === 'bot.status') assert.equal(prior.payload.mode, 'emergency');
+    assert.equal(f.executions, 0);
+    delete f.bot.entities[2]; f.advance(5001); f.worker.pollSafety(); await settle();
+    await f.worker.receive(f.assign('after-emergency')); assert.equal(f.executions, 1);
+  } finally { await f.worker.shutdown(); }
+});
+
+for (const blockedBy of ['paused', 'rules', 'busy', 'not-ready'] as const) test(`worker labels an actual ${blockedBy} admission change before accepting any new effects`, async () => {
+  const f = fixture();
+  try {
+    if (blockedBy === 'paused') await f.worker.receive(f.envelope('rules.update', { config: { ...f.launch.config, enabled: false }, rules: f.launch.rules, mode: 'immediate' }));
+    if (blockedBy === 'busy') await f.worker.receive(f.assign('existing-execution'));
+    if (blockedBy === 'not-ready') await f.die();
+    const assignment = f.assign('state-race'); if (blockedBy === 'rules') (assignment.payload as { rulesVersion: number }).rulesVersion++;
+    await f.worker.receive(assignment);
+    const index = f.messages.findIndex(m => m.type === 'task.rejected' && m.attemptId === 'state-race'), rejected = f.messages[index]!;
+    assert.equal(rejected.type, 'task.rejected'); if (rejected.type === 'task.rejected') { assert.equal(rejected.payload.blockedBy, blockedBy); assert.equal(rejected.payload.retryable, true); }
+    const prior = f.messages[index - 1]!; assert.equal(prior.type, 'bot.status');
+    if (prior.type === 'bot.status' && blockedBy === 'not-ready') assert.equal(prior.payload.ready, false);
+    if (prior.type === 'bot.status' && blockedBy === 'busy') assert.equal(prior.payload.currentAttemptId, 'existing-execution');
+    assert.equal(f.executions, blockedBy === 'busy' ? 1 : 0);
+    assert.equal(f.messages.some(m => m.type === 'task.accepted' && m.attemptId === 'state-race'), false);
   } finally { await f.worker.shutdown(); }
 });

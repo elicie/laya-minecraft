@@ -4,6 +4,13 @@ import { Vec3 } from 'vec3';
 import { InventoryViewSchema, type InventorySlotItem, type InventoryView, type ItemStack, type ObservationInput, type Position } from '../../contracts/src';
 
 export function position(p: Position): Position { return { x: p.x, y: p.y, z: p.z }; }
+/** Match public walking nodes when feet rest on a nearly full solid surface. */
+export function walkingFeet(bot: Bot, p: Position = bot.entity.position): Vec3 {
+  const actual=vector(p),feet=actual.floored(),block=bot.blockAt(feet);
+  const height=block?.shapes?.length?Math.max(...block.shapes.map(shape=>shape[4]!)):1;
+  if(block?.boundingBox==='block'&&height>.9&&height<1&&Math.abs(actual.y-feet.y-height)<.025)feet.y++;
+  return feet;
+}
 export function worldOf(bot: Bot, host: string, port: number): { world: string; dimension: string } {
   return { world: `${host}:${port}`, dimension: String(bot.game?.dimension ?? 'overworld') };
 }

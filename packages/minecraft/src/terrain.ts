@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Vec3 } from 'vec3';
 import { resolveBlueprint } from '../../contracts/src/blueprints';
-import { BuildSitePreparationSchema, preparationProofPositions, preparationSiteCells, validateBuildSitePreparation, matchesPreparationTarget, isPreparationTerrain, isPreparationVegetation, isBuildSiteAir, isBuildSiteGround, type BuildSitePreparation, type ExpectedBlock, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
+import { BuildSitePreparationSchema, PositionSchema, preparationProofPositions, preparationSiteCells, validateBuildSitePreparation, matchesPreparationTarget, isPreparationTerrain, isPreparationVegetation, isBuildSiteAir, isBuildSiteGround, type BuildSitePreparation, type ExpectedBlock, type Position, type ResultPayload, type TaskSpec } from '../../contracts/src';
 import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './services';
 import { preserveMaterialWait } from './material-wait';
 
@@ -75,8 +75,11 @@ export function findBuildSitePreparation(task: TaskSpec, s: ActionServices): { p
     return true;
   };
   const origins: Position[] = [];
+  const fixed = task.params.fixedOrigin === undefined ? undefined : PositionSchema.safeParse(task.params.fixedOrigin);
+  if (fixed && (!fixed.success || !Object.values(fixed.data).every(Number.isInteger))) return;
   const anchor = { x: Math.floor(near.x - (dimensions.width - 1) / 2), z: Math.floor(near.z - (dimensions.depth - 1) / 2) };
-  for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) if (Math.hypot(anchor.x + dx + (dimensions.width - 1) / 2 - near.x, anchor.z + dz + (dimensions.depth - 1) / 2 - near.z) <= radius) origins.push({ x: anchor.x + dx, y: start.y, z: anchor.z + dz });
+  if (fixed?.success) origins.push(fixed.data);
+  else for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) if (Math.hypot(anchor.x + dx + (dimensions.width - 1) / 2 - near.x, anchor.z + dz + (dimensions.depth - 1) / 2 - near.z) <= radius) origins.push({ x: anchor.x + dx, y: start.y, z: anchor.z + dz });
   origins.sort((a, b) => Math.hypot(a.x - anchor.x, a.z - anchor.z) - Math.hypot(b.x - anchor.x, b.z - anchor.z));
   let best: { plan: BuildSitePreparation; blocks: ExpectedBlock[]; cost: number } | undefined;
   let evaluated = 0;
@@ -106,9 +109,10 @@ export function findBuildSitePreparation(task: TaskSpec, s: ActionServices): { p
       const node = queue.shift()!; if (visited.has(key(node.p))) continue; visited.add(key(node.p));
       if (key(node.p) === key(entrance)) { route = node; break; }
       if (node.path.length >= 65) continue;
-      for (const [dx, dz] of horizontal) {
-        const p = shift(node.p, dx, 0, dz);
+      for (const [dx, dz] of horizontal) for (const dy of fixed?.success ? [0, 1, -1] : [0]) {
+        const p = shift(node.p, dx, dy, dz);
         if (visited.has(key(p)) || Math.hypot(p.x - near.x, p.z - near.z) > radius || protectedCells.has(key(p))) continue;
+        if (Math.abs(p.y - start.y) > 8 || dy > 0 && !isBuildSiteAir(read(shift(node.p, 0, 2, 0))?.name ?? '') || dy < 0 && !isBuildSiteAir(read(shift(p, 0, 2, 0))?.name ?? '')) continue;
         const combined = new Map(node.edits);
         if (!column(p, 1, combined)) continue;
         queue.push({ p, path: [...node.path, p], edits: combined, cost: node.cost + 1 + Math.max(0, combined.size - node.edits.size) * 2 });

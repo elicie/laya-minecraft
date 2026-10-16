@@ -9,6 +9,11 @@ import { ActionFailure, ConditionWait, inVillage, type ActionServices } from './
 import { findBuildSitePreparation, prepareBuildSite } from './terrain';
 import { preserveMaterialWait } from './material-wait';
 import { prepareBuildAccess, proposeBuildAccess } from './build-access-recovery';
+import { resourceTrip } from './resource-trip';
+import { observationBase,walkingFeet } from './observations';
+import {alternateSafeWalk} from './safe-walk';
+import {observedGroundStand} from './observed-ground-walk';
+import {warehouseInterior} from './base-shelter';
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
 const BUILD_SUPPORT = new Set<string>(BUILD_MATERIALS);
@@ -50,6 +55,21 @@ function observedBlocks(s: ActionServices, blocks: ExpectedBlock[]): ExpectedBlo
     const block = at(s, expected.position);
     return block ? [{ position: expected.position, name: block.name }] : [];
   });
+}
+
+/** Finish the usable shell before repeating an already failed window expedition. */
+export function deferBuildWindows(task: TaskSpec, s: ActionServices, item: string): boolean {
+  if (!['glass', 'glass_pane'].includes(item) || count(s, item) > 0 || !['cabin', 'house', 'warehouse'].includes(String(task.params.design ?? task.params.blueprint))) return false;
+  const blocks = task.completion.kind === 'blocks' ? task.completion.blocks : [];
+  if (!blocks.some(b => !['glass', 'glass_pane'].includes(b.name) && at(s, b.position)?.name !== b.name)) return false;
+  const trip = resourceTrip(s.checkpoint);
+  const prior = Array.isArray(s.checkpoint.resourceTripInterruptedLives) ? s.checkpoint.resourceTripInterruptedLives : [];
+  const deferred = s.checkpoint.buildDeferredMaterialFailures as JsonObject | undefined;
+  return !!(deferred?.[item] || trip?.item === item && trip.failure || prior.some(value => value && typeof value === 'object' && !Array.isArray(value) && value.item === item && typeof value.failure === 'string'));
+}
+function rememberWindowDeferral(s: ActionServices, item: string): void {
+  const saved = s.checkpoint.buildDeferredMaterialFailures as JsonObject | undefined;
+  s.checkpoint.buildDeferredMaterialFailures = { ...saved, [item]: { reason: '창문 재료 원정에서 재료를 확보하지 못했습니다.', observedAt: Date.now() } };
 }
 
 function buildWait(s: ActionServices, causeCode: string, message: string, positions: Position[]): never {
@@ -105,7 +125,7 @@ async function buildMaterial(s: ActionServices, item: string, minimum = 1, remai
   }
 }
 
-async function prepareSmallBuildMaterials(s: ActionServices, blocks: ExpectedBlock[], template?: string): Promise<boolean> {
+async function prepareSmallBuildMaterials(task: TaskSpec, s: ActionServices, blocks: ExpectedBlock[], template?: string): Promise<boolean> {
   if (!template || !['cabin', 'house', 'warehouse'].includes(template) || typeof s.bot.inventory.emptySlotCount !== 'function') return false;
   const required = materialRequirements(blocks.filter(expected => at(s, expected.position)?.name !== expected.name));
   const total = Object.values(required).reduce((sum, amount) => sum + amount, 0), empty = s.bot.inventory.emptySlotCount();
@@ -131,6 +151,11 @@ async function prepareSmallBuildMaterials(s: ActionServices, blocks: ExpectedBlo
     s.check(); progress();
     s.checkpoint.buildMaterial = { item, minimum, remaining: minimum, current: count(s, item) };
     if (count(s, item) >= minimum) continue;
+    if (deferBuildWindows(task, s, item)) {
+      rememberWindowDeferral(s, item);
+      partialWaits.push({ item, minimum, current: 0, deferred: true, reason: '실패한 창문 재료 원정보다 창고 본체와 보관함을 먼저 설치합니다.' });
+      progress(); continue;
+    }
     s.progress('건축 재료', `${item} ${count(s, item)}/${minimum}개를 지상에서 준비합니다.`);
     try { await s.ensureItem(item, minimum); s.check(); }
     catch (error) {
@@ -139,7 +164,10 @@ async function prepareSmallBuildMaterials(s: ActionServices, blocks: ExpectedBlo
       const missing = error.checkpoint.missingResource ?? error.checkpoint.missingItem;
       if (error.checkpoint.minimum === undefined && (missing === undefined || missing === item)) error.checkpoint.minimum = minimum;
       const wait = preserveMaterialWait(s, item, error);
-      if (count(s, item) < 1) throw wait;
+      if (count(s, item) < 1) {
+        if (!deferBuildWindows(task, s, item)) throw wait;
+        rememberWindowDeferral(s, item);
+      }
       partialWaits.push({ item, minimum, current: count(s, item), reason: error.message, waitingFor: s.checkpoint.waitingFor! });
       recordInventory(s); progress();
       continue;
@@ -191,13 +219,16 @@ export async function exploreBuildSite(task: TaskSpec, s: ActionServices, now: (
   const radius = Math.min(32, typeof task.params.searchRadius === 'number' ? Math.max(1, task.params.searchRadius) : 32);
   const startedAt = now(), maxAccessAttempts = task.params.allowPreparation === false ? 8 : 2, maxElapsedMs = task.params.allowPreparation === false ? 60000 : 10000;
   const origins: Position[] = [];
+  const fixed = task.params.fixedOrigin === undefined ? undefined : PositionSchema.safeParse(task.params.fixedOrigin);
+  if (fixed && (!fixed.success || !Object.values(fixed.data).every(Number.isInteger))) throw new ConditionWait('고정된 부지의 정수 좌표를 확인해야 합니다.');
   const anchorX = Math.floor(start.x - (dimensions.width - 1) / 2), anchorZ = Math.floor(start.z - (dimensions.depth - 1) / 2);
-  for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) {
+  if (fixed?.success) origins.push(fixed.data);
+  else for (let dx = -32; dx <= 32; dx++) for (let dz = -32; dz <= 32; dz++) {
     const x = anchorX + dx, z = anchorZ + dz;
     if (Math.hypot(x + (dimensions.width - 1) / 2 - start.x, z + (dimensions.depth - 1) / 2 - start.z) <= radius) origins.push({ x, y: Math.floor(start.y), z });
   }
   origins.sort((a, b) => Math.hypot(a.x + (dimensions.width - 1) / 2 - start.x, a.z + (dimensions.depth - 1) / 2 - start.z) - Math.hypot(b.x + (dimensions.width - 1) / 2 - start.x, b.z + (dimensions.depth - 1) / 2 - start.z));
-  const heights = [0, ...Array.from({ length: 8 }, (_, i) => [i + 1, -(i + 1)]).flat()];
+  const heights = fixed?.success ? [0] : [0, ...Array.from({ length: 8 }, (_, i) => [i + 1, -(i + 1)]).flat()];
   const cache = new Map<string, ReturnType<typeof at>>();
   const read = (p: Position) => { const k = key(p); if (!cache.has(k)) cache.set(k, at(s, p)); return cache.get(k)!; };
   const rejected: JsonObject[] = [];
@@ -298,9 +329,18 @@ function validateBuildSite(task: TaskSpec, s: ActionServices, blocks: ExpectedBl
     catch { throw new ConditionWait('고정된 건축 설계도의 형식과 ID를 확인해야 합니다.', s.checkpoint); }
   }
   if (resolved) {
+    const floor = blocks.filter(block => block.position.y === area.origin.y && BUILD_SUPPORT.has(block.name));
+    const completedFoundation = task.source === 'user' && ['cabin', 'house', 'warehouse'].includes(resolved.template) && floor.length === area.width * area.depth && floor.every(block => at(s, block.position)?.name === block.name);
     for (const cell of buildSiteCells(area.origin, area.width, area.depth, area.height)) {
       const current = at(s, cell.position), expected = planned.get(key(cell.position));
       if (!current) buildWait(s, 'BUILD_OBSERVATION', '건축 부지의 실제 블록 관측이 필요합니다.', [cell.position]);
+      const outside = cell.position.x < area.origin.x || cell.position.x >= area.origin.x + area.width || cell.position.z < area.origin.z || cell.position.z >= area.origin.z + area.depth;
+      if (cell.requirement === 'ground' && outside && completedFoundation && AIR.has(current.name)) {
+        // A completed foundation can be reached around an unused rim hole.
+        // Every actual subsequent walk must prove its entire observed route.
+        s.checkpoint.safeDetourRequired = true;
+        continue;
+      }
       if (cell.requirement === 'ground' && (!isBuildSiteGround(current.name) || current.boundingBox !== 'block')) buildWait(s, 'BUILD_SITE', `전체 기초와 바깥 접근로에 안전한 지면이 필요합니다. 실제 ${current.name}`, [cell.position]);
       if (cell.requirement === 'air' && !AIR.has(current.name) && current.name !== expected) buildWait(s, 'BUILD_SITE', `기존 ${current.name} 블록을 보존합니다. 부지를 변경해 주세요.`, [cell.position]);
     }
@@ -379,19 +419,33 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     throw error;
   }
   validateBuildSite(task, s, blocks, area, planned);
-  if (await prepareSmallBuildMaterials(s, blocks, resolved?.template)) {
+  const floor=blocks.filter(block=>block.position.y===area.origin.y&&BUILD_SUPPORT.has(block.name));
+  const foundationPhase=!!resolved&&['cabin','house','warehouse'].includes(resolved.template)&&s.checkpoint.materialExpedition===true&&typeof s.checkpoint.confirmedRecoveryDeathId==='string'&&floor.some(block=>at(s,block.position)?.name!==block.name);
+  const stagedWarehouse=design==='warehouse'&&area.width===7&&area.depth===5&&area.height===4&&s.checkpoint.materialExpedition===true&&typeof s.checkpoint.confirmedRecoveryDeathId==='string';
+  const fixture = (name: string) => name.endsWith('_door') || name.endsWith('_bed') || ['chest', 'crafting_table', 'furnace', 'wall_torch', 'ladder'].includes(name);
+  const placementOrder = (name: string) => name.endsWith('_bed') ? 1 : fixture(name) ? 2 : 0;
+  const order=(a:ExpectedBlock,b:ExpectedBlock)=>placementOrder(a.name)-placementOrder(b.name)||a.position.y-b.position.y||a.position.x-b.position.x||a.position.z-b.position.z;
+  const access = !foundationPhase&&blocks.some(block => BUILD_SUPPORT.has(block.name) && at(s, block.position)?.name !== block.name) ? constructionAccess(s, blocks) : undefined;
+  const postponed = new Set(access?.columns.flat().map(block => key(block.position)) ?? []);
+  const ordinaryPending=blocks.filter(block=>!postponed.has(key(block.position))&&at(s,block.position)?.name!==block.name&&!deferBuildWindows(task,s,block.name));
+  const closeAccess=!!access&&(!stagedWarehouse||!ordinaryPending.length);
+  // Keep the verified stair open across small deliveries. Its final closure
+  // is prepared in one ground-level batch only after all other cells match.
+  const constructionBlocks=foundationPhase?floor.filter(block=>at(s,block.position)?.name!==block.name).slice(0,8):stagedWarehouse?(ordinaryPending.length?ordinaryPending.sort(order).slice(0,8):blocks.filter(block=>postponed.has(key(block.position))&&at(s,block.position)?.name!==block.name)):blocks;
+  s.checkpoint.buildStage=foundationPhase?'foundation':'building';
+  if (await prepareSmallBuildMaterials(task, s, constructionBlocks, resolved?.template)) {
     // Material acquisition can move the bot far away. Start construction from
     // the verified ground entrance, then recheck the entire protected site.
     try { await s.near(offset(entrance, 0.5, 0, 0.5), resolved ? 1 : 3); }
     catch (error) { s.check(); if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [entrance, offset(entrance, 0, -1, 0), offset(entrance, 0, 1, 0)]); throw error; }
     validateBuildSite(task, s, blocks, area, planned);
   }
-  const access = constructionAccess(s, blocks);
-  const postponed = new Set(access?.columns.flat().map(block => key(block.position)) ?? []);
-  const fixture = (name: string) => name.endsWith('_door') || name.endsWith('_bed') || ['chest', 'crafting_table', 'furnace', 'wall_torch', 'ladder'].includes(name);
+  // Once the shell is closed, remaining windows and furniture use their normal
+  // ground approach; the old temporary stair cells are already occupied.
   // Beds need a free approach on their foot side before nearby utilities occupy it.
-  const placementOrder = (name: string) => name.endsWith('_bed') ? 1 : fixture(name) ? 2 : 0;
-  const ordered = blocks.filter(block => !postponed.has(key(block.position))).sort((a, b) => placementOrder(a.name) - placementOrder(b.name) || a.position.y - b.position.y || a.position.x - b.position.x || a.position.z - b.position.z);
+  const deferred = new Set(blocks.filter(block => deferBuildWindows(task, s, block.name)).map(block => key(block.position)));
+  s.checkpoint.buildDeferredWindows = blocks.filter(block => deferred.has(key(block.position)));
+  const ordered = constructionBlocks.filter(block => !postponed.has(key(block.position)) && !deferred.has(key(block.position))).sort((a, b) => placementOrder(a.name) - placementOrder(b.name) || a.position.y - b.position.y || a.position.x - b.position.x || a.position.z - b.position.z);
   const generated = new Set<string>();
   for (const expected of ordered) {
     s.check();
@@ -405,9 +459,11 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
       throw new ConditionWait('문 상단이 실제로 생성되지 않았습니다.', s.checkpoint);
     }
     const item = expected.name === 'wall_torch' ? 'torch' : expected.name;
-    const batch = materialBatch(s, item, blocks);
+    const batch = materialBatch(s, item, constructionBlocks);
     await buildMaterial(s, item, batch.minimum, batch.remaining);
-    try { await s.near(expected.position, 3); }
+    try {
+      await s.near(expected.position, 3);
+    }
     catch (error) { if (error instanceof ConditionWait) buildWait(s, 'BUILD_ACCESS', error.message, [expected.position, ...SUPPORT_FACES.map(face => offset(expected.position, -face.x, -face.y, -face.z))]); throw error; }
     // Recursive gathering/crafting can leave this site or change nearby terrain.
     validateBuildSite(task, s, blocks, area, planned);
@@ -445,13 +501,13 @@ async function build(task: TaskSpec, s: ActionServices): Promise<ResultPayload> 
     if (at(s, expected.position)?.name !== expected.name) throw new ConditionWait('설치 결과를 실제 월드에서 확인해야 합니다.', s.checkpoint);
     s.progress('build', `${expected.name} 설치를 확인했습니다.`);
   }
-  if (access) for (let i = 0; i < access.columns.length; i++) {
-    const pending = access.columns[i]!.filter(block => at(s, block.position)?.name !== block.name);
+  if (access&&closeAccess) for (let i = 0; i < access.columns.length; i++) {
+    const pending = access.columns[i]!.filter(block => !deferred.has(key(block.position)) && at(s, block.position)?.name !== block.name);
     if (!pending.length) continue;
     const stand = access.stands[i + 1] ?? access.exit;
     // Fill each column from the top while standing on the next lower step.
     for (const expected of pending) {
-      const batch = materialBatch(s, expected.name, blocks);
+      const batch = materialBatch(s, expected.name, constructionBlocks);
       await buildMaterial(s, expected.name, batch.minimum, batch.remaining);
       validateBuildSite(task, s, blocks, area, planned);
       const support = at(s, offset(stand, 0, -1, 0));
@@ -536,7 +592,8 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   const plots = (explicit as Position[] | undefined) ?? ring.slice(0, requested);
   if (plots.length !== requested || new Set(plots.map(key)).size !== plots.length || plots.some(p => p.y !== center.y || Math.max(Math.abs(p.x - center.x), Math.abs(p.z - center.z)) > 4 || key(p) === key(center))) throw new ConditionWait('경작지는 물과 같은 높이에서 4블록 안에 있어야 합니다.');
   if ((task as TaskSpec & { source?: string }).source !== 'user') requireBounds(s, [center, ...plots]);
-  await s.near(center, 4);
+  // Existing irrigation is observed from the bank; it is not a standing goal.
+  if(at(s,center)?.name!=='water'||plots.some(p=>!at(s,p)||!at(s,offset(p,0,1,0))))await s.near(center,4);
   for (const p of plots) {
     const soil = at(s, p), plant = at(s, offset(p, 0, 1, 0));
     if (!soil || !plant) throw new ConditionWait('전체 경작지를 관측해야 합니다.', s.checkpoint);
@@ -548,17 +605,34 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   let harvested = Number((s.checkpoint.farm as JsonObject | undefined)?.harvested ?? 0);
   const needHoe = plots.some(p => at(s, p)?.name !== 'farmland');
   if (needHoe && !s.bot.inventory.items().some(item => item.name.endsWith('_hoe'))) await s.ensureItem('wooden_hoe', 1);
+  if(warehouseInterior(s)&&s.rules.baseShelter)await s.near(new Vec3(s.rules.baseShelter.outside.x+.5,s.rules.baseShelter.outside.y,s.rules.baseShelter.outside.z+.5),0);
+  const accessOrigin=position(s.checkpoint.farmAccessOrigin)??s.rules.baseShelter?.outside??position(walkingFeet(s.bot))!;
+  s.checkpoint.farmAccessOrigin=accessOrigin;
   let planted = 0;
   for (const p of plots) {
     s.check();
     const target = offset(p, 0, 1, 0);
+    const existingSoil=at(s,p),existingCrop=at(s,target);
+    if(existingSoil?.name==='farmland'&&existingCrop?.name===normalized&&(!harvesting||Number(existingCrop.getProperties().age??0)<crop.age)){planted++;continue;}
     // Work from the edge rather than jumping or walking across planted farmland.
-    const stands = [1, 0].flatMap(height => [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, z]) => offset(p, x, height, z)))
+    const stands = [1,2,0].flatMap(height => [-3,-2,-1,0,1,2,3].flatMap(x=>[-3,-2,-1,0,1,2,3].filter(z=>x!==0||z!==0).map(z=>offset(p,x,height,z))))
       .filter(stand => !plots.some(soil => soil.x === stand.x && soil.z === stand.z) && (stand.x !== center.x || stand.z !== center.z) &&
-        at(s, offset(stand, 0, -1, 0))?.boundingBox === 'block' && at(s, stand)?.boundingBox === 'empty' && at(s, offset(stand, 0, 1, 0))?.boundingBox === 'empty');
-    const stand = stands.sort((a, b) => Math.hypot(a.x - s.bot.entity.position.x, a.y - s.bot.entity.position.y, a.z - s.bot.entity.position.z) - Math.hypot(b.x - s.bot.entity.position.x, b.y - s.bot.entity.position.y, b.z - s.bot.entity.position.z))[0];
-    if (!stand) throw new ConditionWait('작물을 밟지 않고 작업할 바깥쪽 접근 위치가 필요합니다.', s.checkpoint);
-    await s.near(stand, 0);
+        at(s, offset(stand, 0, -1, 0))?.boundingBox === 'block' && at(s, stand)?.boundingBox === 'empty' && at(s, offset(stand, 0, 1, 0))?.boundingBox === 'empty' && Math.hypot(stand.x-p.x,stand.z-p.z,stand.y+1.62-(p.y+.9375))<=4.25);
+    stands.sort((a, b) => Math.hypot(a.x - s.bot.entity.position.x, a.y - s.bot.entity.position.y, a.z - s.bot.entity.position.z) - Math.hypot(b.x - s.bot.entity.position.x, b.y - s.bot.entity.position.y, b.z - s.bot.entity.position.z));
+    let stand:Position|undefined;
+    const failures:JsonObject[]=[];s.checkpoint.farmApproachObservation={plot:p,from:{x:s.bot.entity.position.x,y:s.bot.entity.position.y,z:s.bot.entity.position.z},candidates:stands,failures};
+    let approaches=stands;
+    if(typeof s.bot.pathfinder?.movements?.getNeighbors==='function'){
+      // A bare plot is a pickup location, never an access bridge: sowing it
+      // again must not cut off the selected work stand from the rest of land.
+      const from=accessOrigin,allowed=(q:Position)=>!plots.some(soil=>soil.x===q.x&&soil.z===q.z&&q.y===soil.y+1)&&observedGroundStand(s.bot,q,undefined,true);
+      const path=alternateSafeWalk(s.bot,stands,{start:from,within:q=>Math.hypot(q.x-from.x,q.z-from.z)<=128&&Math.abs(q.y-from.y)<=16,stand:allowed,maxDrop:2,maxNodes:16384,timeLimitMs:500});
+      if(!path){failures.push({reason:'관측한 작업 지점 전체에 연결되는 마른 발판 경로가 필요합니다.'});throw new ConditionWait('작물을 밟지 않고 연결되는 실제 밭 가장자리 경로가 필요합니다.',s.checkpoint);}
+      approaches=[path.at(-1)??{x:from.x,y:from.y,z:from.z}];
+      s.checkpoint.farmApproachObservation={...s.checkpoint.farmApproachObservation,selected:approaches[0]!,pathLength:path.length};
+    }
+    for(const candidate of approaches){try{await s.near(candidate,0);stand=candidate;break;}catch(error){s.check();if(!(error instanceof ConditionWait))throw error;if(failures.length<24)failures.push({position:candidate,reason:error.message});}}
+    if (!stand) throw new ConditionWait('작물을 밟지 않고 작업할 실제 바깥쪽 접근 위치가 필요합니다.', s.checkpoint);
     let soil = at(s, p), plant = at(s, target);
     if (!soil || !plant) throw new ConditionWait('경작지 관측이 끊겼습니다.', s.checkpoint);
     if (soil.name !== 'farmland') {
@@ -571,17 +645,37 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
       soil = at(s, p);
       if (soil?.name !== 'farmland') throw new ConditionWait('실제 경작 결과를 확인해야 합니다.', s.checkpoint);
     }
-    if (harvesting && plant.name === normalized && Number(plant.getProperties().age ?? 0) >= crop.age) {
-      const before = count(s, crop.produce);
-      s.check(); await s.bot.dig(plant);
-      await s.near(target, 1);
+    const pending=s.checkpoint.farmPendingHarvest as JsonObject|undefined,pendingHere=pending?.crop===cropName&&key(position(pending.position)??{x:NaN,y:NaN,z:NaN})===key(p);
+    if (harvesting && (plant.name === normalized && Number(plant.getProperties().age ?? 0) >= crop.age||pendingHere)) {
+      if(crop.seed!==crop.produce&&count(s,crop.seed)<1)await s.ensureItem(crop.seed,1);
+      const before = pendingHere?Number(pending!.beforeProduce):count(s,crop.produce),seedsBefore=pendingHere?Number(pending!.beforeSeeds):count(s,crop.seed);
+      if(plant.name===normalized&&Number(plant.getProperties().age??0)>=crop.age){
+        s.checkpoint.farmPendingHarvest={crop:cropName,position:p,beforeProduce:before,beforeSeeds:seedsBefore,droppedAt:Date.now()};
+        s.check(); await s.bot.dig(plant);
+      }
+      if(s.recoverDrops)await s.recoverDrops(target,crop.produce,before+1,plots.filter(soil=>at(s,offset(soil,0,1,0))?.name===normalized));
+      else await s.near(target, 1);
+      if(s.recoverDrops)await s.recoverDrops(target,crop.seed,seedsBefore+1,plots.filter(soil=>at(s,offset(soil,0,1,0))?.name===normalized));
       await s.pause(600);
-      harvested += Math.max(0, count(s, crop.produce) - before);
+      const acquired=Math.max(0,count(s,crop.produce)-before);
+      if(!acquired&&Date.now()-Number((s.checkpoint.farmPendingHarvest as JsonObject)?.droppedAt??Date.now())<240000)throw new ConditionWait('부순 작물의 실제 수확물을 줍고 재파종을 이어가야 합니다.',s.checkpoint);
+      if(!acquired)s.checkpoint.farmLostHarvest={crop:cropName,position:p,observedAt:Date.now()};
+      harvested += acquired;delete s.checkpoint.farmPendingHarvest;
       s.checkpoint.farm = { harvested, crop: cropName };
       plant = at(s, target);
       if (!plant) throw new ConditionWait('수확 이후 경작지를 관측해야 합니다.', s.checkpoint);
+      await s.near(stand,0);
     }
     if (AIR.has(plant.name)) {
+      // A real downward pickup can turn the bare soil back into dirt. Repair
+      // that observed soil before sowing, preserving the acquired harvest.
+      const freshSoil=at(s,p);
+      if(freshSoil&&['dirt','grass_block'].includes(freshSoil.name)){
+        const hoe=s.bot.inventory.items().find(item=>item.name.endsWith('_hoe'));
+        if(!hoe)throw new ConditionWait('수확 뒤 변한 실제 흙을 다시 경작할 괭이가 필요합니다.',s.checkpoint);
+        await s.bot.equip(hoe,'hand');s.check();await s.bot.activateBlock(freshSoil,new Vec3(0,1,0));await s.pause(200);
+        if(at(s,p)?.name!=='farmland')throw new ConditionWait('수확 뒤 실제 경작지 복구 결과를 확인해야 합니다.',s.checkpoint);
+      }
       await s.ensureItem(crop.seed, 1);
       await s.place(target, crop.seed, normalized);
     } else if (plant.name !== normalized) throw new ConditionWait('경작지에 다른 블록이 생겼습니다.', s.checkpoint);
@@ -594,6 +688,11 @@ async function farm(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
   recordInventory(s);
   const targetQuantity = completion?.quantity ?? Number(task.params.quantity ?? 1);
   const complete = harvesting ? harvested - (completion?.baseline ?? Number(s.checkpoint.harvestStart ?? 0)) >= targetQuantity : planted === requested && watered === requested;
+  if(harvesting&&!complete){
+    const positions=plots.map(p=>offset(p,0,1,0));s.observations.push({...observationBase(s.rules.world,s.rules.dimension),kind:'blocks',data:{blocks:positions.flatMap(position=>{const block=at(s,position);return block?[{position,name:block.name,age:Number(block.getProperties().age??0)}]:[];})}});
+    s.checkpoint.waitingFor={kind:'inventory',causeCode:'RESOURCE_MISSING',item:crop.produce,minimum:count(s,crop.produce)+1,watchPosition:false,resourceNames:[normalized],resourcePositions:positions,minimumResourceAge:crop.age,failedCause:'실제 작물의 완전 성숙을 기다립니다.'};
+  }
+  else delete s.checkpoint.waitingFor;
   return result(s, complete ? 'completed' : 'condition-wait', complete ? '실제 경작·급수·작물 상태와 수확량을 확인했습니다.' : '작물이 자라거나 수확한 물자가 확보되기를 기다립니다.');
 }
 

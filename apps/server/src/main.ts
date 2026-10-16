@@ -20,6 +20,8 @@ export interface RuntimeOptions {
   workerExecArgv?: string[];
   reconnectDelayMs?: number;
   tickIntervalMs?: number;
+  /** Leave saved bots disconnected until an explicit control API start/resume. */
+  autoConnect?: boolean;
 }
 
 /** Find a worker whose checkpoint survived a lost registry write without trusting a reused PID. */
@@ -63,6 +65,7 @@ function recoverMissingWorkerRecords(store: ControlStore, checkpoint: ReturnType
 }
 
 export async function startRuntime(options: RuntimeOptions = {}) {
+  const autoConnect = options.autoConnect ?? process.env.LAYA_AUTO_CONNECT !== 'false';
   const runtimeDir = resolve(options.runtimeDir ?? process.env.RUNTIME_DIR ?? 'runtime');
   mkdirSync(runtimeDir, { recursive: true });
   const release = acquireInstanceLock(join(runtimeDir, 'controller.lock.sqlite'));
@@ -102,7 +105,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
     if (closing || !core || !supervisor || !agent.config.enabled || agent.status === 'removed' || agent.status === 'removing' || supervisor.has(agent.id)) return;
     if (agent.session && agent.session.state !== 'stopped') return;
     const sessionId = randomUUID();
-    supervisor.spawn(agent.id, sessionId, core.controllerEpoch, { config: agent.config, rules: core.getSnapshot().rules, ...(agent.recovery ? { restoreRecovery: agent.recovery } : {}), ...(agent.survivalRecovery ? { restoreSurvivalRecovery: agent.survivalRecovery } : {}) });
+    supervisor.spawn(agent.id, sessionId, core.controllerEpoch, { config: agent.config, rules: core.getRules(), ...(agent.recovery ? { restoreRecovery: agent.recovery } : {}), ...(agent.survivalRecovery ? { restoreSurvivalRecovery: agent.survivalRecovery } : {}) });
     core.startSession(agent.id, sessionId);
   }
   try {
@@ -123,15 +126,16 @@ export async function startRuntime(options: RuntimeOptions = {}) {
       checkpoint,
       send: (botId, message) => supervisor!.send(botId, message),
       decide: (request) => laya.choose(request),
-      onChange: (snapshot, event) => {
-        if (api) api.observe(snapshot, event);
+      scoreEveryDecision:!!process.env.QWEN_DECISION_URL,
+      onEvent: event => {
+        if (api) api.observeEvent(event);
         else store!.saveCheckpoint(core!.checkpoint(), { ...event });
       },
     });
     const orphans = await supervisor.reconcileOrphans();
     for (const worker of orphans) core.confirmWorkerStopped(worker.botId, worker.sessionId);
     // A checkpoint may have survived after its worker record was already removed.
-    for (const agent of core.getSnapshot().agents) if (agent.session && agent.session.state !== 'stopped' && !store.workers().some(record => record.botId === agent.id)) core.confirmWorkerStopped(agent.id, agent.session.id);
+    for (const agent of core.getAgents()) if (agent.session && agent.session.state !== 'stopped' && !store.workers().some(record => record.botId === agent.id)) core.confirmWorkerStopped(agent.id, agent.session.id);
     reconcileCommandReceipts(store, checkpoint);
     api = createControlServer({ core, store, startBot, interpret: createGoalInterpreter(),
       host: options.host ?? process.env.API_HOST ?? '127.0.0.1',
@@ -139,17 +143,17 @@ export async function startRuntime(options: RuntimeOptions = {}) {
       allowedOrigins: options.allowedOrigins ?? (process.env.UI_ORIGINS ?? '').split(',').map(origin => origin.trim()).filter(Boolean),
       webRoot: options.webRoot ?? resolve('dist/web') });
     const address = await api.listen();
-    for (const agent of core.getSnapshot().agents) startBot(agent);
+    if (autoConnect) for (const agent of core.getAgents()) startBot(agent);
     timer = setInterval(() => {
       if (closing) return;
       core!.tick();
-      for (const agent of core!.getSnapshot().agents) {
+      for (const agent of autoConnect ? core!.getAgents() : []) {
         if (Date.now() < (reconnectAt.get(agent.id) ?? 0)) continue;
         try { startBot(agent); } catch (error) { console.error(error); reconnectAt.set(agent.id, Date.now() + 10000); }
       }
     }, options.tickIntervalMs ?? 1000);
-    pruneTimer = setInterval(() => store!.prune(core!.getSnapshot().rules.logRetentionDays), 3600000);
-    store.prune(core.getSnapshot().rules.logRetentionDays);
+    pruneTimer = setInterval(() => store!.prune(core!.getRules().logRetentionDays), 3600000);
+    store.prune(core.getRules().logRetentionDays);
     return { core, store, supervisor, api, address, close };
   } catch (error) {
     try { await close(); }

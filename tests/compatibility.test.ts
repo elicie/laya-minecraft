@@ -11,6 +11,13 @@ import { protocolCompatibility, resolveBotCompatibility } from '../packages/mine
 const fixturePath = join(process.cwd(), 'tests/fixtures/protocol-767-recipes.bin.gz');
 const recipePacket = () => Buffer.concat([Buffer.from([0x77]), gunzipSync(readFileSync(fixturePath))]);
 
+test('protocol 775 decodes real registry IDs 22 and 25 as movement speed and scale through public options',()=>{
+ const original=structuredClone(minecraftData('26.1').protocol),source=`const mc=require('minecraft-protocol');const s=mc.createSerializer({state:mc.states.PLAY,version:'26.1',isServer:true});const b=s.createPacketBuffer({name:'entity_update_attributes',params:{entityId:42,properties:[{key:'generic.scale',value:.1,modifiers:[]},{key:'submerged_mining_speed',value:1,modifiers:[]}]}});const d=mc.createDeserializer({state:mc.states.PLAY,version:'26.1',isServer:false}).parsePacketBuffer(b);process.stdout.write(JSON.stringify({wire:b.toString('base64'),wrong:d.data.params.properties.map(p=>p.key)}));`;
+ const captured=JSON.parse(execFileSync(process.execPath,['-e',source],{encoding:'utf8'}));assert.deepEqual(captured.wrong,['generic.scale','submerged_mining_speed']);
+ const fixed=protocolCompatibility('26.1');assert.deepEqual(fixed.corrections,['protocol-775-attribute-registry']);assert.deepEqual(minecraftData('26.1').protocol,original);const wire=Buffer.from(captured.wire,'base64'),decoded=createDeserializer({state:states.PLAY,version:'26.1',isServer:false,customPackets:fixed.customPackets}).parsePacketBuffer(wire) as any;
+ assert.equal(decoded.metadata.size,wire.length);assert.deepEqual(decoded.data.params.properties.map((p:any)=>[p.key,p.value]),[['minecraft:movement_speed',.1],['minecraft:scale',1]]);
+});
+
 test('compatibility builds an isolated public option for protocol 767 only', () => {
   const original = structuredClone(minecraftData('1.21.1').protocol);
   const compatibility = protocolCompatibility('1.21.1');

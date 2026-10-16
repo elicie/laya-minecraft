@@ -1,6 +1,7 @@
+import {idleResourceTaskCanYield} from './resource-affinity';
 import { randomUUID } from 'node:crypto';
 import {
-  BuildAccessPreparationSchema, accessPreparationFinalBlocks, validateBuildAccessPreparation, BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, ContainerRefSchema, DeathRecordSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
+  BuildAccessPreparationSchema, accessPreparationFinalBlocks, validateBuildAccessPreparation, BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, ContainerRefSchema, DeathRecordSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, MaterialAccessPlanSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
   buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
@@ -10,6 +11,10 @@ import { containerKey, goalTitle, jsonObject, planGoal, roleFits } from './plann
 import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 import { inventoryCapacity, inventoryStocks, type InventoryStock } from './inventory-stock';
 import { distance, footprintInside, freshObservations, positionKey, verifyCompletion } from './verification';
+import { collectionHints } from './resource-hints';
+import { warehouseShelter } from './warehouse-shelter';
+import { baseSupplyGoals } from './base-supply';
+import { baseDecisionAction } from './base-decisions';
 
 export { planGoal, containerKey, roleFits } from './planning';
 export { verifyCompletion, footprintInside } from './verification';
@@ -19,9 +24,11 @@ export interface FleetControllerOptions {
   controllerEpoch?: string;
   send: (botId: string, message: CentralMessage) => void;
   onChange?: (snapshot: FleetSnapshot, event: CoreEvent) => void;
+  onEvent?: (event: CoreEvent) => void;
   checkpoint?: FleetCheckpoint;
   rules?: Partial<Rules>;
-  decide?: (request: { state: string; candidates: { id: string; description: string }[]; signal?: AbortSignal }) => Promise<SchedulerDecision>;
+  decide?: (request: { state: string; candidates: { id: string; description: string;action?:string }[]; signal?: AbortSignal }) => Promise<SchedulerDecision>;
+  scoreEveryDecision?:boolean;
 }
 const terminalGoals = new Set(['completed', 'cancelled']);
 const activeAttempts = new Set(['assigned', 'accepted', 'running', 'cancelling']);
@@ -33,7 +40,14 @@ const isAccessPreparationTask = (task: Task) => task.kind === 'build' && task.pa
 const isPreparationTask = (task: Task) => isSitePreparationTask(task) || isAccessPreparationTask(task);
 const isBuildStageTask = (task: Task) => isBuildSiteTask(task) || isSitePreparationTask(task);
 const resourceActions = new Set(['collect', 'craft', 'smelt', 'build', 'farm', 'breed']);
+const legacyAssignmentWaitReasons = new Set(['현재 상태에서는 일반 작업을 시작할 수 없습니다.', '작업 준비 중 월드 상태나 규칙이 바뀌었습니다.', '적용된 규칙 버전을 먼저 확인해야 합니다.']);
 const clone = <T>(value: T): T => structuredClone(value);
+// Full recovery checkpoints live on the agent and in the durable event journal.
+// Copying them into every historical snapshot event multiplies state writes.
+const historyEvent = (event: CoreEvent): CoreEvent => {
+  if(event.type!=='bot.recovery'||!event.data||!('checkpoint' in event.data))return event;
+  const {checkpoint:_checkpoint,...data}=event.data;return{...event,data};
+};
 const taskSpec = (task: Task) => ({ id: task.id, goalId: task.goalId, kind: task.kind, ...(task.source ? { source: task.source } : {}), params: task.params, dependencies: task.dependencies, completion: task.completion, reservationKeys: task.reservationKeys, ...(task.affinityBotId ? { affinityBotId: task.affinityBotId } : {}) });
 
 export class FleetController {
@@ -55,6 +69,7 @@ export class FleetController {
       blueprints: [], agents: [], goals: [], tasks: [], attempts: [], reservations: [], observations: [], events: [], processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [],
     };
     this.state.pendingCommands ??= [];
+    this.state.events = this.state.events.map(historyEvent);
     this.state.stoppedSessionIds ??= [];
     this.state.pendingRuleCommands ??= [];
     this.state.controllerEpoch = this.controllerEpoch;
@@ -86,12 +101,97 @@ export class FleetController {
         && !this.state.tasks.some(task => task.goalId === goal.id && task.generation === goal.generation)
         && !params.siteSelection && !params.origin && !params.position && !params.requiredBlocks) params.siteSelection = 'nearby';
     }
+    if (options.checkpoint) this.restoreRejectedAssignmentWaits();
+    if (options.checkpoint) this.restoreExpiredAccessProofs();
+    if (options.checkpoint) this.restoreAccessReturnWaits();
+    if (options.checkpoint) this.restoreMaterialReturnWaits();
+  }
+
+  private queueAccessRecheck(task: Task, attempt: TaskAttempt): void {
+    this.release(attempt.id);
+    task.state = 'interrupted'; task.resumeCount++; task.updatedAt = this.now();
+    task.accessProofRechecks = Number(task.accessProofRechecks ?? 0) + 1;
+    delete task.checkpoint.accessPreparationComplete;
+    task.assignmentWait = { botId: attempt.botId, blockedBy: 'state', rejectedAt: this.now() };
+    task.reason = '접근로 완료 증거가 오래되어 현재 지면과 입구 도착을 다시 확인합니다. 기존 변경과 진행은 보존합니다.';
+    const goal = this.goal(task.goalId);
+    if (goal.state === 'held' && !this.currentTasks(goal).some(t => t.state === 'held')) { goal.state = 'condition-wait'; goal.reason = task.reason; goal.updatedAt = this.now(); }
+  }
+  private restoreMaterialReturnWaits(): void {
+    for(const task of this.state.tasks){
+      const goal=this.goal(task.goalId),attempt=this.state.attempts.find(a=>a.id===task.attemptId),trip=task.checkpoint.resourceTrip as JsonObject|undefined;
+      const footing=trip?.phase==='outbound'&&task.checkpoint.resourceFootingWaitVersion!==1&&task.reason?.includes('원정의 실제 지지 발판·착지와 주변 위협');
+      const returning=trip?.phase==='returning'&&task.checkpoint.resourceReturnVersion!==1&&task.reason?.includes('복귀 구간');
+      const reconciling=trip&&trip.phase!=='complete'&&typeof task.checkpoint.confirmedRecoveryDeathId==='string'&&trip.deathId!==task.checkpoint.confirmedRecoveryDeathId&&task.checkpoint.resourceTripReconcileVersion!==1&&task.reason?.includes('새 생존 위치와 기존 작업 지점의 지형 연결');
+      if(task.kind!=='build'||task.params.materialExpedition!==true||task.state!=='held'||task.generation!==goal.generation||terminalGoals.has(goal.state)||goal.state==='cancelling'
+        ||!footing&&!returning&&!reconciling||attempt?.state!=='interrupted'||attempt.result?.outcome!=='condition-wait'||attempt.finishedAt===undefined)continue;
+      task.checkpoint[reconciling?'resourceTripReconcileVersion':footing?'resourceFootingWaitVersion':'resourceReturnVersion']=1;delete task.checkpoint.waitingFor;task.waitState=undefined;
+      task.state='interrupted';task.resumeCount++;task.updatedAt=this.now();task.assignmentWait={botId:attempt.botId,blockedBy:'state',rejectedAt:this.now()};
+      task.reason=reconciling?'새 생존 위치와 보존한 작업 지점 사이의 실제 복귀를 새 경로 검사로 한 번 재관측합니다.':footing?'보존한 원정 출발의 실제 발판·착지와 위협을 한 번 재관측하고 조건 대기로 전환합니다.':'보존한 재료 원정의 마지막 복귀 발판을 새 관측으로 한 번 다시 확인합니다.';
+      if(goal.state==='held'&&!this.currentTasks(goal).some(t=>t.state==='held')){goal.state='condition-wait';goal.reason=task.reason;goal.updatedAt=this.now();}
+    }
+  }
+  private restoreExpiredAccessProofs(): void {
+    for (const task of this.state.tasks) {
+      const goal = this.goal(task.goalId), attempt = this.state.attempts.find(a => a.id === task.attemptId), result = attempt?.result;
+      const marker = task.checkpoint.accessPreparationComplete as JsonObject | undefined;
+      if (!isAccessPreparationTask(task) || task.state !== 'held' || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling'
+        || attempt?.state !== 'uncertain' || attempt.finishedAt === undefined || result?.outcome !== 'completed' || !marker
+        || attempt.finishedAt - Number(marker.observedAt) <= this.state.rules.observationMaxAgeMs || Number(task.accessProofRechecks ?? 0) >= 2
+        || task.reservationKeys.some(key => !key.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`))) continue;
+      if (this.verifyAccessCompletion(task, attempt, result).reobserve) this.queueAccessRecheck(task, attempt);
+    }
+  }
+
+  private restoreAccessReturnWaits(): void {
+    for (const task of this.state.tasks) {
+      const goal = this.goal(task.goalId), progress = task.checkpoint.accessPreparationProgress as JsonObject | undefined;
+      const plan = BuildAccessPreparationSchema.safeParse(task.params.preparation);
+      if (!isAccessPreparationTask(task) || task.state !== 'condition-wait' || task.waitState?.waitingFor?.causeCode !== 'BUILD_ACCESS'
+        || task.checkpoint.accessReturnRouteVersion === 3 || task.generation !== goal.generation || terminalGoals.has(goal.state) || ['held', 'cancelling'].includes(goal.state)
+        || !plan.success || !this.accessApproved(task) || progress?.pathIndex !== plan.data.path.length || progress.completedEdits !== plan.data.edits.length) continue;
+      const attempt = this.state.attempts.find(a => a.id === task.attemptId);
+      if (!attempt || attempt.state !== 'interrupted' || attempt.finishedAt === undefined) continue;
+      task.checkpoint.accessReturnRouteVersion = 3;
+      delete task.checkpoint.waitingFor; task.waitState = undefined;
+      task.state = 'interrupted'; task.resumeCount++; task.updatedAt = this.now();
+      task.assignmentWait = { botId: attempt.botId, blockedBy: 'state', rejectedAt: this.now() };
+      task.reason = '완료한 접근로의 옛 출발점 대기를 보존하고 현재 위치에서 입구까지 실제 지면 연결을 한 번 확인합니다.';
+    }
+  }
+
+  private restoreRejectedAssignmentWaits(): void {
+    for (const task of this.state.tasks) {
+      const goal = this.goal(task.goalId), attempt = this.state.attempts.find(a => a.id === task.attemptId), error = attempt?.result?.error;
+      // Older workers reported these pre-acceptance state changes as failures.
+      // Retain every real failure and all resource/terrain budgets unchanged.
+      if (task.state !== 'held' || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling'
+        || attempt?.state !== 'failed' || attempt.startedAt !== undefined || error?.code !== 'TASK_REJECTED' || !error.retryable || !error.effectsKnown
+        || !legacyAssignmentWaitReasons.has(error.message) || task.reason !== error.message) continue;
+      task.state = 'interrupted'; task.assignmentWait = { botId: attempt.botId, blockedBy: 'state', rejectedAt: attempt.finishedAt ?? attempt.assignedAt };
+      task.reason = '실행 전 상태 거절로 보류된 작업을 보존했습니다. 새 준비 상태 보고를 기다립니다.';
+      task.updatedAt = this.now();
+      if (goal.state === 'held' && !this.currentTasks(goal).some(t => t.state === 'held')) { goal.state = 'condition-wait'; goal.reason = task.reason; goal.updatedAt = this.now(); }
+    }
+  }
+
+  private resumeAssignmentWaits(agent: Agent): void {
+    if (!this.assignmentReady(agent) || agent.session?.report?.currentAttemptId || agent.session?.report?.rulesVersion !== this.state.rules.version) return;
+    for (const task of this.state.tasks) {
+      const goal = this.goal(task.goalId);
+      if (task.assignmentWait?.botId !== agent.id || task.state !== 'interrupted' || this.taskHasActor(task) || task.generation !== goal.generation
+        || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held') continue;
+      delete task.assignmentWait; task.updatedAt = this.now(); task.reason = '새 상태 보고에서 작업 준비를 확인해 보존한 작업을 재개합니다.';
+      this.changed('task.assignment-resumed', task.reason, { taskId: task.id, goalId: goal.id, botId: agent.id });
+    }
   }
 
   getSnapshot(): FleetSnapshot {
     const { processedMessageIds: _messages, pendingRuleCommands: _rules, pendingCommands: _commands, stoppedSessionIds: _stopped, ...snapshot } = this.state;
     return clone(snapshot);
   }
+  getAgents(): Agent[] { return clone(this.state.agents); }
+  getRules(): Rules { return clone(this.state.rules); }
   checkpoint(): FleetCheckpoint { return clone(this.state); }
   createBlueprint(input: BlueprintInput, commandId?: string): BlueprintDefinition {
     if (this.state.blueprints.length >= 1000) throw new Error('설계도는 최대 1000개까지 저장할 수 있습니다.');
@@ -147,9 +247,10 @@ export class FleetController {
     const event: CoreEvent = { id: randomUUID(), time: this.now(), revision: this.state.revision, type, message, ...metadata };
     if (record) {
       const oldest = this.now() - this.state.rules.logRetentionDays * 86400000;
-      this.state.events = [...this.state.events.filter(e => e.time >= oldest).slice(-4999), event];
+      this.state.events = [...this.state.events.filter(e => e.time >= oldest).slice(-4999), historyEvent(event)];
     }
-    this.options.onChange?.(this.getSnapshot(), event);
+    this.options.onEvent?.(clone(event));
+    if (this.options.onChange) this.options.onChange(this.getSnapshot(), event);
   }
   private applied(commandId?: string, data?: JsonObject): void {
     if (!commandId) return;
@@ -304,6 +405,10 @@ export class FleetController {
     if (definition.executionMode === 'immediate' && definition.preferredBotId) {
       const agent = this.agent(definition.preferredBotId), old = this.state.tasks.find(t => t.attemptId === agent.session?.activeAttemptId);
       if (old) old.blockedByGoalId = goal.id;
+      // A stopped parent's affinity must not veto an explicit immediate switch.
+      for (const task of this.state.tasks) {
+        if (task.goalId !== goal.id && task.affinityBotId === agent.id && !this.taskHasActor(task) && !['completed', 'cancelled'].includes(task.state) && task.generation === this.goal(task.goalId).generation && !terminalGoals.has(this.goal(task.goalId).state) && (!task.blockedByGoalId || terminalGoals.has(this.goal(task.blockedByGoalId).state))) task.blockedByGoalId = goal.id;
+      }
       this.cancelAgentAttempt(agent, '새 목표로 즉시 전환', true);
     }
     this.changed('goal.created', '목표를 등록했습니다.', { goalId: goal.id, commandId });
@@ -497,6 +602,7 @@ export class FleetController {
         this.observe(agent, [{ id: `inventory:${message.messageId}`, observedAt: message.sentAt, world: message.payload.world, dimension: message.payload.dimension, kind: 'inventory', data: { items: message.payload.inventory } }]);
         if (agent.status === 'removing' && !session.activeAttemptId) this.send(agent, 'bot.shutdown', { reason: '봇 제거' });
         else this.applyAgentRules(agent);
+        this.resumeAssignmentWaits(agent);
         this.changed(message.type, message.payload.reason, { botId: agent.id }, message.type === 'bot.ready');
         return;
       }
@@ -539,13 +645,15 @@ export class FleetController {
         this.observe(agent, message.payload.observations, attempt.id); task.progress = message.payload.progress ?? task.progress; task.checkpoint = clone(message.payload.checkpoint); task.reason = message.payload.reason;
         this.changed('task.progress', task.reason, { taskId: task.id, botId: agent.id }, false); return;
       case 'task.rejected':
-        // Rejection precedes acceptance/effects. A recovery transition between
-        // scheduling and receipt preserves work instead of spending retries.
-        if (message.payload.retryable && attempt.state === 'assigned' && this.survivalBlocked(agent)) {
+        // State changes before acceptance have no execution effects. Wait for
+        // another ready report instead of retrying against the scheduling report.
+        if (message.payload.retryable && attempt.state === 'assigned' && (message.payload.blockedBy || legacyAssignmentWaitReasons.has(message.payload.reason) || this.survivalBlocked(agent))) {
           attempt.state = 'interrupted'; attempt.finishedAt = this.now(); this.release(attempt.id); session.activeAttemptId = undefined;
           task.state = this.goal(task.goalId).state === 'cancelling' || terminalGoals.has(this.goal(task.goalId).state) ? 'cancelled' : 'interrupted';
-          task.resumeCount++; task.updatedAt = this.now(); task.reason = '체력·허기를 실제로 회복한 뒤 보존한 작업을 재개합니다.';
-          this.changed('task.recovery-wait', task.reason, { taskId: task.id, attemptId: attempt.id, botId: agent.id });
+          if (task.state === 'interrupted') task.assignmentWait = { botId: agent.id, blockedBy: message.payload.blockedBy ?? (this.survivalBlocked(agent) ? 'survival' : 'state'), rejectedAt: this.now() };
+          task.resumeCount++; task.updatedAt = this.now(); task.reason = message.payload.reason;
+          attempt.result = { outcome: 'condition-wait', observations: [], evidence: [], checkpoint: clone(task.checkpoint), reason: task.reason };
+          this.changed('task.assignment-wait', task.reason, { taskId: task.id, attemptId: attempt.id, botId: agent.id });
           if (agent.status === 'removing') this.send(agent, 'bot.shutdown', { reason: '회복 거절 후 봇 제거' }); else this.applyAgentRules(agent);
           this.finishGoalCancellation(this.goal(task.goalId)); return;
         }
@@ -578,6 +686,14 @@ export class FleetController {
     // Visiting a site is a planning step, never proof that the building exists.
     if (isBuildStageTask(task) || isAccessPreparationTask(task)) return { complete: false, current: 0, target: 1, reason: '부지의 실제 지반·빈 공간·접근 관측이 필요합니다.' };
     const agent = this.state.agents.find(a => a.id === attempt.botId);
+    if (task.kind==='collect' && task.params.returnTo!==undefined) {
+      const home=PositionSchema.safeParse(task.params.returnTo);
+      const observations=freshObservations({observations:this.state.observations,now:this.now(),maxAgeMs:this.state.rules.observationMaxAgeMs,world:agent?.session?.report?.world??this.state.rules.world,dimension:agent?.session?.report?.dimension??this.state.rules.dimension,botId:attempt.botId,sessionId:attempt.sessionId,attemptId:attempt.id,notBefore:attempt.assignedAt});
+      const marker=task.checkpoint.resourceTrip as JsonObject|undefined;
+      const latest=observations.filter(o=>o.kind==='position').sort((a,b)=>b.observedAt-a.observedAt||b.receivedAt-a.receivedAt)[0];
+      const returned=home.success && marker?.phase==='complete' && typeof marker.completedAt==='number' && marker.completedAt>=attempt.assignedAt && marker.completedAt<=this.now()+1000 && latest?.kind==='position' && latest.observedAt>=marker.completedAt && distance(latest.data.position,home.data)<=1.5;
+      if (!returned) return {complete:false,current:0,target:task.completion.kind==='inventory'?task.completion.minimum:1,reason:'자원을 확보한 뒤 작업 지점의 실제 복귀 관측이 필요합니다.'};
+    }
     return verifyCompletion(task.completion, { observations: this.state.observations, evidence, now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: agent?.session?.report?.world ?? this.state.rules.world, dimension: agent?.session?.report?.dimension ?? this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
   }
   private finishResult(agent: Agent, task: Task, attempt: TaskAttempt, result: ResultPayload): void {
@@ -598,8 +714,11 @@ export class FleetController {
       }
     }
     else if (this.goal(task.goalId).state === 'cancelling') { task.state = 'cancelled'; attempt.state = 'cancelled'; this.release(attempt.id); }
+    else if (accessProof?.reobserve && result.outcome === 'completed' && Number(task.accessProofRechecks ?? 0) < 2) {
+      attempt.state = 'uncertain'; this.queueAccessRecheck(task, attempt);
+    }
     else if (result.outcome === 'uncertain' || (result.outcome === 'completed' && task.completion.kind !== 'continuous') || (result.outcome === 'failed' && !result.error?.effectsKnown)) {
-      task.state = 'held'; attempt.state = 'uncertain'; task.reason = (isBuildStageTask(task) || task.completion.kind === 'warehouse') && result.outcome === 'completed' ? verification.reason : result.reason ?? result.error?.message ?? verification.reason;
+      task.state = 'held'; attempt.state = 'uncertain'; task.reason = (isBuildStageTask(task) || isAccessPreparationTask(task) || task.completion.kind === 'warehouse') && result.outcome === 'completed' ? verification.reason : result.reason ?? result.error?.message ?? verification.reason;
     } else if (result.outcome === 'failed') {
       attempt.state = 'failed'; this.release(attempt.id);
       if (result.error?.retryable && task.retryCount < this.state.rules.maxRetries) { task.retryCount++; task.state = 'retry-wait'; task.retryAt = this.now() + Math.min(30000, 1000 * 2 ** (task.retryCount - 1)); task.reason = result.error.message; }
@@ -609,7 +728,7 @@ export class FleetController {
       task.state = 'condition-wait'; task.retryAt = this.now() + 5000; task.resumeCount++; task.reason = result.reason ?? verification.reason;
       const support = typeof task.params.supportRequestId === 'string';
       if (support) { if (task.retryCount >= this.state.rules.maxRetries) { task.state = 'held'; task.reason = '확인한 지원 조건으로 가능한 재시도를 모두 사용했습니다.'; } else { task.retryCount++; task.state = 'retry-wait'; } }
-      const accessPlanned = !support && result.outcome === 'condition-wait' && task.kind === 'build' && !isPreparationTask(task) && task.checkpoint.buildAccessPreparation !== undefined && this.planAccessPreparation(task, attempt);
+      const accessPlanned = !support && result.outcome === 'condition-wait' && task.kind === 'build' && !isSitePreparationTask(task) && task.checkpoint.buildAccessPreparation !== undefined && this.planAccessPreparation(task, attempt);
       const resourceWait = BuildWaitingForSchema.safeParse(task.checkpoint.waitingFor);
       if (!accessPlanned && !support && result.outcome === 'condition-wait' && (task.kind === 'build' || isBuildSiteTask(task) || resourceWait.success && resourceWait.data.kind === 'inventory')) this.recordBuildWait(task, attempt, verification.current);
     }
@@ -619,23 +738,49 @@ export class FleetController {
     this.finishGoalCancellation(this.goal(task.goalId));
   }
   private expectedBuildEntrance(task: Task): Position | undefined {
-    const origin = PositionSchema.safeParse(task.params.origin ?? this.goal(task.goalId).input.params.origin);
+    let building = task;
+    const seen = new Set<string>();
+    while (isAccessPreparationTask(building) && !seen.has(building.id)) {
+      seen.add(building.id);
+      const parent = this.state.tasks.find(t=>t.id===building.params.parentTaskId&&t.goalId===task.goalId&&t.generation===task.generation);
+      if (!parent) return undefined;
+      building = parent;
+    }
+    const origin = PositionSchema.safeParse(building.params.origin ?? this.goal(task.goalId).input.params.origin);
     if (!origin.success) return undefined;
-    try { const size = resolveBlueprint(String(task.params.design ?? task.params.blueprint ?? 'cabin'), task.params.blueprintDefinition); return { x: origin.data.x + Math.floor(size.width / 2), y: origin.data.y, z: origin.data.z - 1 }; } catch { return undefined; }
+    try { const size = resolveBlueprint(String(building.params.design ?? building.params.blueprint ?? 'cabin'), building.params.blueprintDefinition); return { x: origin.data.x + Math.floor(size.width / 2), y: origin.data.y, z: origin.data.z - 1 }; } catch { return undefined; }
+  }
+  private accessProtectedPositions(parent: Task): Position[] {
+    const cells = new Map<string, Position>(), seen = new Set<string>();
+    let current: Task | undefined = parent;
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      if (current.completion.kind === 'blocks') for (const b of current.completion.blocks) cells.set(positionKey(b.position), b.position);
+      current = isAccessPreparationTask(current) ? this.state.tasks.find(t => t.id === current!.params.parentTaskId && t.goalId === parent.goalId && t.generation === parent.generation) : undefined;
+    }
+    return [...cells.values()];
   }
   private planAccessPreparation(parent: Task, attempt: TaskAttempt): boolean {
     const target = this.expectedBuildEntrance(parent), proposed = BuildAccessPreparationSchema.safeParse(parent.checkpoint.buildAccessPreparation), report = this.state.agents.find(a => a.id === attempt.botId)?.session?.report;
     if (!proposed.success || !target || !report?.position || proposed.data.observedAt < attempt.assignedAt || proposed.data.observedAt > this.now() + 1000 || this.now() - proposed.data.observedAt > this.state.rules.observationMaxAgeMs || distance(report.position, { ...proposed.data.start, x: proposed.data.start.x + 0.5, z: proposed.data.start.z + 0.5 }) > 1.5) return false;
+    const returning = isAccessPreparationTask(parent);
+    if (returning) {
+      const original = BuildAccessPreparationSchema.safeParse(parent.params.preparation), names = new Map(this.attemptBlocks(attempt).map(b => [positionKey(b.position), b.name]));
+      if (!this.accessApproved(parent) || Number(parent.params.accessReturnDepth ?? 0) >= 1 || !original.success
+        || JSON.stringify(original.data) === JSON.stringify(proposed.data)
+        || !validateBuildAccessPreparation(original.data, this.attemptBlocks(attempt), {allowCompletedEdits:true,protectedPositions:this.accessProtectedPositions(this.state.tasks.find(t=>t.id===parent.params.parentTaskId)!)}).ok
+        || original.data.edits.some(e=>!matchesPreparationTarget(e,names.get(positionKey(e.position))??'unknown'))) return false;
+    }
     const previous = this.state.tasks.filter(t => t.params.parentTaskId === parent.id && isAccessPreparationTask(t));
     if (previous.some(t => !['completed', 'cancelled'].includes(t.state)) || previous.length >= this.state.rules.maxRetries) return false;
-    const before = this.attemptBlocks(attempt), protectedPositions = parent.completion.kind === 'blocks' ? parent.completion.blocks.map(b => b.position) : [];
+    const before = this.attemptBlocks(attempt), protectedPositions = this.accessProtectedPositions(parent);
     const verified = validateBuildAccessPreparation(proposed.data, before, { expectedTarget: target, protectedPositions });
     if (!verified.ok) { parent.reason = verified.reason; this.changed('build.access-rejected', verified.reason, { taskId: parent.id, botId: attempt.botId }); return false; }
     const keys = verified.proofPositions.map(p => `block:${this.state.rules.world}:${this.state.rules.dimension}:${positionKey(p)}`), keySet = new Set(keys);
     if (this.state.reservations.some(r => r.attemptId !== attempt.id && keySet.has(r.key)) || this.state.tasks.some(t => t.id !== parent.id && t.goalId !== parent.goalId && !['completed', 'cancelled'].includes(t.state) && !terminalGoals.has(this.goal(t.goalId).state) && t.reservationKeys.some(k => keySet.has(k)))) { parent.reason = '다른 작업이 예약한 접근 경로와 주변을 보존합니다.'; return false; }
     const goal = this.goal(parent.goalId);
     if (goal.input.source === 'autonomous' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, verified.proofPositions.map(position => ({ position }))))) return false;
-    const child: Task = { id: randomUUID(), goalId: parent.goalId, generation: parent.generation, kind: 'build', source: parent.source, params: { mode: 'prepare-access', parentTaskId: parent.id, preparation: jsonObject(verified.plan), accessApproval: { attemptId: attempt.id, botId: attempt.botId, sessionId: attempt.sessionId, controllerEpoch: attempt.controllerEpoch }, ...(parent.params.blueprintDefinition ? { blueprintDefinition: parent.params.blueprintDefinition } : {}) }, dependencies: [...parent.dependencies], completion: { kind: 'blocks', blocks: accessPreparationFinalBlocks(verified.plan, before) }, reservationKeys: keys, affinityBotId: attempt.botId, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
+    const child: Task = { id: randomUUID(), goalId: parent.goalId, generation: parent.generation, kind: 'build', source: parent.source, params: { mode: 'prepare-access', parentTaskId: parent.id, preparation: jsonObject(verified.plan), ...(returning?{accessReturnDepth:1}:{}), accessApproval: { attemptId: attempt.id, botId: attempt.botId, sessionId: attempt.sessionId, controllerEpoch: attempt.controllerEpoch }, ...(parent.params.blueprintDefinition ? { blueprintDefinition: parent.params.blueprintDefinition } : {}) }, dependencies: [...parent.dependencies], completion: { kind: 'blocks', blocks: accessPreparationFinalBlocks(verified.plan, before) }, reservationKeys: keys, affinityBotId: attempt.botId, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
     this.state.tasks.push(child); goal.taskIds.push(child.id); parent.dependencies.push(child.id); parent.state = 'interrupted'; parent.retryAt = this.now(); parent.waitState = undefined; parent.reason = '기존 건축 진행을 보존하고 승인한 접근 경로를 먼저 준비합니다.';
     this.changed('build.access-planned', parent.reason, { taskId: child.id, goalId: goal.id, botId: attempt.botId, data: { parentTaskId: parent.id, edits: verified.plan.edits.length } });
     return true;
@@ -645,13 +790,14 @@ export class FleetController {
     const attempt = this.state.attempts.find(a => a.id === approval?.attemptId && a.taskId === parent?.id && a.botId === approval?.botId && a.sessionId === approval?.sessionId && a.controllerEpoch === approval?.controllerEpoch && a.state === 'interrupted');
     return !!parent && !!attempt && plan.success && parent.dependencies.includes(task.id) && JSON.stringify(attempt.result?.checkpoint.buildAccessPreparation) === JSON.stringify(plan.data);
   }
-  private verifyAccessCompletion(task: Task, attempt: TaskAttempt, result: ResultPayload): { ok: boolean; reason: string } {
+  private verifyAccessCompletion(task: Task, attempt: TaskAttempt, result: ResultPayload): { ok: boolean; reason: string; reobserve?: boolean } {
     const fail = (reason: string) => ({ ok: false, reason }), plan = BuildAccessPreparationSchema.safeParse(task.params.preparation), marker = task.checkpoint.accessPreparationComplete as JsonObject | undefined;
     const parent = this.state.tasks.find(t => t.id === task.params.parentTaskId);
-    if (!this.accessApproved(task) || !plan.success || !parent || !marker || Number(marker.observedAt) < attempt.assignedAt || Number(marker.observedAt) > this.now() + 1000 || this.now() - Number(marker.observedAt) > this.state.rules.observationMaxAgeMs || !Number.isInteger(marker.observedAt)) return fail('현재 시도의 승인된 접근 경로와 최신 완료 증거가 필요합니다.');
+    if (!this.accessApproved(task) || !plan.success || !parent || !marker || Number(marker.observedAt) < attempt.assignedAt || Number(marker.observedAt) > this.now() + 1000 || !Number.isInteger(marker.observedAt)) return fail('현재 시도의 승인된 접근 경로와 최신 완료 증거가 필요합니다.');
     const target = PositionSchema.safeParse(marker.target);
     if (!target.success || positionKey(target.data) !== positionKey(plan.data.target)) return fail('기존 건축 입구의 실제 완료 증거가 필요합니다.');
-    const blocks = this.attemptBlocks(attempt), checked = validateBuildAccessPreparation(plan.data, blocks, { allowCompletedEdits: true, expectedTarget: this.expectedBuildEntrance(parent), protectedPositions: parent.completion.kind === 'blocks' ? parent.completion.blocks.map(b => b.position) : [] }), names = new Map(blocks.map(b => [positionKey(b.position), b.name]));
+    if (this.now() - Number(marker.observedAt) > this.state.rules.observationMaxAgeMs) return { ok: false, reobserve: true, reason: Number(task.accessProofRechecks ?? 0) >= 2 ? '접근로 완료 증거의 재확인 2회를 마쳤지만 보고가 오래되었습니다. 중앙 처리와 연결 상태 확인이 필요합니다.' : '접근로 완료 보고가 늦어 현재 지면과 입구 도착을 다시 확인해야 합니다.' };
+    const blocks = this.attemptBlocks(attempt), checked = validateBuildAccessPreparation(plan.data, blocks, { allowCompletedEdits: true, expectedTarget: this.expectedBuildEntrance(parent), protectedPositions: this.accessProtectedPositions(parent) }), names = new Map(blocks.map(b => [positionKey(b.position), b.name]));
     if (!checked.ok) return fail(checked.reason);
     if (plan.data.edits.some(e => !matchesPreparationTarget(e, names.get(positionKey(e.position)) ?? 'unknown'))) return fail('접근 경로 변경의 실제 완료 상태를 확인해야 합니다.');
     const observations = freshObservations({ observations: this.state.observations, now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
@@ -667,6 +813,8 @@ export class FleetController {
     let size: ReturnType<typeof resolveBlueprint>;
     try { size = resolveBlueprint(design, task.params.blueprintDefinition); } catch { return fail('고정한 설계도와 실제 부지 증거가 필요합니다.'); }
     const site = parsed.data;
+    const fixedOrigin = task.params.fixedOrigin === undefined ? undefined : PositionSchema.safeParse(task.params.fixedOrigin);
+    if (fixedOrigin && (!fixedOrigin.success || positionKey(site.origin) !== positionKey(fixedOrigin.data))) return fail('재관측은 원래 지정한 건축 좌표를 유지해야 합니다.');
     if (!this.sameBlueprintDefinition(design, task.params.blueprintDefinition, site.blueprintDefinition)) return fail('부지 증거는 목표에 고정한 설계도 버전·크기·재료와 일치해야 합니다.');
     if (isSitePreparationTask(task)) {
       const preparation = BuildSitePreparationSchema.safeParse(task.params.preparation);
@@ -721,6 +869,8 @@ export class FleetController {
     const validated = validateBuildSitePreparation(task.checkpoint.buildSitePreparation, this.attemptBlocks(attempt), { near: near.data });
     if (!validated.ok) return { reason: validated.reason };
     const preparation = validated.plan;
+    const fixedOrigin = task.params.fixedOrigin === undefined ? undefined : PositionSchema.safeParse(task.params.fixedOrigin);
+    if (fixedOrigin && (!fixedOrigin.success || positionKey(preparation.origin) !== positionKey(fixedOrigin.data))) return { reason: '지형 정리 계획은 원래 지정한 건축 좌표를 유지해야 합니다.' };
     if (preparation.design !== String(task.params.design ?? task.params.blueprint) || preparation.observedAt < attempt.assignedAt || preparation.observedAt > this.now() + 1000 || this.now() - preparation.observedAt > this.state.rules.observationMaxAgeMs) return { reason: '현재 시도의 설계도와 최신 정리 계획 관측이 필요합니다.' };
     const goal = this.goal(task.goalId), keys = new Set(validated.proofPositions.map(p => `block:${this.state.rules.world}:${this.state.rules.dimension}:${positionKey(p)}`));
     if (goal.input.source === 'autonomous' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, validated.proofPositions.map(position => ({ position }))))) return { reason: '전체 정리 부지와 접근로가 마을 범위 안에 있어야 합니다.' };
@@ -749,15 +899,15 @@ export class FleetController {
     } catch { return false; }
   }
   private buildWaitFingerprint(condition: BuildWaitingFor, botId: string, previous?: string): string {
-    let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string>; resourceStates?: Record<string, number> } = {};
+    let saved: { blocks?: Record<string, string | null>; inventory?: number; position?: string; resources?: Record<string, string>; resourceStates?: Record<string, number>; safety?: string;daylight?:boolean } = {};
     try { if (previous) saved = JSON.parse(previous); } catch { /* An absent legacy fingerprint has no known values. */ }
     const observations = freshObservations({ observations: this.state.observations.filter(o => o.controllerEpoch === this.controllerEpoch), now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: this.state.rules.world, dimension: this.state.rules.dimension }).sort((a, b) => a.observedAt - b.observedAt || a.receivedAt - b.receivedAt);
-    const actual = new Map<string, { name: string; stateId?: number }>();
+    const actual = new Map<string, { name: string; stateId?: number;age?:number }>();
     for (const observation of observations) {
       const blocks = observation.kind === 'blocks' ? observation.data.blocks : observation.kind === 'exploration' ? observation.data.resources : [];
       for (const block of blocks) {
-        const key = positionKey(block.position), stateId = block.stateId ?? actual.get(key)?.stateId;
-        actual.set(key, { name: block.name, ...(stateId === undefined ? {} : { stateId }) });
+        const key = positionKey(block.position), stateId = block.stateId ?? actual.get(key)?.stateId,age=block.age??(actual.get(key)?.name===block.name?actual.get(key)?.age:undefined);
+        actual.set(key, { name: block.name, ...(stateId === undefined ? {} : { stateId }),...(age===undefined?{}:{age}) });
       }
     }
     const agent = this.state.agents.find(a => a.id === botId), report = agent?.session?.report;
@@ -775,10 +925,15 @@ export class FleetController {
         fingerprint.resources = Object.fromEntries(Object.entries(resources).sort(([a], [b]) => a.localeCompare(b)).slice(0, 2048));
       }
       const states = { ...saved.resourceStates };
-      for (const [key, block] of actual) if (block.stateId !== undefined && (probed.has(key) || key in (fingerprint.resources ?? {}))) states[key] = block.stateId;
+      for (const [key, block] of actual) if (probed.has(key) || key in (fingerprint.resources ?? {})) {
+        if(condition.minimumResourceAge!==undefined){if(!resourceNames.includes(block.name))states[key]=0;else if(block.age!==undefined)states[key]=Number(block.age>=condition.minimumResourceAge);}
+        else if(block.stateId!==undefined)states[key]=block.stateId;
+      }
       if (Object.keys(states).length) fingerprint.resourceStates = Object.fromEntries(Object.entries(states).sort(([a], [b]) => a.localeCompare(b)).slice(0, 2112));
     }
     if (condition.watchPosition) fingerprint.position = validReport && report.position ? positionKey({ x: Math.floor(report.position.x), y: Math.floor(report.position.y), z: Math.floor(report.position.z) }) : saved.position;
+    if (condition.kind==='blocks'&&condition.watchSafety) fingerprint.safety=validReport?`${report.health>this.state.rules.combat.retreatHealth}:${report.food>6}:${report.nearbyThreatsClear??'unknown'}`:saved.safety;
+    if(condition.kind==='inventory'&&condition.watchDaylight)fingerprint.daylight=validReport&&typeof report.isDay==='boolean'?report.isDay:saved.daylight;
     return JSON.stringify(fingerprint);
   }
   private recordBuildWait(task: Task, attempt: TaskAttempt, verified: number): void {
@@ -795,6 +950,7 @@ export class FleetController {
   private refreshBuildWait(task: Task): void {
     const wait = task.waitState;
     if (task.state !== 'condition-wait' || !wait?.waitingFor) return;
+    if (this.planFixedSiteSurvey(task)) return;
     if (wait.waitingFor.kind === 'inventory') {
       const normalized = resourceNamesFor(wait.waitingFor.item, wait.waitingFor.resourceNames);
       if (JSON.stringify(normalized) !== JSON.stringify(wait.waitingFor.resourceNames)) {
@@ -803,18 +959,57 @@ export class FleetController {
       }
     }
     const agent = this.state.agents.find(a => a.id === wait.botId);
+    const recovery = agent?.recovery;
+    const records = task.checkpoint.resourceRecovery;
+    const hasJourney = records && typeof records === 'object' && !Array.isArray(records) && Object.values(records).some(value => value && typeof value === 'object' && !Array.isArray(value) && value.resourceJourney);
+    const newLife = ['collect','build'].includes(task.kind) && !!hasJourney && recovery?.phase === 'resolved' && recovery.safe && agent?.session?.report?.ready && task.checkpoint.resourceJourneyWakeDeathId !== recovery.deathId && task.checkpoint.resourceJourneyDeathId !== recovery.deathId;
+    const spent=records && typeof records==='object' && !Array.isArray(records) && Object.values(records).some(v=>v && typeof v==='object' && !Array.isArray(v) && v.status==='exhausted' && (Number(v.destinationsUsed)>=5 || Number(v.elapsedMs)>=60000));
+    const materialStage=task.kind==='build' && task.completion.kind==='blocks' && typeof (task.params.design??task.params.blueprint)==='string' && wait.waitingFor.kind==='inventory' && wait.waitingFor.causeCode==='BUILD_MATERIAL' && !!spent && agent?.config.allowedActions.includes('explore') && task.checkpoint.materialExpeditionVersion!==1;
+    if (materialStage) { task.params.materialExpedition=true; task.checkpoint.materialExpeditionVersion=1; }
+    if (newLife) task.checkpoint.resourceJourneyWakeDeathId = recovery.deathId;
     // The old worker owned the passive block watch. A confirmed replacement
     // session must inspect the preserved conditions once to restore that watch.
     const replacement = agent?.session?.state === 'ready' && agent.session.id !== wait.sessionId && this.state.stoppedSessionIds.includes(wait.sessionId);
     const fingerprint = this.buildWaitFingerprint(wait.waitingFor, wait.botId, wait.fingerprint);
-    if (!replacement && fingerprint === wait.fingerprint) return;
+    if (!replacement && !newLife && !materialStage && fingerprint === wait.fingerprint) return;
     if (isBuildSiteTask(task) && wait.waitingFor.watchPosition) {
       const position = this.state.agents.find(a => a.id === wait.botId)?.session?.report?.position;
       if (position) task.params.near = jsonObject(position);
     }
-    task.state = 'interrupted'; task.retryAt = this.now(); task.reason = replacement ? '이전 실행 종료와 새 세션을 확인하고 보존한 건축 조건을 다시 관측합니다.' : '관련 실제 관측이 바뀌어 실행 조건을 다시 확인합니다.';
+    task.state = 'interrupted'; task.retryAt = this.now(); task.reason = materialStage ? '소진한 가까운 탐색 기록을 보존하고 건축 재료 원정과 안전한 복귀 단계로 확장합니다.' : newLife ? '실제 사망 복구 완료를 확인하고 현재 생존 위치에서 보존한 자원 원정을 이어갑니다.' : replacement ? '이전 실행 종료와 새 세션을 확인하고 보존한 건축 조건을 다시 관측합니다.' : '관련 실제 관측이 바뀌어 실행 조건을 다시 확인합니다.';
     delete task.checkpoint.waitingFor;
     this.changed('task.condition-changed', task.reason, { taskId: task.id, goalId: task.goalId });
+  }
+  private planFixedSiteSurvey(parent: Task): boolean {
+    const goal = this.goal(parent.goalId), condition = parent.waitState?.waitingFor;
+    const placed = Number((parent.checkpoint.build as JsonObject | undefined)?.placed ?? 0);
+    if (parent.kind !== 'build' || parent.completion.kind !== 'blocks' || parent.generation !== goal.generation || parent.progress > 0 || placed > 0 || parent.checkpoint.fixedSiteSurveyId || condition?.kind !== 'blocks' || condition.causeCode !== 'BUILD_SITE' || goal.input.params.siteSelection !== 'fixed' || goal.input.params.allowPreparation === false || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.replanRequested) return false;
+    const origin = PositionSchema.safeParse(goal.input.params.origin), design = String(goal.input.params.design ?? goal.input.params.blueprint ?? '');
+    if (!origin.success || !Object.values(origin.data).every(Number.isInteger)) return false;
+    try { resolveBlueprint(design, goal.input.params.blueprintDefinition); } catch { return false; }
+    const child: Task = { id: randomUUID(), goalId: goal.id, generation: goal.generation, kind: 'explore', source: parent.source, params: { mode: 'build-site', design, fixedOrigin: jsonObject(origin.data), parentTaskId: parent.id, allowPreparation: true, searchRadius: 32, ...(goal.input.params.blueprintDefinition ? { blueprintDefinition: goal.input.params.blueprintDefinition } : {}), ...(goal.input.params.wood ? { wood: goal.input.params.wood } : {}) }, completion: { kind: 'exploration', resourceNames: [], minVisits: 1 }, dependencies: [...parent.dependencies], reservationKeys: [...parent.reservationKeys], affinityBotId: parent.waitState?.botId, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
+    this.state.tasks.push(child); goal.taskIds.push(child.id); parent.dependencies.push(child.id); parent.checkpoint.fixedSiteSurveyId = child.id;
+    parent.state = 'interrupted'; parent.waitState = undefined; parent.retryAt = this.now(); parent.reason = '설계와 지정 좌표를 보존하고 실제 부지의 얕은 지반과 접근로 정리 가능성을 다시 관측합니다.';
+    this.changed('build.site-resurvey-planned', parent.reason, { taskId: child.id, goalId: goal.id, data: { origin: jsonObject(origin.data) } });
+    return true;
+  }
+  private relocateUnstartedAutomaticSite(survey: Task): boolean {
+    const goal = this.goal(survey.goalId), fixed = PositionSchema.safeParse(survey.params.fixedOrigin), condition = survey.waitState?.waitingFor;
+    const marker = goal.input.params.siteVerification as JsonObject | undefined;
+    const initial = this.state.tasks.find(t => t.goalId === goal.id && isBuildSiteTask(t) && t.params.fixedOrigin === undefined && t.state === 'completed' && t.attemptId === marker?.attemptId);
+    const parent = this.state.tasks.find(t => t.id === survey.params.parentTaskId && t.goalId === goal.id);
+    const relocations = Array.isArray(goal.input.params.siteRelocations) ? goal.input.params.siteRelocations : [];
+    if (!isBuildSiteTask(survey) || survey.state !== 'condition-wait' || condition?.kind !== 'blocks' || condition.causeCode !== 'BUILD_SITE' || !fixed.success || !initial || !parent || parent.progress > 0 || Number((parent.checkpoint.build as JsonObject | undefined)?.placed ?? 0) > 0 || goal.input.params.siteSelection !== 'fixed' || goal.input.params.allowPreparation === false || relocations.length >= 3 || this.currentTasks(goal).some(t => this.taskHasActor(t)) || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.replanRequested || this.state.pendingCommands.some(c => c.type === 'goal-update' && c.targetId === goal.id)) return false;
+    const origin = PositionSchema.safeParse(goal.input.params.origin);
+    if (!origin.success || positionKey(origin.data) !== positionKey(fixed.data)) return false;
+    // Only the application's own earlier nearby selection may move. Explicit
+    // user coordinates and any existing construction remain untouched.
+    goal.input.params.siteRelocations = [...relocations, { origin: jsonObject(origin.data), surveyAttemptId: survey.attemptId ?? '', reason: (survey.reason ?? '안전한 지반 정리를 확인하지 못했습니다.').slice(0, 1000) }];
+    delete goal.input.params.origin; delete goal.input.params.siteVerification;
+    goal.input.params.siteSelection = 'nearby';
+    this.invalidatePlan(goal, '자동 선택했던 부지를 안전하게 정리할 수 없어 같은 설계로 다른 가까운 실제 부지를 확인합니다.');
+    this.changed('build.automatic-site-unusable', goal.reason!, { goalId: goal.id, taskId: survey.id, data: { previousOrigin: jsonObject(origin.data) } });
+    return true;
   }
   private reducePartialTransfer(task: Task, attempt: TaskAttempt, evidence: ResultPayload['evidence']): void {
     if (task.completion.kind !== 'transfer') return;
@@ -834,7 +1029,7 @@ export class FleetController {
     const container = clone(task.completion.container);
     goal.input.params.verifiedWarehouse = jsonObject(container);
     const activated = this.state.rules.warehouse === null;
-    if (activated) this.updateRules({ warehouse: container }, 'queued');
+    if (activated) this.updateRules({ warehouse: container, baseShelter: warehouseShelter(container,task.completion.blocks)??null }, 'queued');
     this.changed('goal.warehouse-verified', activated ? '건축물과 실제 상자 내용물을 확인하고 공동 창고로 연결했습니다.' : '새 창고의 실제 사용을 확인했습니다. 기존 공동 창고 설정을 유지합니다.', { goalId: goal.id, taskId: task.id, attemptId: attempt.id, botId: attempt.botId, data: { container: jsonObject(container), activated } });
   }
   private release(attemptId?: string): void { if (attemptId) this.state.reservations = this.state.reservations.filter(r => r.attemptId !== attemptId); }
@@ -878,10 +1073,21 @@ export class FleetController {
     const known = new Set(this.inventoryProof(goal).map(p => p.botId));
     return this.state.agents.filter(agent => known.has(agent.id) && agent.config.allowedActions.includes(goal.input.kind) && agent.session!.report!.capabilities.includes(goal.input.kind) && agent.session!.rulesVersion === this.state.rules.version && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session!.report!.mode) && !this.survivalBlocked(agent) && inventoryCapacity(agent, goal.input.item!) > 0);
   }
+  private inventoryReturnReady(task: Task, agent: Agent): boolean {
+    if (task.kind !== 'collect' || task.params.returnTo === undefined || task.completion.kind !== 'inventory') return false;
+    const previous = this.state.attempts.find(a => a.id === task.attemptId), minimum = task.completion.minimum;
+    return previous?.botId === agent.id && this.inventoryProof(this.goal(task.goalId)).some(p => p.botId === agent.id && p.count >= minimum);
+  }
   private reserveInventoryQuota(task: Task, agent: Agent): boolean {
     if (task.completion.kind !== 'inventory') return false;
     const goal = this.goal(task.goalId), proof = this.inventoryProof(goal), own = proof.find(p => p.botId === agent.id), total = proof.reduce((n, p) => n + p.count, 0);
     if (!own || goal.targetQuantity === undefined) return false;
+    // A stopped collector may have acquired its allocation during another job.
+    // Resume its actual return without reserving more stock or changing its proof.
+    if (this.inventoryReturnReady(task, agent)) {
+      task.params.inventoryAllocated = 0; task.params.inventoryBaseline = own.count; task.params.quantity = 0;
+      return true;
+    }
     let reserved = 0;
     for (const other of this.currentTasks(goal)) {
       if (other.id === task.id || other.params.inventoryGoal !== true || other.completion.kind !== 'inventory' || !this.taskHasActor(other)) continue;
@@ -901,12 +1107,48 @@ export class FleetController {
     const observed = observations.filter(o => o.kind === 'container' && sameContainer(o.data.container, container)).reverse().sort((a, b) => b.observedAt - a.observedAt || b.receivedAt - a.receivedAt)[0];
     return observed?.kind === 'container' ? itemCount(observed.data.items, goal.input.item) : undefined;
   }
+  private preserveBuildMaterials(task:Task):void {
+    if(task.kind!=='build'||task.params.mode||task.completion.kind!=='blocks')return;
+    const blocks=JSON.stringify(task.completion.blocks),prefix=`block:${this.state.rules.world}:${this.state.rules.dimension}:`;
+    const prior=[...this.state.tasks].reverse().find(old=>old.goalId===task.goalId&&old.generation<task.generation&&old.kind==='build'&&!old.params.mode&&old.completion.kind==='blocks'&&JSON.stringify(old.completion.blocks)===blocks&&old.reservationKeys.length>0&&old.reservationKeys.every(key=>key.startsWith(prefix))&&['resourceRecovery','resourceTrip','buildDeferredMaterialFailures'].some(key=>old.checkpoint[key]!==undefined));
+    if(!prior)return;
+    for(const field of ['materialExpedition','resourceExpedition','resourceRecovery','resourceTrip','resourceTripInterruptedLives','resourceTripHomeRelocations','resourceTripDisplacements','resourceTripShortcuts','resourceTripApproach','resourceJourneyDeathId','resourceJourneyWakeDeathId','materialExpeditionVersion','buildDeferredMaterialFailures','lastResourcePosition','crafting_tablePosition','furnacePosition','confirmedRecoveryDeathId','resourceHintVisits']){
+      if(prior.checkpoint[field]!==undefined)task.checkpoint[field]=clone(prior.checkpoint[field]);
+    }
+    if(prior.params.materialExpedition===true)task.params.materialExpedition=true;
+    task.checkpoint.materialContextFromTaskId=prior.id;
+  }
+  private recoverLostCollectionInput(goal:Goal,tasks:Task[]):void {
+    const harvest=goal.input.kind==='farm'&&goal.input.params.mode==='harvest';
+    if(!harvest&&(goal.input.kind!=='collect'||goal.completionLocation!=='warehouse'||!goal.input.item))return;
+    for(const collected of tasks.filter(t=>t.kind===(harvest?'farm':'collect')&&t.state==='completed')){
+      const attempt=this.state.attempts.find(a=>a.id===collected.attemptId),agent=this.state.agents.find(a=>a.id===(collected.affinityBotId??attempt?.botId)),recovery=agent?.recovery,report=agent?.session?.report;
+      if(!agent||!recovery||recovery.phase!=='resolved'||!recovery.safe||!report?.ready||this.now()-agent.session!.lastReportAt>=this.state.rules.statusTimeoutMs||recovery.occurredAt<=collected.updatedAt||collected.checkpoint.collectionInputRecoveryDeathId===recovery.deathId)continue;
+      const descendants=new Set<string>([collected.id]);let changed=true;
+      while(changed){changed=false;for(const t of tasks)if(!descendants.has(t.id)&&t.dependencies.some(id=>descendants.has(id))){descendants.add(t.id);changed=true;}}
+      const pending=tasks.filter(t=>t.id!==collected.id&&descendants.has(t.id)),store=pending.find(t=>t.kind==='store'&&(harvest||t.params.item===goal.input.item)&&!['completed','cancelled'].includes(t.state));
+      const item=store&&typeof store.params.item==='string'?store.params.item:undefined;
+      // A confirmed new body invalidates an undelivered old-body inventory
+      // promise even if another workflow consumed it before the actual death.
+      if(!store||!item||pending.some(t=>this.taskHasActor(t))||itemCount(report.inventory,item)>=Number(store.params.quantity??1))continue;
+      if(harvest){
+        const history=Array.isArray(collected.checkpoint.farmLostDeliveries)?collected.checkpoint.farmLostDeliveries:[];
+        collected.checkpoint.farmLostDeliveries=[...history,{deathId:recovery.deathId,farm:clone(collected.checkpoint.farm??{}),observedAt:this.now()}].slice(-16);
+        collected.checkpoint.farm={harvested:0,crop:String(collected.params.crop??'wheat')};collected.checkpoint.harvestStart=0;delete collected.checkpoint.farmPendingHarvest;
+      }
+      collected.state='interrupted';collected.affinityBotId=agent.id;collected.resumeCount++;collected.updatedAt=this.now();collected.checkpoint.collectionInputRecoveryDeathId=recovery.deathId;delete collected.waitState;delete collected.retryAt;delete collected.assignmentWait;
+      collected.reason='재생성 뒤 부족한 실제 입고 물자를 보존한 원래 작업에서 다시 확보합니다.';
+      for(const t of pending){if(t.state==='cancelled')continue;t.state='waiting';t.updatedAt=this.now();delete t.waitState;delete t.retryAt;delete t.assignmentWait;}
+      this.changed(harvest?'farm.input-lost':'collect.input-lost',collected.reason,{goalId:goal.id,taskId:collected.id,botId:agent.id,data:{deathId:recovery.deathId,item,storeTaskId:store.id,budgetsPreserved:true}});
+    }
+  }
   private reconcileAndPlan(goal: Goal): void {
     if (goal.state === 'cancelling') { this.finishGoalCancellation(goal); return; }
     if (terminalGoals.has(goal.state)) return;
     if (!goal.input.destination && goal.completionLocation !== 'inventory' && this.state.rules.warehouse && (isStockGoal(goal) || ['store', 'take'].includes(goal.input.kind) || (goal.input.kind === 'farm' && goal.input.params.mode === 'harvest'))) goal.input.destination = clone(this.state.rules.warehouse);
     if (isStockGoal(goal) && !goal.completionLocation) goal.completionLocation = goal.input.destination ? 'warehouse' : 'inventory';
     let tasks = this.currentTasks(goal), stock = goal.completionLocation === 'inventory' ? this.inventoryStock(goal) : this.warehouseCount(goal);
+    for (const task of tasks) if (this.relocateUnstartedAutomaticSite(task)) { tasks = this.currentTasks(goal); break; }
     for (const task of tasks) this.refreshBuildWait(task);
     if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) { goal.state = 'condition-wait'; goal.reason = '자율 마을 발전이 꺼져 있습니다.'; return; }
     if (goal.input.source === 'autonomous' && tasks.some(t => t.completion.kind === 'blocks' && (!this.state.rules.center || !footprintInside(this.state.rules.center, this.state.rules.radius, t.completion.blocks))) && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '마을 범위에 맞는 전체 배치를 다시 확인합니다.'); tasks = []; }
@@ -914,7 +1156,9 @@ export class FleetController {
       if (stock !== undefined) {
         if (goal.targetQuantity === undefined) goal.targetQuantity = stock + goal.input.quantity;
         goal.progress = { current: stock, target: goal.targetQuantity };
-        if (stock >= goal.targetQuantity) {
+        const needsReturn=goal.input.kind==='collect' && goal.input.params.returnTo!==undefined;
+        const returned=!needsReturn || tasks.length>0 && tasks.filter(t=>t.kind==='collect').every(t=>t.state==='completed');
+        if (stock >= goal.targetQuantity && returned) {
           for (const task of tasks) if (this.taskHasActor(task)) this.cancelTask(task, goal.completionLocation === 'inventory' ? '봇 인벤토리 합산 목표 수량 확인' : '공동 창고 목표 수량 확인', false); else if (task.state !== 'completed') { task.state = 'cancelled'; this.release(task.attemptId); }
           const nextState = goal.input.mode === 'maintain' ? 'maintaining' : 'completed';
           if (goal.state !== nextState) {
@@ -927,6 +1171,7 @@ export class FleetController {
         if (goal.state === 'maintaining' && !tasks.some(t => this.taskHasActor(t))) { this.invalidatePlan(goal, '재고가 줄어 보충합니다.'); tasks = []; }
       }
     }
+    this.recoverLostCollectionInput(goal,tasks);
     const reconciliation = tasks.filter(t => t.checkpoint.reconcile === true);
     if (reconciliation.length) {
       const stopped = reconciliation.every(t => { const a = this.state.attempts.find(a => a.id === t.attemptId); return !a || this.state.stoppedSessionIds.includes(a.sessionId); });
@@ -982,6 +1227,7 @@ export class FleetController {
       for (const spec of plan.tasks) {
         if (typeof goal.input.params.supportHelperId === 'string') spec.affinityBotId = goal.input.params.supportHelperId;
         const task: Task = { ...spec, generation: goal.generation, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
+        this.preserveBuildMaterials(task);
         this.state.tasks.push(task); goal.taskIds.push(task.id);
       }
       if (plan.tasks.length) { goal.state = 'queued'; goal.reason = undefined; this.changed('goal.planned', '실행 단계와 선행 조건을 계획했습니다.', { goalId: goal.id, data: { tasks: plan.tasks.length } }); }
@@ -989,7 +1235,7 @@ export class FleetController {
     if (goal.completionLocation === 'inventory' && stock === undefined) { goal.state = 'condition-wait'; goal.reason = '같은 월드의 활성 봇이 보고한 실제 인벤토리 수량을 기다립니다.'; return; }
     if (goal.completionLocation === 'inventory' && stock! < (goal.targetQuantity ?? Infinity) && !this.currentTasks(goal).some(t => this.taskHasActor(t)) && !this.inventoryCollectors(goal).length) { goal.state = 'condition-wait'; goal.reason = '수집이 허용된 봇과 인벤토리 공간을 기다립니다. 창고 없이 봇 인벤토리에서 완료합니다.'; return; }
     const frontier = this.currentTasks(goal).filter(t => !['completed', 'cancelled'].includes(t.state) && t.dependencies.every(id => this.state.tasks.find(d => d.id === id)?.state === 'completed'));
-    if (frontier.length && frontier.every(t => t.state === 'condition-wait')) { goal.state = 'condition-wait'; goal.reason = frontier[0].reason; goal.updatedAt = this.now(); }
+    if (frontier.length && frontier.every(t => t.state === 'condition-wait' || t.assignmentWait)) { goal.state = 'condition-wait'; goal.reason = frontier[0].reason; goal.updatedAt = this.now(); }
     else if (frontier.some(t => isPreparationTask(t) && !this.taskHasActor(t) && this.protectedPositions(t).length > 10000)) { goal.state = 'condition-wait'; goal.reason = '보호할 건축·농장 좌표가 너무 많아 먼저 진행 중인 작업을 기다립니다.'; }
     else if (frontier.some(t => isPreparationTask(t) && !this.taskHasActor(t) && this.otherResourceActor(t))) { goal.state = 'condition-wait'; goal.reason = '부지 보호를 위해 먼저 시작한 자원 작업의 실제 종료를 기다립니다.'; }
     else if (goal.state === 'condition-wait') { goal.state = 'queued'; goal.reason = undefined; }
@@ -998,12 +1244,19 @@ export class FleetController {
     const report = agent.session?.report;
     return !!agent.survivalRecovery || !!report?.survivalRecovery || !!report && (report.mode === 'survival' || survivalRecoveryNeeded(report.health, report.food, this.state.rules.combat));
   }
+  private assignmentReady(agent: Agent): boolean {
+    const session = agent.session, report = session?.report;
+    return (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && agent.config.enabled && agent.desiredConfig?.enabled !== false
+      && agent.status !== 'removing' && agent.status !== 'removed' && session?.state === 'ready' && !!report?.ready && !session.activeAttemptId
+      && session.rulesVersion === this.state.rules.version && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs
+      && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) && !this.survivalBlocked(agent);
+  }
   private candidateTasks(agent: Agent): Task[] {
-    if (agent.recovery && !(agent.recovery.phase === 'resolved' && agent.recovery.safe)) return [];
-    if (!agent.config.enabled || agent.desiredConfig?.enabled === false || agent.status === 'removing' || agent.status === 'removed' || agent.session?.state !== 'ready' || !agent.session.report?.ready || agent.session.activeAttemptId || agent.session.rulesVersion !== this.state.rules.version || this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs || ['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(agent.session.report.mode) || this.survivalBlocked(agent)) return [];
-    const pinned = this.state.tasks.some(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
+    if (!this.assignmentReady(agent)) return [];
+    const pinned = this.state.tasks.filter(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && !idleResourceTaskCanYield(t,agent.session?.report,this.taskHasActor(t)) && !(t.state === 'condition-wait' && !this.taskHasActor(t) && t.waitState?.waitingFor && (isBuildSiteTask(t) || t.kind==='farm' || t.kind === 'build' && t.waitState.waitingFor.causeCode === 'BUILD_MATERIAL')) && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
+      if (task.assignmentWait?.botId === agent.id) return false;
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;
       if (task.state === 'condition-wait' && task.waitState?.waitingFor) return false;
       if (isPreparationTask(task) && (!this.preparationApproved(goal, task.params.preparation) || this.otherResourceActor(task))) return false;
@@ -1011,9 +1264,9 @@ export class FleetController {
       if (goal.input.source === 'autonomous' && !this.state.rules.autonomyEnabled) return false;
       if (task.blockedByGoalId && !terminalGoals.has(this.goal(task.blockedByGoalId).state)) return false;
       if (task.affinityBotId && task.affinityBotId !== agent.id) return false;
-      if (pinned && task.affinityBotId !== agent.id) return false;
+      if (pinned.length && task.affinityBotId !== agent.id && !(goal.input.executionMode==='immediate' && goal.input.preferredBotId===agent.id && pinned.every(parent=>this.taskPriority(task)>this.taskPriority(parent)))) return false;
       if (!task.dependencies.every(id => this.state.tasks.find(t => t.id === id)?.state === 'completed')) return false;
-      if (task.params.inventoryGoal === true && inventoryCapacity(agent, String(task.params.item)) <= 0) return false;
+      if (task.params.inventoryGoal === true && inventoryCapacity(agent, String(task.params.item)) <= 0 && !this.inventoryReturnReady(task, agent)) return false;
       if (!agent.config.allowedActions.includes(task.kind) || !agent.session!.report!.capabilities.includes(task.kind)) return false;
       if (isBuildSiteTask(task) && (!agent.session!.report!.position || !agent.config.allowedActions.includes('build') || !agent.session!.report!.capabilities.includes('build'))) return false;
       if (task.reservationKeys.some(key => this.state.reservations.some(r => r.key === key && r.attemptId !== task.attemptId))) return false;
@@ -1054,8 +1307,19 @@ export class FleetController {
     const positions = new Map<string, Position>();
     for (const other of this.state.tasks) {
       const goal = this.goal(other.goalId);
+      if (other.id !== task.id && task.params.mode !== 'material-access' && other.kind === 'build' && other.params.mode === 'material-access' && other.source === 'user' && other.state === 'completed' && goal.state === 'completed' && other.generation === goal.generation && other.reservationKeys.every(key => key.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`))) {
+        const access = MaterialAccessPlanSchema.safeParse(other.params.access);
+        if (access.success) {
+          // Harvesting a stair's stone support strands the collector below it.
+          for (const stand of [...access.data.edits.map(edit => edit.stand), access.data.exit]) {
+            const support = { x: stand.x, y: stand.y - 1, z: stand.z }; positions.set(positionKey(support), support);
+          }
+          for (const edit of access.data.edits.filter(edit => edit.after === 'oak_planks')) positions.set(positionKey(edit.position), edit.position);
+        }
+        continue;
+      }
       const verified = this.verifiedWarehouseTask(goal, other);
-      if (other.id === task.id || other.id === task.params.parentTaskId || !['build', 'farm'].includes(other.kind) || other.generation !== goal.generation || (['completed', 'cancelled'].includes(other.state) || terminalGoals.has(goal.state)) && !verified) continue;
+      if (other.id === task.id || other.id === task.params.parentTaskId || isBuildSiteTask(task) && task.params.fixedOrigin && other.goalId === task.goalId || !['build', 'farm'].includes(other.kind) || other.generation !== goal.generation || (['completed', 'cancelled'].includes(other.state) || terminalGoals.has(goal.state)) && !verified) continue;
       if (verified && other.goalId === task.goalId) continue;
       for (const reservation of other.reservationKeys) {
         if (!reservation.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`)) continue;
@@ -1075,11 +1339,21 @@ export class FleetController {
     }
     return !roleFits(agent.config.role, task.kind) && this.state.agents.some(a => a.id !== agent.id && roleFits(a.config.role, task.kind) && this.candidateTasks(a).some(t => t.id === task.id));
   }
+  private schedulerObservation(agent:Agent,candidates:Task[]):JsonObject{
+    const report=agent.session!.report!,warehouse=this.state.rules.warehouse;
+    const stock=warehouse?freshObservations({observations:this.state.observations.filter(o=>o.controllerEpoch===this.controllerEpoch),world:warehouse.world,dimension:warehouse.dimension,now:this.now(),maxAgeMs:this.state.rules.observationMaxAgeMs}).filter(o=>o.kind==='container'&&sameContainer(o.data.container,warehouse)).sort((a,b)=>b.observedAt-a.observedAt||b.receivedAt-a.receivedAt)[0]:undefined;
+    const farm=[...this.state.observations].reverse().find(o=>o.kind==='farm'&&o.controllerEpoch===this.controllerEpoch&&o.world===this.state.rules.world&&o.dimension===this.state.rules.dimension&&o.data.id===this.state.rules.baseAutonomy?.id);
+    return jsonObject({observedAt:this.now(),world:this.state.rules.world,dimension:this.state.rules.dimension,rulesVersion:this.state.rules.version,role:agent.config.role,position:report.position,health:report.health,food:report.food,inventory:report.inventory,timeOfDay:report.timeOfDay,worldAge:report.worldAge,nearbyThreatsClear:report.nearbyThreatsClear,targets:this.state.rules.baseAutonomy?{bread:this.state.rules.baseAutonomy.breadTarget,seeds:this.state.rules.baseAutonomy.positions.length,wood:this.state.rules.baseAutonomy.woodTarget}:undefined,warehouse:stock?.kind==='container'?{observedAt:stock.observedAt,items:stock.data.items}:null,farm:farm?.kind==='farm'?{observedAt:farm.observedAt,...farm.data}:null,candidates:candidates.slice(0,16).map(t=>({id:t.id,action:baseDecisionAction(t,this.goal(t.goalId)),kind:t.kind,item:t.params.item,mode:t.params.mode,basePassage:t.params.basePassage,goalKind:this.goal(t.goalId).input.kind,goalItem:this.goal(t.goalId).input.item,baseSupplyStep:this.goal(t.goalId).input.params.baseSupplyStep,priority:this.taskPriority(t)}))});
+  }
   private assign(agent: Agent, task: Task, decision: SchedulerDecision = { id: task.id, source: 'code', reason: '우선순위, 역할, 능력과 예약 조건을 확인했습니다.' }): void {
-    if (!this.candidateTasks(agent).some(t => t.id === task.id) || this.preferredElsewhere(task, agent)) return;
-    const protectedPositions = this.protectedPositions(task);
+    const candidates=this.candidateTasks(agent);
+    if (!candidates.some(t => t.id === task.id) || this.preferredElsewhere(task, agent)) return;
+    const observation=this.schedulerObservation(agent,candidates);
+    const parent = isAccessPreparationTask(task) ? this.state.tasks.find(t => t.id === task.params.parentTaskId) : undefined;
+    const protectedPositions = [...new Map([...this.protectedPositions(task), ...(parent ? this.accessProtectedPositions(parent) : [])].map(p=>[positionKey(p),p])).values()];
     if (protectedPositions.length > 10000) { task.reason = '보호할 건축·농장 좌표가 너무 많아 먼저 진행 중인 작업을 기다립니다.'; return; }
     task.params.protectedPositions = protectedPositions.map(jsonObject);
+    if(resourceActions.has(task.kind)&&agent.config.allowedActions.includes('explore'))task.checkpoint.resourceHints=collectionHints(this.state,this.now());
     if (isBuildSiteTask(task)) task.params.near = jsonObject(agent.session!.report!.position!);
     if (task.params.inventoryGoal === true && !this.reserveInventoryQuota(task, agent)) return;
     if (task.kind === 'collect' && task.completion.kind === 'inventory' && task.params.inventoryGoal !== true) task.params.quantity = Math.max(0, task.completion.minimum - itemCount(agent.session!.report!.inventory, task.completion.item));
@@ -1089,11 +1363,11 @@ export class FleetController {
       task.completion.minimum = goal.targetQuantity; task.params.quantity = goal.targetQuantity; goal.progress.target = goal.targetQuantity;
     }
     const attempt: TaskAttempt = { id: randomUUID(), taskId: task.id, botId: agent.id, sessionId: agent.session!.id, controllerEpoch: this.controllerEpoch, reason: task.retryCount ? 'retry' : task.resumeCount ? 'resume' : 'initial', state: 'assigned', assignedAt: this.now() };
-    this.state.attempts.push(attempt); task.attemptId = attempt.id; task.state = 'assigned'; task.updatedAt = this.now();
+    this.state.attempts.push(attempt); task.attemptId = attempt.id; task.state = 'assigned'; task.updatedAt = this.now(); delete task.assignmentWait;
     agent.session!.activeAttemptId = attempt.id;
     for (const key of task.reservationKeys) this.state.reservations.push({ key, taskId: task.id, attemptId: attempt.id, botId: agent.id, sessionId: attempt.sessionId, acquiredAt: this.now() });
     this.goal(task.goalId).state = 'active'; this.goal(task.goalId).reason = undefined;
-    this.changed('scheduler.decision', decision.reason, { taskId: task.id, botId: agent.id, attemptId: attempt.id, data: { source: decision.source, ...(decision.model ? { model: decision.model } : {}) } });
+    this.changed('scheduler.decision', decision.reason, { taskId: task.id, botId: agent.id, attemptId: attempt.id, data: { source: decision.source, observation,selectedTaskId:task.id, ...(decision.model ? { model: decision.model } : {}) } });
     this.send(agent, 'task.assign', { task: taskSpec(task), checkpoint: task.checkpoint, rulesVersion: this.state.rules.version }, { taskId: task.id, attemptId: attempt.id });
     this.changed('task.assigned', '작업을 배정하고 수락을 기다립니다.', { taskId: task.id, botId: agent.id, attemptId: attempt.id });
   }
@@ -1107,10 +1381,10 @@ export class FleetController {
       this.assign(agent, all[0], { id: all[0].id, source: 'code', reason: '모델 응답 시간 초과: 검증된 배정 규칙을 사용합니다.' }); return;
     }
     const candidates = all.filter(t => this.taskPriority(t) === this.taskPriority(all[0]));
-    if (!this.options.decide || candidates.length < 2) { this.assign(agent, all[0]); return; }
+    if (!this.options.decide || candidates.length < 2&&!this.options.scoreEveryDecision) { this.assign(agent, all[0]); return; }
     const token = randomUUID(), sessionId = agent.session!.id, abort = new AbortController();
     this.decisions.set(agent.id, { token, sessionId, taskIds: candidates.map(t => t.id), requestedAt: this.now(), abort });
-    const request = { state: JSON.stringify({ bot: agent.config.role, report: agent.session!.report, rulesVersion: this.state.rules.version }), candidates: candidates.map(t => ({ id: t.id, description: `${t.kind}: ${this.goal(t.goalId).title}` })), signal: abort.signal };
+    const request = { state: JSON.stringify(this.schedulerObservation(agent,candidates)), candidates: candidates.map(t => ({ id: t.id, description: `${t.kind}: ${this.goal(t.goalId).title}`,action:baseDecisionAction(t,this.goal(t.goalId)) })), signal: abort.signal };
     Promise.resolve().then(() => this.options.decide!(request)).then(decision => {
       if (this.decisions.get(agent.id)?.token !== token) return;
       this.decisions.delete(agent.id);
@@ -1153,7 +1427,8 @@ export class FleetController {
         if (agent.session?.state === 'ready' && this.now() - agent.session.lastReportAt >= this.state.rules.statusTimeoutMs) { agent.session.state = 'abnormal'; if (agent.status !== 'removing') agent.status = 'abnormal'; this.changed('bot.abnormal', '10초 이상 상태 보고가 없어 접속 이상으로 표시합니다.', { botId: agent.id }); }
         this.applyAgentRules(agent);
       }
-      if (this.state.rules.autonomyEnabled && this.state.rules.center && this.state.rules.warehouse && this.state.agents.some(a => a.session?.state === 'ready' && a.config.enabled)) {
+      if(this.state.rules.autonomyEnabled&&this.state.rules.baseAutonomy&&this.state.rules.center&&this.state.agents.some(a=>a.session?.state==='ready'&&a.config.enabled))for(const input of baseSupplyGoals(this.state.rules,this.state.goals,this.state.observations,this.now(),this.controllerEpoch))this.createGoal(input);
+      if (this.state.rules.autonomyEnabled && !this.state.rules.baseAutonomy && this.state.rules.center && this.state.rules.warehouse && this.state.agents.some(a => a.session?.state === 'ready' && a.config.enabled)) {
         for (const stock of this.state.rules.developmentStock) if (!this.state.goals.some(g => g.input.source === 'autonomous' && g.input.kind === 'collect' && g.input.item === stock.item)) {
           const input = GoalInputSchema.parse({ kind: 'collect', item: stock.item, quantity: stock.quantity, mode: 'maintain', source: 'autonomous', priority: 10 });
           const goal: Goal = { id: randomUUID(), input, title: goalTitle(input), state: 'queued', targetQuantity: stock.quantity, taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: stock.quantity }, generation: 0 };

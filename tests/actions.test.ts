@@ -6,6 +6,7 @@ import { Vec3 } from 'vec3';
 import { WorkerLaunchSchema, type TaskSpec } from '../packages/contracts/src';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
+import { preserveMaterialWait } from '../packages/minecraft/src/material-wait';
 
 function options() {
   const launch = WorkerLaunchSchema.parse({ botId: 'b', sessionId: 's', controllerEpoch: 'e', config: { name: 'ActionBot' }, rules: {} });
@@ -34,7 +35,7 @@ function navigation(bot: object, sources: Vec3[] = []) {
 }
 
 function woodRecipeFixture(observed: string[], initial: Record<string, number> = {}) {
-  const woods = ['cherry', 'oak', 'birch'], names = [...woods.flatMap(wood => [`${wood}_log`, `${wood}_planks`]), 'stick', 'crafting_table', 'wooden_pickaxe', 'furnace', 'sand', 'glass', 'coal', 'charcoal'];
+  const woods = ['cherry', 'oak', 'birch'], names = [...woods.flatMap(wood => [`${wood}_log`, `${wood}_planks`]), 'stick', 'crafting_table', 'wooden_pickaxe', 'furnace', 'sand', 'glass', 'coal', 'charcoal','wooden_sword','stone_sword','cobblestone'];
   const ids = Object.fromEntries(names.map((name, index) => [name, index + 1]));
   const stock = new Map(Object.entries(initial)), cells = new Map<string, string>(), locations: Vec3[] = [];
   const crafted: string[] = [], dug: string[] = [];
@@ -45,6 +46,8 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
   recipes.set(ids.stick, woods.map(wood => recipe('stick', 4, { [`${wood}_planks`]: 2 })));
   recipes.set(ids.crafting_table, woods.map(wood => recipe('crafting_table', 1, { [`${wood}_planks`]: 4 })));
   recipes.set(ids.wooden_pickaxe, woods.map(wood => recipe('wooden_pickaxe', 1, { [`${wood}_planks`]: 3, stick: 2 }, true)));
+  recipes.set(ids.wooden_sword,woods.map(wood=>recipe('wooden_sword',1,{[`${wood}_planks`]:2,stick:1},true)));
+  recipes.set(ids.stone_sword,[recipe('stone_sword',1,{cobblestone:2,stick:1},true)]);
   for (const wood of observed) for (let i = 0; i < 8; i++) {
     const p = new Vec3(10 + i, 64, woods.indexOf(wood) * 6);
     cells.set(p.toString(), `${wood}_log`); cells.set(p.offset(0, 1, 0).toString(), `${wood}_leaves`); locations.push(p);
@@ -56,7 +59,7 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
     blockAt(p: Vec3) { const name = cells.get(p.toString()) ?? (p.y === 63 ? 'dirt' : 'air'); return { name, position: p, boundingBox: name === 'air' ? 'empty' : 'block', canHarvest: () => true, getProperties: () => ({}) }; },
     findBlock(request: { matching: (block: unknown) => boolean; useExtraInfo?: (block: unknown) => boolean }) {
       queries++;
-      for (const p of locations) { const block = bot.blockAt(p); if (request.matching(block) && (!request.useExtraInfo || request.useExtraInfo(block))) return block; }
+      for (const p of [...locations].sort((a,b)=>a.distanceTo(bot.entity.position)-b.distanceTo(bot.entity.position))) { const block = bot.blockAt(p); if (request.matching(block) && (!request.useExtraInfo || request.useExtraInfo(block))) return block; }
       return null;
     },
     recipesAll(id: number) { return recipes.get(id) ?? []; },
@@ -78,6 +81,50 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
   return { executor, services, bot, stock, cells, locations, crafted, dug, get queries() { return queries; }, set blockedWood(value: string) { blockedWood = value; }, set failCraft(value: boolean) { failCraft = value; } };
 }
 
+test('inventory recipes ignore an observed worktable and mixed held wood funds the whole pickaxe without a species expedition',async()=>{
+  const f=woodRecipeFixture([],{birch_planks:4,oak_log:1});f.services.checkpoint.materialExpedition=true;const p=new Vec3(-2,64,0);f.cells.set(p.toString(),'crafting_table');f.locations.push(p);
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.stock.get('wooden_sword'),1);assert.equal(f.dug.length,0);assert.ok(f.crafted.indexOf('stick')<f.crafted.indexOf('wooden_pickaxe'));
+  const inventory=woodRecipeFixture([],{oak_log:2});inventory.cells.set(p.toString(),'crafting_table');inventory.locations.push(p);inventory.services.near=async()=>{assert.fail('planks use the public inventory crafting grid');};
+  const craft=inventory.bot.craft.bind(inventory.bot);inventory.bot.craft=async(r,_count?:number,table?:unknown)=>{assert.equal(table,undefined);await craft(r);};await inventory.executor.ensureItem('oak_planks',8,inventory.services);assert.equal(inventory.stock.get('oak_planks'),8);
+});
+
+test('an unprotected night material expedition waits without spending its search, then actual daylight permits the held goal',async()=>{
+  const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{time:{isDay:false,doDaylightCycle:true}});f.services.checkpoint.materialExpedition=true;f.services.checkpoint.confirmedRecoveryDeathId='actual-death';
+  const budget={destinationsUsed:5,elapsedMs:60000};f.services.checkpoint.resourceRecovery={cobblestone:budget};
+  await assert.rejects(f.services.ensureItem('oak_planks',8),error=>{assert.ok(error instanceof ConditionWait);assert.equal((preserveMaterialWait(f.services,'oak_planks',error).checkpoint.waitingFor as {watchDaylight:boolean}).watchDaylight,true);return true;});
+  assert.equal(f.dug.length,0);assert.equal(f.crafted.length,0);assert.deepEqual((f.services.checkpoint.resourceRecovery as Record<string,unknown>).cobblestone,budget);
+  Object.assign(f.bot,{time:{isDay:true,doDaylightCycle:true}});await f.services.ensureItem('oak_planks',8);assert.equal(f.stock.get('oak_planks'),8);assert.equal(f.dug.length,2);assert.deepEqual((f.services.checkpoint.resourceRecovery as Record<string,unknown>).cobblestone,budget);
+});
+
+test('night material policy still crafts and returns actually held raw stock without another resource expedition',async()=>{
+  const f=woodRecipeFixture([],{oak_log:2});Object.assign(f.bot,{time:{isDay:false,doDaylightCycle:true}});f.services.checkpoint.materialExpedition=true;f.services.checkpoint.confirmedRecoveryDeathId='actual-death';
+  await f.services.ensureItem('oak_planks',8);assert.equal(f.stock.get('oak_planks'),8);assert.equal(f.dug.length,0);
+});
+
+test('a new unarmored collector reserves daylight for the actual long return before dusk',async()=>{
+  const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{time:{isDay:true,timeOfDay:7000,doDaylightCycle:true}});f.services.checkpoint.materialExpedition=true;
+  f.services.checkpoint.resourceTrip={item:'oak_planks',minimum:8,home:{x:0,y:64,z:0},trail:[{x:0,y:64,z:0},{x:500,y:64,z:0}],phase:'outbound',returns:0};
+  await assert.rejects(f.executor.ensureItem('oak_planks',8,f.services),ConditionWait);
+  assert.equal(f.dug.length,0);assert.equal((f.services.checkpoint.resourceReturnDeadline as {threshold:number}).threshold,6000);
+});
+
+test('a blocked physical utility return cannot start a different wood expedition as a recipe fallback',async()=>{
+  const f=woodRecipeFixture([],{oak_log:2});f.services.checkpoint.materialExpedition=true;
+  const p=new Vec3(-2,64,0);f.cells.set(p.toString(),'crafting_table');f.locations.push(p);
+  const wait=new ConditionWait('actual return blocked');let visits=0;
+  f.services.near=async()=>{visits++;f.services.checkpoint.resourceTrip={item:'cobblestone',minimum:8,home:{x:0,y:64,z:0},trail:[{x:0,y:64,z:0}],phase:'returning',returns:0};throw wait;};
+  await assert.rejects(f.executor.ensureItem('wooden_pickaxe',1,f.services),error=>error===wait);assert.equal(visits,1);assert.equal(f.dug.length,0);assert.ok(!f.crafted.includes('wooden_pickaxe'));
+});
+
+test('a physical utility return reselects the nearby worktable instead of walking back to the forest table',async()=>{
+  const f=woodRecipeFixture([],{oak_planks:3,stick:2});f.services.checkpoint.materialExpedition=true;
+  for(const p of [new Vec3(20,64,1),new Vec3(-2,64,0)]){f.cells.set(p.toString(),'crafting_table');f.locations.push(p);}
+  f.bot.entity.position=new Vec3(20.5,64,.5);
+  f.services.checkpoint.resourceTrip={item:'cobblestone',minimum:8,home:{x:0,y:64,z:0},trail:[{x:0,y:64,z:0},{x:10,y:64,z:0},{x:20,y:64,z:0}],phase:'outbound',returns:0};
+  const near=f.services.near;f.services.near=async(p,r)=>{if(f.services.checkpoint.resourceTrip&&typeof f.services.checkpoint.resourceTrip==='object'&&!Array.isArray(f.services.checkpoint.resourceTrip)&&f.services.checkpoint.resourceTrip.returns===1)assert.ok(p.x<=0,'after the real home arrival, crafting must use its nearer table');await near(p,r);};
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.dug.length,0);
+});
+
 test('empty inventory builds a crafting table and pickaxe from observed oak or birch despite a cherry-first recipe order', async () => {
   for (const wood of ['oak', 'birch']) {
     const f = woodRecipeFixture([wood]);
@@ -88,6 +135,64 @@ test('empty inventory builds a crafting table and pickaxe from observed oak or b
     assert.equal(f.services.checkpoint.missingResource, undefined); assert.equal(f.services.checkpoint.resourceNames, undefined);
     assert.ok(f.queries < 100, 'the shared read-only source cache must bound repeated wood probes');
   }
+});
+
+test('material expedition utility crafting scouts actual available wood before selecting a speculative tree species',async()=>{
+  const f=woodRecipeFixture(['oak']);f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceExpedition=true;
+  await f.executor.ensureItem('crafting_table',1,f.services);
+  assert.equal(f.stock.get('crafting_table'),1);assert.deepEqual(f.dug,['oak_log']);
+  const records=f.services.checkpoint.resourceRecovery as Record<string,{status:string}>;
+  assert.equal(records.$utility_wood!.status,'found');assert.equal(records.cherry_log,undefined);
+});
+
+test('an empty material tool bootstrap gathers the shared table, head and stick wood before the first crafting call',async()=>{
+  const f=woodRecipeFixture(['oak']);f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceExpedition=true;
+  const craft=f.bot.craft;let first=true;f.bot.craft=async r=>{if(first){first=false;assert.equal(f.stock.get('oak_log'),3,'one log cannot simultaneously fund table, head and sticks');}await craft(r);};
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);
+  assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.stock.get('wooden_sword'),1);assert.equal(f.dug.length,3);
+});
+
+test('a material pickaxe uses reachable wood before choosing a species even with an existing table',async()=>{
+  const f=woodRecipeFixture(['cherry','oak']);f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceExpedition=true;
+  for(const p of [...f.locations])if(f.cells.get(p.toString())==='cherry_log'){
+    f.cells.set(p.toString(),'air');f.cells.set(p.offset(0,1,0).toString(),'air');
+    const high=p.offset(0,8,0);f.cells.set(high.toString(),'cherry_log');f.cells.set(high.offset(0,1,0).toString(),'cherry_leaves');f.locations.push(high);
+  }
+  const table=new Vec3(-2,64,0);f.cells.set(table.toString(),'crafting_table');f.locations.push(table);
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);
+  assert.equal(f.stock.get('wooden_pickaxe'),1);assert.ok(f.dug.length>0);assert.ok(f.dug.every(name=>name==='oak_log'));assert.ok(!f.crafted.includes('crafting_table'));
+  const records=f.services.checkpoint.resourceRecovery as Record<string,unknown>;assert.equal(records.cherry_log,undefined);
+});
+
+test('wood picked up during a scouting move immediately ends utility exploration and is crafted',async()=>{
+  const f=woodRecipeFixture([]);f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceExpedition=true;
+  const near=f.services.near;let moves=0;f.services.near=async(p,r)=>{assert.ok(++moves<=1,'actual sufficient stock must end exploration');await near(p,r);f.stock.set('oak_log',1);};
+  await f.executor.ensureItem('crafting_table',1,f.services);
+  assert.equal(moves,1);assert.equal(f.stock.get('crafting_table'),1);assert.equal(f.dug.length,0);
+});
+
+for(const stone of [false,true])test(`material tool preparation crafts a ${stone?'stone':'wooden'} sword only from already held spare ingredients`,async()=>{
+  const f=woodRecipeFixture([],{oak_planks:5,stick:3,...(stone?{cobblestone:2}:{})});f.services.checkpoint.materialExpedition=true;
+  const table=new Vec3(-2,64,0);f.cells.set(table.toString(),'crafting_table');f.locations.push(table);
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);
+  assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.stock.get(stone?'stone_sword':'wooden_sword'),1);assert.equal(f.dug.length,0);assert.equal(f.crafted.length,2);
+});
+
+test('missing spare ingredients and missing fight permission do not start weapon gathering',async()=>{
+  for(const permitted of [false,true]){
+    const f=woodRecipeFixture([],{oak_planks:permitted?3:5,stick:permitted?2:3});f.services.checkpoint.materialExpedition=true;
+    if(!permitted)f.executor.options.config.allowedActions=f.executor.options.config.allowedActions.filter(action=>action!=='fight');
+    const table=new Vec3(-2,64,0);f.cells.set(table.toString(),'crafting_table');f.locations.push(table);
+    await f.executor.ensureItem('wooden_pickaxe',1,f.services);assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.stock.get('wooden_sword'),undefined);assert.deepEqual(f.crafted,['wooden_pickaxe']);assert.equal(f.dug.length,0);
+  }
+});
+
+test('a few planks of a missing species cannot outrank a complete nearby recipe using held logs',async()=>{
+  const f=woodRecipeFixture([],{birch_planks:2,oak_log:2,stick:4});f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceExpedition=true;
+  const table=new Vec3(-2,64,0);f.cells.set(table.toString(),'crafting_table');f.locations.push(table);
+  const near=f.services.near;f.services.near=async(p,r)=>{assert.equal(p.x,table.x,'the held wood must not trigger a new tree expedition');await near(p,r);};
+  await f.executor.ensureItem('wooden_pickaxe',1,f.services);
+  assert.equal(f.stock.get('wooden_pickaxe'),1);assert.ok(f.crafted.includes('oak_planks'));assert.ok(!f.crafted.includes('birch_planks'));assert.equal(f.dug.length,0);
 });
 
 test('recipe selection uses inventory first and known preparation failures can choose another observed wood', async () => {
@@ -180,12 +285,15 @@ test('food preparation uses actual mature potatoes or beetroots and verifies the
   }
 });
 
-test('food availability probes do not hunt at critical health or swallow unknown preparation effects', async () => {
+test('food availability probes do not hunt near a hostile at critical health or swallow unknown preparation effects', async () => {
   const f = woodRecipeFixture([]); f.bot.registry.itemsByName.potato = { id: 100 }; f.bot.registry.itemsByName.beef = { id: 101 };
-  Object.assign(f.bot, { entities: { 2: { name: 'cow', position: new Vec3(30, 64, 0) } } });
+  Object.assign(f.bot, { entities: { 2: { name: 'cow', position: new Vec3(30, 64, 0) },3:{name:'zombie',position:new Vec3(10,64,0)} } });
   const foodBot = f.bot as typeof f.bot & { health: number; food: number };
   foodBot.health = 5; foodBot.food = 17;
-  await assert.rejects(f.executor.ensureFood(f.services), (error: unknown) => error instanceof ConditionWait && /현재 관측한 범위/.test(error.message));
+  // This probe tests hunting/preparation effects, with travel disabled. A food
+  // expedition on the mock's infinite empty plane intentionally keeps walking.
+  f.executor.options.config.allowedActions = f.executor.options.config.allowedActions.filter(action => action !== 'explore');
+  await assert.rejects(f.executor.ensureFood(f.services), (error: unknown) => error instanceof ConditionWait && error.checkpoint.missingFood === true && /확보하지 못했습니다/.test(error.message));
   assert.deepEqual(f.dug, []);
   const raw = { name: 'potatoes', position: new Vec3(2, 64, 0), boundingBox: 'empty', canHarvest: () => true, getProperties: () => ({ age: 7 }) };
   f.bot.findBlock = request => request.matching(raw) ? raw : null;
@@ -442,4 +550,11 @@ test('missing placement acknowledgements and unexplained material loss never ret
     await assert.rejects(executor.place(new Vec3(0, 64, 0), 'oak_planks', 'oak_planks', services), (error: unknown) => error instanceof ActionFailure && error.code === 'PLACE_UNCERTAIN' && !error.effectsKnown && error.message.includes('inventoryDelta'));
     assert.equal(calls, 1);
   }
+});
+
+test('food gathering with an empty private checkpoint preserves the registered farm and collects outside ripe wheat',async()=>{
+ let stock=0;const plant=(x:number)=>({name:'wheat',boundingBox:'empty',position:new Vec3(x,64,0),canHarvest:()=>true,getProperties:()=>({age:7})}),own=plant(0),outside=plant(4);
+ const bot={entity:{position:new Vec3(0,64,-3)},entities:{},inventory:{items:()=>stock?[{name:'wheat',count:stock}]:[],emptySlotCount:()=>36},registry:{itemsByName:{wheat:{id:1}}},findBlock(request:{useExtraInfo:(b:unknown)=>boolean}){assert.equal(request.useExtraInfo(own),false);assert.equal(request.useExtraInfo(outside),true);return outside;},blockAt(p:Vec3){if(p.equals(own.position))return own;if(p.equals(outside.position))return outside;return{name:p.y===63?'dirt':'air',position:p,boundingBox:p.y===63?'block':'empty'};},async equip(){},async dig(b:unknown){assert.equal(b,outside);stock++;}} as unknown as Bot;
+ navigation(bot,[outside.position]);const opts=options();opts.rules.baseAutonomy={id:'owned-farm',origin:{x:0,y:63,z:1},positions:[{x:0,y:63,z:0}],breadTarget:8,woodTarget:1};const executor=new MineflayerExecutor(bot,opts),s=executor.services(new AbortController().signal);s.near=async p=>{bot.entity.position=new Vec3(p.x,p.y,p.z);};s.pause=async()=>{};
+ await executor.ensureItem('wheat',1,s);assert.equal(stock,1);
 });

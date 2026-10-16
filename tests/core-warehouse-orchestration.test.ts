@@ -38,6 +38,114 @@ test('a plain warehouse goal with empty inventory starts an actual nearby survey
   assert.equal(build.payload.task.completion.kind, 'blocks'); assert.equal(tasks.length, 2); assert.equal(tasks[1]!.params.mode, 'register-warehouse'); assert.deepEqual(tasks[1]!.dependencies, [build.taskId]); assert.notEqual(f.core.getSnapshot().goals[0]!.state, 'completed'); assert.equal(f.core.getSnapshot().rules.warehouse, null);
 });
 
+test('a changed fixed foundation schedules one read-only survey at the same coordinates before any terrain preparation', () => {
+  const f = fixture(), { goal, assignment } = f.build({ siteSelection: 'fixed' });
+  f.result(assignment, { outcome: 'condition-wait', reason: 'foundation hole', checkpoint: { waitingFor: { kind: 'blocks', causeCode: 'BUILD_SITE', positions: [{ x: 4, y: 63, z: 4 }] } } });
+  const survey = f.latest(); assert.equal(survey.payload.task.kind, 'explore');
+  assert.deepEqual(survey.payload.task.params.fixedOrigin, origin);
+  assert.equal(survey.payload.task.params.parentTaskId, assignment.taskId);
+  assert.deepEqual(survey.payload.task.params.protectedPositions, [], 'its own deferred warehouse registration is not an unrelated facility');
+  const parent = f.core.getSnapshot().tasks.find(t => t.id === assignment.taskId)!;
+  assert.ok(parent.dependencies.includes(survey.taskId)); assert.equal(parent.retryCount, 0);
+  for (let i = 0; i < 5; i++) { f.advance(6000); f.core.tick(); }
+  assert.equal(f.core.getSnapshot().tasks.filter(t => t.params.fixedOrigin).length, 1);
+  assert.deepEqual(f.core.getSnapshot().goals.find(g => g.id === goal.id)!.input.params.origin, origin);
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
+test('fixed-site revalidation preserves partial construction and explicitly disabled terrain preparation', () => {
+  for (const params of [{ allowPreparation: false }, {}]) {
+    const f = fixture(), { assignment } = f.build({ siteSelection: 'fixed', ...params });
+    f.result(assignment, { outcome: 'condition-wait', checkpoint: { ...('allowPreparation' in params ? {} : { build: { placed: 7 } }), waitingFor: { kind: 'blocks', causeCode: 'BUILD_SITE', positions: [{ x: 4, y: 63, z: 4 }] } } });
+    assert.equal(f.assignments().length, 1); assert.equal(f.core.getSnapshot().tasks.some(t => t.params.fixedOrigin), false);
+  }
+});
+
+test('a named building expands spent material search once without resetting its checkpoint or construction progress',()=>{
+  const f=fixture(), {assignment}=f.build();
+  const checkpoint={build:{placed:7},resourceRecovery:{sand:{origin:{x:0,y:64,z:0},visited:[],destinationsUsed:5,elapsedMs:60000,status:'exhausted'}},waitingFor:{kind:'inventory',causeCode:'BUILD_MATERIAL',item:'glass_pane',minimum:3,resourceNames:['sand'],watchPosition:false}};
+  f.result(assignment,{outcome:'condition-wait',checkpoint,reason:'spent actual local sand search'});
+  const resumed=f.latest();assert.equal(f.assignments().length,2);assert.equal(resumed.taskId,assignment.taskId);
+  assert.equal(resumed.payload.task.params.materialExpedition,true);assert.deepEqual(resumed.payload.checkpoint.resourceRecovery,checkpoint.resourceRecovery);
+  assert.deepEqual(resumed.payload.checkpoint.build,{placed:7});
+  f.result(resumed,{outcome:'condition-wait',checkpoint:{...resumed.payload.checkpoint,waitingFor:checkpoint.waitingFor},reason:'genuinely blocked route'});
+  for(let i=0;i<5;i++){f.advance(6000);f.ready();f.core.tick();}
+  assert.equal(f.assignments().length,2,'the same wait is not expanded again on a clock');
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
+test('a blocked read-only fixed survey does not pin its idle bot away from an independent collection goal', () => {
+  const f = fixture(), { assignment } = f.build({ siteSelection: 'fixed' });
+  f.result(assignment, { outcome: 'condition-wait', checkpoint: { waitingFor: { kind: 'blocks', causeCode: 'BUILD_SITE', positions: [{ x: 4, y: 63, z: 4 }] } } });
+  const survey = f.latest(); f.result(survey, { outcome: 'condition-wait', reason: 'deep fixed foundation', checkpoint: { waitingFor: { kind: 'blocks', causeCode: 'BUILD_SITE', positions: [{ x: 5, y: 63, z: 5 }] } } });
+  const collect = f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 32, preferredBotId: 'bot-0' });
+  assert.equal(f.latest().payload.task.kind, 'collect'); assert.equal(f.latest().payload.task.goalId, collect.id);
+  assert.ok(f.core.getSnapshot().tasks.some(t => t.id === survey.taskId && t.state === 'condition-wait'));
+});
+
+test('a restored builder waiting for material releases its idle bot for independent wood collection', () => {
+  const f = fixture(), { assignment } = f.build();
+  f.result(assignment, { outcome: 'condition-wait', reason: 'observed sand path blocked', checkpoint: { build: { placed: 7 }, waitingFor: { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'glass_pane', minimum: 3, resourceNames: ['sand'], watchPosition: false } } });
+  const saved = f.core.checkpoint(), parent = saved.tasks.find(t => t.id === assignment.taskId)!;
+  parent.affinityBotId = 'bot-0';
+  const restored = fixture(0,null,saved); restored.core.confirmWorkerStopped('bot-0','session-0'); restored.core.startSession('bot-0','restored-session'); restored.ready();
+  restored.result(restored.latest(), { outcome: 'condition-wait', reason: 'material path still actually blocked in the new session', checkpoint: parent.checkpoint });
+  const collect = restored.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 32, preferredBotId: 'bot-0' });
+  assert.equal(restored.latest().payload.task.kind,'collect'); assert.equal(restored.latest().payload.task.goalId,collect.id);
+  const waiting = restored.core.getSnapshot().tasks.find(t => t.id === assignment.taskId)!;
+  assert.equal(waiting.state,'condition-wait'); assert.deepEqual(waiting.checkpoint.build,{placed:7}); assert.equal(waiting.affinityBotId,'bot-0');
+  FleetCheckpointSchema.parse(restored.core.checkpoint());
+});
+
+test('an immediate collection suspends pending building affinity and resumes preserved construction afterwards', () => {
+  const f = fixture(), { assignment } = f.build();
+  f.result(assignment,{outcome:'condition-wait',checkpoint:{build:{placed:7},waitingFor:{kind:'inventory',causeCode:'BUILD_MATERIAL',item:'glass_pane',minimum:3,watchPosition:false}}});
+  const saved = f.core.checkpoint(); for (const task of saved.tasks) task.affinityBotId='bot-0';
+  const restored=fixture(0,null,saved);restored.core.confirmWorkerStopped('bot-0','session-0');restored.core.startSession('bot-0','immediate-session');restored.ready();
+  const active=restored.latest(), urgent=restored.core.createGoal({kind:'collect',item:'oak_log',quantity:2,preferredBotId:'bot-0',executionMode:'immediate'});
+  restored.receive('bot-0','task.cancelled',{safeStopped:true,checkpoint:{...active.payload.checkpoint,build:{placed:7}},observations:[]},active);
+  const collecting=restored.latest();assert.equal(collecting.payload.task.goalId,urgent.id);assert.equal(collecting.payload.task.kind,'collect');
+  restored.receive('bot-0','bot.status',{ready:true,world,dimension,position:{x:0.5,y:64,z:0.5},health:20,food:20,inventory:[{name:'oak_log',count:2}],action:'실제 원목 확보',reason:'관측',mode:'working',capabilities:['build','collect','explore','craft','store'],rulesVersion:restored.core.getSnapshot().rules.version});
+  restored.result(collecting,{outcome:'completed',observations:[restored.obs('inventory',{items:[{name:'oak_log',count:2}]})]});
+  assert.equal(restored.core.getSnapshot().goals.find(g=>g.id===urgent.id)!.state,'completed');
+  const resumed=restored.latest();assert.equal(resumed.taskId,assignment.taskId);assert.deepEqual(resumed.payload.checkpoint.build,{placed:7});
+});
+
+
+test('nested immediate tool preparation resumes material collection before its preserved building parent',()=>{
+  const f=fixture(),{assignment:building}=f.build();
+  f.result(building,{outcome:'condition-wait',checkpoint:{build:{placed:36},waitingFor:{kind:'inventory',causeCode:'BUILD_MATERIAL',item:'oak_planks',minimum:8}}});
+  const saved=f.core.checkpoint();for(const t of saved.tasks)t.affinityBotId='bot-0';
+  const r=fixture(0,null,saved);r.core.confirmWorkerStopped('bot-0','session-0');r.core.startSession('bot-0','nested-session');r.ready();
+  const active=r.latest(),wood=r.core.createGoal({kind:'collect',item:'oak_log',quantity:40,priority:95,preferredBotId:'bot-0',executionMode:'immediate'});
+  r.receive('bot-0','task.cancelled',{safeStopped:true,checkpoint:{build:{placed:36}},observations:[]},active);
+  const collecting=r.latest();assert.equal(collecting.payload.task.goalId,wood.id);
+  const tool=r.core.createGoal({kind:'craft',item:'wooden_axe',quantity:1,priority:96,preferredBotId:'bot-0',executionMode:'immediate'});
+  assert.equal(r.core.getSnapshot().tasks.find(t=>t.id===building.taskId)!.blockedByGoalId,wood.id);
+  r.receive('bot-0','task.cancelled',{safeStopped:true,checkpoint:{woodProgress:8},observations:[]},collecting);
+  const crafting=r.latest();assert.equal(crafting.payload.task.goalId,tool.id);
+  r.result(crafting,{outcome:'completed',observations:[r.obs('inventory',{items:[{name:'wooden_axe',count:1}]})]});
+  const resumed=r.latest();assert.equal(resumed.taskId,collecting.taskId);assert.equal(resumed.payload.checkpoint.woodProgress,8);
+  r.result(resumed,{outcome:'completed',observations:[r.obs('inventory',{items:[{name:'oak_log',count:40},{name:'wooden_axe',count:1}]})]});
+  assert.equal(r.latest().taskId,building.taskId);assert.deepEqual(r.latest().payload.checkpoint.build,{placed:36});
+});
+
+test('an unstarted automatically selected warehouse relocates only after the same fixed plot is actually rejected', () => {
+  const f = fixture(), goal = f.core.createGoal({ kind: 'build', params: { design: 'warehouse' }, preferredBotId: 'bot-0' });
+  const firstSurvey = f.latest(), entrance = { x: 8, y: 64, z: 4 };
+  f.result(firstSurvey, { outcome: 'completed', checkpoint: { buildSite: { design: 'warehouse', origin, entrance, observedAt: f.now() } }, observations: [f.obs('blocks', { blocks: buildSiteCells(origin,7,5,4).map(cell => ({ position:cell.position,name:cell.requirement==='air'?'air':'grass_block' })) }), f.obs('exploration', { position:{ ...entrance,x:8.5,z:4.5 }, resources:[] })] });
+  const build = f.latest(); assert.equal(build.payload.task.kind,'build');
+  f.result(build, { outcome:'condition-wait',checkpoint:{waitingFor:{kind:'blocks',causeCode:'BUILD_SITE',positions:[{x:5,y:63,z:5}]}} });
+  const recheck = f.latest(); assert.deepEqual(recheck.payload.task.params.fixedOrigin,origin);
+  f.result(recheck, { outcome:'condition-wait',reason:'observed deep gap',checkpoint:{waitingFor:{kind:'blocks',causeCode:'BUILD_SITE',positions:[{x:5,y:63,z:5}]}} });
+  const nearby = f.latest(), current = f.core.getSnapshot().goals.find(g=>g.id===goal.id)!;
+  assert.equal(nearby.payload.task.kind,'explore'); assert.equal(nearby.payload.task.params.fixedOrigin,undefined);
+  assert.equal(nearby.payload.task.goalId,goal.id); assert.equal(current.input.params.design,'warehouse');
+  assert.equal(current.input.params.siteSelection,'nearby'); assert.equal(current.input.params.origin,undefined);
+  assert.deepEqual((current.input.params.siteRelocations as {origin:Position}[])[0]!.origin,origin);
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
 test('a building is not a completed warehouse until the complete building and actual empty container are verified and rules propagate', () => {
   const f = fixture(), { goal, assignment: build } = f.build(), version = f.core.getSnapshot().rules.version;
   const check = f.built(build); assert.equal(check.payload.task.params.mode, 'register-warehouse'); assert.notEqual(f.core.getSnapshot().goals[0]!.state, 'completed'); assert.equal(f.core.getSnapshot().rules.warehouse, null);

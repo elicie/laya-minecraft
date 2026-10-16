@@ -105,6 +105,20 @@ test('runtime owns one controller, launches fake workers, reconnects after real 
   } finally { await runtime?.close(); f.remove(); }
 });
 
+test('maintenance startup keeps a saved enabled bot disconnected until explicit resume', async () => {
+  const f=setup(); let runtime: Awaited<ReturnType<typeof startRuntime>> | undefined;
+  try {
+    const seed=new FleetController({send(){},rules:{autonomyEnabled:false}});
+    seed.addAgent({id:'maintenance-bot',name:'Maintenance01'}); saveCheckpoint(f.dir,seed.checkpoint());
+    runtime=await startRuntime({...f.options,autoConnect:false});
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.deepEqual(runtime.supervisor.records(),[]);
+    await post(runtime,'/bots/maintenance-bot/resume',{});
+    await until(()=>runtime!.core.getAgents()[0]!.session?.state==='ready','explicit resume starts the worker');
+    assert.equal(runtime.supervisor.records().length,1);
+  } finally { await runtime?.close(); f.remove(); }
+});
+
 test('restoration preserves paused bots and resumes confirmed remaining work through fresh IPC observations', async () => {
   const f = setup(); let runtime: Awaited<ReturnType<typeof startRuntime>> | undefined;
   try {

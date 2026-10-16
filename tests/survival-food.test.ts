@@ -9,7 +9,7 @@ import { WorkerLaunchSchema } from '../packages/contracts/src';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
 
-function fixture(options: { warehouse?: boolean; food?: Record<string, number>; health?: number } = {}) {
+function fixture(options: { warehouse?: boolean; food?: Record<string, number>; health?: number; consumeDelayMs?:number } = {}) {
   const data = minecraftData('26.1'), Recipe = require('prismarine-recipe')(data).Recipe, emitter = new EventEmitter();
   const stock = new Map<string, number>(), stored = new Map(Object.entries(options.food ?? {})), cells = new Map<string, string>(), ages = new Map<string, number>();
   const dug: string[] = [], crafted: string[] = [], attacked: string[] = [];
@@ -65,7 +65,7 @@ function fixture(options: { warehouse?: boolean; food?: Record<string, number>; 
       for (const ingredient of recipe.delta) { const name = data.items[ingredient.id]!.name; assert.ok((stock.get(name) ?? 0) + ingredient.count >= 0); stock.set(name, (stock.get(name) ?? 0) + ingredient.count); }
       crafted.push(data.items[recipe.result.id]!.name);
     },
-    async consume() { assert.ok((stock.get(held) ?? 0) > 0); stock.set(held, stock.get(held)! - 1); bot.food = Math.min(20, bot.food + data.foodsByName[held]!.foodPoints); },
+    async consume() { assert.ok((stock.get(held) ?? 0) > 0);const consume=()=>{stock.set(held, stock.get(held)! - 1); bot.food = Math.min(20, bot.food + data.foodsByName[held]!.foodPoints);};if(options.consumeDelayMs)setTimeout(consume,options.consumeDelayMs);else consume(); },
     async openContainer() {
       opened++;
       return { containerItems, items: playerItems,
@@ -103,12 +103,18 @@ test('food crafting without a warehouse uses actual mature wheat, an observed ta
   assert.equal(await f.executor.eat(f.s), true); assert.equal(f.bot.food, 20);
 });
 
-test('one observed passive cow can supply food at health 6.333 without a weapon, but critical health and protected livestock cannot', async () => {
+test('consumption waits for delayed inventory and food observations before recording the meal',async()=>{
+ const f=fixture({consumeDelayMs:30});f.stock.set('bread',1);f.s.pause=ms=>new Promise<void>(resolve=>setTimeout(resolve,ms));
+ assert.equal(await f.executor.eat(f.s),true);assert.equal(f.stock.get('bread'),0);assert.equal(f.bot.food,20);
+ assert.deepEqual((f.s.checkpoint.foodMeals as any[]).map(m=>[m.item,m.beforeCount,m.afterCount,m.beforeFood,m.afterFood]),[['bread',1,0,17,20]]);
+});
+
+test('an observed passive cow can supply safe food at critical health without a weapon while protected livestock stays excluded', async () => {
   for (const mode of ['allowed', 'critical', 'protected'] as const) {
     const f = fixture({ health: mode === 'critical' ? 5 : 6.333 });
     const cow = { id: 2, uuid: 'actual-cow', name: 'cow', type: 'animal', position: new Vec3(2, 64, 0), height: 1.4 } as unknown as Entity; f.bot.entities[cow.id] = cow;
     if (mode === 'protected') f.launch.rules.center = { x: 2, y: 64, z: 0 };
-    if (mode === 'allowed') { await f.executor.ensureFood(f.s); assert.equal(f.stock.get('beef'), 1); assert.deepEqual(f.attacked, ['cow']); assert.ok(f.s.observations.some(o => o.kind === 'entity-death')); }
+    if (mode !== 'protected') { await f.executor.ensureFood(f.s); assert.equal(f.stock.get('beef'), 1); assert.deepEqual(f.attacked, ['cow']); assert.ok(f.s.observations.some(o => o.kind === 'entity-death')); }
     else { await assert.rejects(f.executor.ensureFood(f.s), ConditionWait); assert.deepEqual(f.attacked, []); }
   }
 });

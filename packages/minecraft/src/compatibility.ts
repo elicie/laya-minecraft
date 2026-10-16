@@ -68,6 +68,21 @@ export function protocolCompatibility(version: string): ProtocolCompatibility {
   const data = minecraftData(version);
   if (!data) throw new Error(`Minecraft version data is unavailable: ${version}.`);
   const result: ProtocolCompatibility = { version, corrections: [] };
+  if(data.version.version===775){
+    if(!data.version.majorVersion)throw new Error('Protocol 775 version has no major version');
+    const protocol=object(data.protocol),types=object(object(object(protocol.play).toClient).types),declaration=structuredClone(types.packet_entity_update_attributes);
+    const properties=object(typeArgument(field(fields(declaration),'properties').type,'array')),attribute=field(fields(properties.type),'key');
+    const mapper='LayaAttributeRegistryProtocol775';if(attribute.type===mapper)return result;
+    const mapping=object(object(typeArgument(attribute.type,'mapper')).mappings),names=Object.keys(data.attributes);
+    if(names.length!==35||names[22]!=='minecraft:movement_speed'||names[25]!=='minecraft:scale'||names[34]!=='minecraft:waypoint_receive_range')throw new Error('Unverified protocol 775 attribute registry');
+    if(sameMapping(mapping,names))return result;
+    if(Object.keys(mapping).length!==31||mapping[0]!=='generic.armor'||mapping[22]!=='generic.scale'||mapping[30]!=='waypoint_receive_range')throw new Error('Unverified protocol 775 attribute mapper');
+    // The public 775 packet mapper omits four registry entries and retains old
+    // names. Real movement_speed ID 22 was therefore decoded as generic.scale.
+    attribute.type=mapper;
+    result.customPackets={[data.version.majorVersion]:{play:{toClient:{types:{packet_entity_update_attributes:declaration,[mapper]:['mapper',{type:'varint',mappings:Object.fromEntries(names.map((name,id)=>[id,name]))}]}}}}};
+    result.corrections.push('protocol-775-attribute-registry');return result;
+  }
   if (data.version.version !== RECIPE_PROTOCOL) return result;
 
   const protocol = object(data.protocol);

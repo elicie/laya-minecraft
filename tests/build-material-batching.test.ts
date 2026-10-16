@@ -151,3 +151,37 @@ test('a partial small-design preparation uses confirmed materials while preservi
   assert.equal((result.checkpoint.waitingFor as JsonObject).item, 'sand'); assert.equal((result.checkpoint.waitingFor as JsonObject).minimum, 6);
   assert.deepEqual((result.checkpoint.resourceRecovery as JsonObject).sand, budget);
 });
+
+test('a failed zero-stock window expedition permits the entire usable warehouse shell but never claims its missing windows are complete', async () => {
+  const blocks = blueprint('warehouse', { x: 0, y: 1, z: 0 }), f = fixture(blocks, { capacity: 36 }); f.task.params.design = 'warehouse';
+  const trip = { item: 'glass_pane', minimum: 3, home: { x: 3, y: 1, z: -1 }, trail: [{ x: 3, y: 1, z: -1 }], phase: 'complete', returns: 1, failure: 'Actual sand search failed' };
+  f.s.checkpoint.resourceTrip = trip;
+  const budget = { destinationsUsed: 5, elapsedMs: 60000, status: 'exhausted' }; f.s.checkpoint.resourceRecovery = { sand: budget };
+  f.prepare = async (item, minimum) => {
+    assert.notEqual(item, 'glass_pane', 'an already failed window search must not block the empty shell again');
+    f.stock.set(item, minimum);
+    const { failure: _failure, ...completed } = trip;
+    f.s.checkpoint.resourceTrip = { ...completed, item, minimum, returns: 2 };
+  };
+  const shell = await executeVillageTask(f.task, f.s);
+  assert.equal(shell.outcome, 'partial');
+  assert.ok(blocks.filter(b => b.name !== 'glass_pane').every(b => f.cells.get(f.key(b.position)) === b.name), 'all foundations, walls, roof, doors, chests, lights and access closure must actually match');
+  assert.equal(blocks.filter(b => f.cells.get(f.key(b.position)) !== b.name).length, 3);
+  assert.equal((shell.checkpoint.buildDeferredWindows as unknown[]).length, 3);
+  assert.deepEqual((shell.checkpoint.resourceRecovery as JsonObject).sand, budget);
+  assert.equal(f.s.bot.entity.position.y, 1, 'the temporary construction stair was actually closed after descending');
+  f.stock.set('glass_pane', 3);
+  f.prepare = async () => { assert.fail('completed structural stock must never be gathered again'); };
+  const finished = await executeVillageTask(f.task, f.s);
+  assert.equal(finished.outcome, 'completed');
+  assert.ok(blocks.every(b => f.cells.get(f.key(b.position)) === b.name));
+});
+
+test('a resumed survival warehouse commits its foundation before collecting all upper materials and never needs roof crafting',async()=>{
+  const blocks=blueprint('warehouse',{x:0,y:1,z:0}),f=fixture(blocks,{capacity:36});f.task.params.design='warehouse';f.s.checkpoint.materialExpedition=true;f.s.checkpoint.confirmedRecoveryDeathId='actual-respawn';
+  for(const count of [8,16,24,32,35]){const foundation=await executeVillageTask(f.task,f.s);assert.equal(foundation.outcome,'partial');assert.equal(f.placed.length,count);assert.ok(f.placed.every(p=>p.name==='cobblestone'&&p.position.y===1));}
+  assert.deepEqual(f.requests,[8,8,8,8,3].map(minimum=>({item:'cobblestone',minimum})));
+  f.prepare=async(item,minimum)=>{assert.equal(f.s.bot.entity.position.y,1,'all upper-material crafting still occurs at the ground entrance');f.stock.set(item,minimum);};
+  let complete;for(let step=0;step<20;step++){complete=await executeVillageTask(f.task,f.s);if(complete.outcome==='completed')break;assert.equal(complete.outcome,'partial');}
+  assert.equal(complete?.outcome,'completed');assert.ok(blocks.every(b=>f.cells.get(f.key(b.position))===b.name));assert.equal(f.requests.filter(r=>r.item==='cobblestone').length,5);assert.ok(f.requests.filter(r=>r.item==='oak_planks').every(r=>r.minimum<=10));assert.equal(typeof f.s.checkpoint.buildAccess,'string');
+});

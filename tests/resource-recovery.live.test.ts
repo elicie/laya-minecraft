@@ -7,6 +7,7 @@ import { Vec3 } from 'vec3';
 import { BotInputSchema, RulesSchema } from '../packages/contracts/src';
 import { createCompatibleBot } from '../packages/minecraft/src/compatibility';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
+import { ResourceRecovery } from '../packages/minecraft/src/resource-recovery';
 
 if ((process.env.MC_HOST ?? '127.0.0.1') !== '127.0.0.1' || process.env.MC_PORT !== '25566') throw new Error('Disposable minecraft-laya-validation:25566 only.');
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -61,4 +62,32 @@ test('actual bounded surface recovery preserves inaccessible stone and walks to 
     clearInterval(revealTimer);
     const ended = once(bot, 'end'); bot.quit('disposable resource recovery validation complete'); await Promise.race([ended, sleep(1000)]); rcon('forceload remove 1712 1712 1776 1742');
   }
+});
+
+test('an actual collect task with a spent distant-origin checkpoint starts a new resource journey and obtains real cobblestone', { timeout: 90000 }, async () => {
+  assert.equal(execFileSync('docker', ['inspect', '-f', '{{(index (index .NetworkSettings.Ports "25565/tcp") 0).HostPort}}', 'minecraft-laya-validation'], { encoding: 'utf8' }).trim(), '25566');
+  const rcon = (command: string) => execFileSync('docker', ['exec', 'minecraft-laya-validation', 'rcon-cli', command], { encoding: 'utf8' });
+  const origin = new Vec3(4906.5,80,4906.5), source = new Vec3(4970,80,4906);
+  rcon('forceload add 4898 4898 4982 4922'); rcon('fill 4898 80 4898 4982 85 4922 air');
+  rcon('fill 4898 77 4898 4982 78 4922 dirt'); rcon('fill 4898 79 4898 4982 79 4922 grass_block'); rcon('setblock 4970 80 4906 stone');
+  const bot = await createCompatibleBot({ host: '127.0.0.1', port: 25566, version: '1.21.1', username: 'LayaRawJourney', auth: 'offline' }); bot.loadPlugin(pathfinder);
+  try {
+    await once(bot, 'spawn'); rcon('tp LayaRawJourney 4906.5 80 4906.5'); rcon('clear LayaRawJourney'); rcon('item replace entity LayaRawJourney hotbar.0 with wooden_pickaxe');
+    await until(() => bot.entity.position.distanceTo(origin) < 1 && bot.inventory.items().some(item => item.name === 'wooden_pickaxe') && bot.blockAt(origin.floored().offset(0,-1,0))?.name === 'grass_block', 'actual resource journey start is missing');
+    const movement = new Movements(bot); movement.canDig = false; movement.allow1by1towers = false; movement.allowParkour = false; movement.maxDropDown = 1; bot.pathfinder.setMovements(movement);
+    const rules = RulesSchema.parse({ world: '127.0.0.1:25566', center: null, autonomyEnabled: false });
+    const { id: _id, ...config } = BotInputSchema.parse({ name: 'LayaRawJourney' });
+    const executor = new MineflayerExecutor(bot, { config, rules, world: rules.world, dimension: () => 'overworld', onProgress: (action, reason) => console.log(action, reason) });
+    const services = executor.services(AbortSignal.timeout(70000));
+    // Restore a genuinely different saved search region, without issuing a
+    // fresh local budget. A pickaxe is provided; the stone is actually mined.
+    const old = new ResourceRecovery(bot, services, 'cobblestone', ['stone','cobblestone'], true, () => false);
+    old.state.origin = { x: 4800, y: 80, z: 4906 }; old.state.destinationsUsed = 5; old.state.elapsedMs = 60000; old.wait('preserved spent local search', 1);
+    const result = await executor.execute({ id: 'collect', goalId: 'preserved-goal', kind: 'collect', params: { item: 'cobblestone', quantity: 1 }, dependencies: [], reservationKeys: [], completion: { kind: 'manual', reason: 'actual inventory proof' } }, services);
+    assert.equal(result.outcome, 'completed'); assert.equal(executor.count('cobblestone'), 1); assert.equal(bot.blockAt(source)?.name, 'air');
+    const state = (services.checkpoint.resourceRecovery as Record<string, ResourceRecovery['state']>).cobblestone;
+    assert.deepEqual(state.origin, { x: 4800, y: 80, z: 4906 }); assert.ok(state.resourceJourney && state.resourceJourney.moves >= 1);
+    assert.ok(services.observations.some(o => o.kind === 'inventory' && o.data.items.some(item => item.name === 'cobblestone' && item.count === 1)));
+    console.log('Verified actual raw resource journey', JSON.stringify({ savedOrigin: state.origin, initialPosition: origin, actualPosition: bot.entity.position, journeyMoves: state.resourceJourney.moves, cobblestone: executor.count('cobblestone') }));
+  } finally { const ended = once(bot, 'end'); bot.quit('disposable raw resource journey validation complete'); await Promise.race([ended,sleep(1000)]); rcon('forceload remove 4898 4898 4982 4922'); }
 });

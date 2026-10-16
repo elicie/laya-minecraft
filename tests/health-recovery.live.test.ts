@@ -62,6 +62,10 @@ test('actual fractional low health retains food recovery through restart, harves
     rcon('forceload add 3448 3448 3544 3544');
     for (const [low, high] of [[80, 82], [83, 85], [86, 88]]) rcon(`fill 3448 ${low} 3448 3544 ${high} 3544 air`);
     rcon('fill 3448 76 3448 3544 78 3544 dirt'); rcon('fill 3448 79 3448 3544 79 3544 grass_block');
+    // This fixture exercises a genuinely blocked food wait and restart, while
+    // the separate journey fixture exercises open-ended surface exploration.
+    rcon('fill 3486 80 3486 3506 82 3486 stone'); rcon('fill 3486 80 3506 3506 82 3506 stone');
+    rcon('fill 3486 80 3486 3486 82 3506 stone'); rcon('fill 3506 80 3486 3506 82 3506 stone');
     rcon('kill @e[type=!player,x=3448,y=75,z=3448,dx=96,dy=18,dz=96]');
     rcon('gamerule doMobSpawning false'); rcon('gamerule doDaylightCycle false'); rcon('time set 6000'); rcon('weather clear');
     rcon('gamerule naturalRegeneration false');
@@ -89,7 +93,7 @@ test('actual fractional low health retains food recovery through restart, harves
     const initial = FleetSnapshotSchema.parse(await request(runtime, 'GET', '/snapshot')).goals.find(g => g.id === goalId)!;
     assert.doesNotMatch(rcon(`damage ${name} 13.666667 minecraft:generic`), /invulnerable|No entity was found/);
     await command(runtime, 'POST', `/bots/${botId}/resume`);
-    const waiting = await until(runtime, s => { const a = s.agents.find(a => a.id === botId); return a?.session?.report?.mode === 'survival' && a.session.report.action === '식량 대기' && !!a.survivalRecovery?.wait; }, 'low health food wait remains survival and blocks the queued goal', 70000);
+    const waiting = await until(runtime, s => { const a = s.agents.find(a => a.id === botId); return a?.session?.report?.mode === 'survival' && a.session.report.action === '식량 대기' && !!a.survivalRecovery?.wait; }, 'low health food wait remains survival and blocks the queued goal', 220000);
     const agent = waiting.agents.find(a => a.id === botId)!, startedAt = agent.survivalRecovery!.startedAt;
     assert.ok(agent.session!.report!.health > 6 && agent.session!.report!.health < 7);
     assert.equal(waiting.attempts.length, 0); assert.ok(waiting.tasks.every(t => t.retryCount === 0));

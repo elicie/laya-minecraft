@@ -7,11 +7,11 @@ import { findBuildAccessPreparation, observeAccessPreparation, prepareBuildAcces
 import { checkAbort, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 
 const key = (p: Position) => `${p.x},${p.y},${p.z}`;
-function fixture() {
+function fixture(flat = false) {
   const cells = new Map<string, string>(), edits: Position[] = [], visits: Position[] = [], stock = new Map<string, number>();
   const controller = new AbortController(); let abortAfter = Infinity;
   const read = (p: Vec3) => {
-    const name = cells.get(key(p)) ?? (p.z === 0 ? p.y <= 63 ? p.y === 63 ? 'grass_block' : 'dirt' : 'air' : p.y <= 59 ? 'stone' : 'air');
+    const name = cells.get(key(p)) ?? (p.z === 0 || flat ? p.y <= 63 ? p.y === 63 ? 'grass_block' : 'dirt' : 'air' : p.y <= 59 ? 'stone' : 'air');
     return { name, position: p, boundingBox: name === 'air' ? 'empty' : 'block', canHarvest: () => true };
   };
   const bot = {
@@ -42,6 +42,33 @@ test('building return proposes a bounded three-dimensional corridor without effe
   assert.equal(result.outcome, 'completed'); assert.ok(f.edits.length > 0); assert.ok(f.bot.entity.position.distanceTo(new Vec3(4.5, 64, 0.5)) < 1);
   assert.equal(f.bot.blockAt(new Vec3(0, 63, 0)).name, 'grass_block', 'the original bot support is preserved');
   assert.ok(result.observations.some(o => o.kind === 'exploration' && o.data.position.x === 4.5));
+});
+
+test('a displaced builder returns directly through verified ground after the reserved corridor edits are complete', async () => {
+  const f=fixture(true),plan:BuildAccessPreparation={start:{x:0,y:64,z:0},target:{x:4,y:64,z:0},observedAt:Date.now(),path:[0,1,2,3,4].map(x=>({x,y:64,z:0})),edits:[{position:{x:1,y:64,z:0},before:'dirt',after:'air'}]};
+  f.cells.set('1,64,0','dirt');await prepareBuildAccess(f.task(plan),f.s);
+  const changed=f.edits.length,walked=f.visits.length;f.bot.entity.position=new Vec3(4.5,64,3.5);
+  Object.assign(f.bot,{entities:{}});Object.assign(f.bot.pathfinder,{movements:{canDig:false,allow1by1towers:false},getPathTo:()=>({status:'success',path:[2,1,0].map(z=>({x:4,y:64,z,toBreak:[],toPlace:[]}))})});
+  const result=await prepareBuildAccess(f.task(plan),f.s);
+  assert.equal(result.outcome,'completed');assert.equal(f.edits.length,changed);assert.deepEqual(f.visits.slice(walked).map(p=>p.x),[4.5,4.5,4.5]);
+  assert.equal((result.checkpoint.accessReturnRoute as {steps:number}).steps,3);assert.equal(result.checkpoint.accessReturnRouteVersion,3);
+  assert.ok(result.observations.some(o=>o.kind==='exploration'&&o.data.position.x===4.5&&o.data.position.z===.5));
+});
+
+test('a return shortcut cannot bypass a pending corridor edit and an unverified connection waits without changing terrain', async()=>{
+  const f=fixture(true),plan:BuildAccessPreparation={start:{x:0,y:64,z:0},target:{x:4,y:64,z:0},observedAt:Date.now(),path:[0,1,2,3,4].map(x=>({x,y:64,z:0})),edits:[{position:{x:1,y:64,z:0},before:'dirt',after:'air'}]};
+  f.cells.set('1,64,0','dirt');f.bot.entity.position=new Vec3(4.5,64,3.5);
+  Object.assign(f.bot,{entities:{}});Object.assign(f.bot.pathfinder,{movements:{canDig:false,allow1by1towers:false},getPathTo:()=>{throw new Error('pending edits prohibit a shortcut');}});
+  await prepareBuildAccess(f.task(plan),f.s);assert.equal(f.edits.length,1);assert.equal(f.s.checkpoint.accessReturnRoute,undefined);
+  f.bot.entity.position=new Vec3(4.5,64,3.5);Object.assign(f.bot.pathfinder,{getPathTo:()=>({status:'noPath',path:[]})});
+  const edits=f.edits.length,visits=f.visits.length;
+  await assert.rejects(prepareBuildAccess(f.task(plan),f.s),(e:unknown)=>e instanceof ConditionWait&&/중앙 검증/.test(e.message));
+  assert.equal(f.edits.length,edits);assert.equal(f.visits.length,visits);assert.equal(f.s.checkpoint.accessPreparationComplete,undefined);
+  assert.deepEqual((f.s.checkpoint.buildAccessPreparation as unknown as BuildAccessPreparation).start,{x:4,y:64,z:3});
+  assert.ok(f.s.observations.some(o=>o.kind==='blocks'&&o.data.blocks.some(b=>key(b.position)==='0,64,0')),'the original completed corridor is observed before requesting a new one');
+  const nested={...f.task(plan),params:{...f.task(plan).params,accessReturnDepth:1}};
+  await assert.rejects(prepareBuildAccess(nested,f.s),(e:unknown)=>e instanceof ConditionWait&&/지면 연결/.test(e.message));
+  assert.deepEqual((f.s.checkpoint.buildAccessPreparation as unknown as BuildAccessPreparation).start,plan.start,'a return subtask cannot propose another nested terrain task');
 });
 
 test('return planning preserves facilities, crops, liquid, falling terrain and unknown cells', () => {
@@ -100,4 +127,18 @@ test('execution rechecks changed terrain before any effect and fails with observ
   f.cells.set(key(plan.edits[0]!.position), 'chest');
   await assert.rejects(prepareBuildAccess(f.task(plan), f.s), (error: unknown) => error instanceof ConditionWait && error.checkpoint.waitingFor !== undefined);
   assert.deepEqual(f.edits, []); assert.deepEqual(f.visits, []);
+});
+
+test('an already completed approach at the actual target renews observed proof without revisiting the old start or repeating terrain edits', async () => {
+  const f = fixture(); f.cells.set('1,64,0','dirt'); f.cells.set('1,65,0','grass_block');
+  const plan = findBuildAccessPreparation(f.s,{x:3,y:64,z:0}); assert.ok(plan);
+  await prepareBuildAccess(f.task(plan),f.s); const edited=f.edits.length, walked=f.visits.length;
+  f.s.checkpoint.accessPreparationComplete={target:plan.target,observedAt:1}; f.s.observations.length=0;
+  const result=await prepareBuildAccess(f.task(plan),f.s);
+  assert.equal(result.outcome,'completed'); assert.equal(f.edits.length,edited); assert.equal(f.visits.length,walked);
+  assert.ok(Number((result.checkpoint.accessPreparationComplete as {observedAt:number}).observedAt)>1);
+  assert.ok(result.observations.some(o=>o.kind==='exploration'&&o.data.position.x===plan.target.x+.5));
+  f.cells.set('2,64,0','chest');
+  await assert.rejects(prepareBuildAccess(f.task(plan),f.s),ConditionWait);
+  assert.equal(f.s.checkpoint.accessPreparationComplete,undefined,'fresh changed terrain cannot inherit a successful completion marker');
 });

@@ -29,6 +29,31 @@ function fixture(kind: 'build' | 'collect' | 'craft' = 'build') {
 }
 const materialWait = (details: JsonObject = {}): JsonObject => ({ waitingFor: { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'cobblestone', minimum: 1, resourceNames: ['cobblestone'], ...details } });
 
+test('a ripe-only crop wait ignores intermediate growth and wakes once on observed maturity',()=>{
+ const f=fixture('craft'),checkpoint:JsonObject={waitingFor:{kind:'inventory',causeCode:'RESOURCE_MISSING',item:'wheat',minimum:3,resourceNames:['wheat'],resourcePositions:[source],minimumResourceAge:7,watchPosition:false}};
+ f.wait(checkpoint,[{position:source,name:'wheat',stateId:120,age:0}]);
+ for(let age=1;age<7;age++){f.advance(6000);f.status();f.observe([{position:source,name:'wheat',stateId:120+age,age}]);assert.equal(f.assignments().length,1);}
+ f.observe([{position:source,name:'wheat',stateId:127,age:7}]);assert.equal(f.assignments().length,2);
+});
+
+test('a completed new-life recovery wakes an old collection journey once without renewing its search budgets', () => {
+  const f = fixture('collect'), first = f.latest();
+  const recovery: JsonObject = { cobblestone: { origin: { x: 0, y: 64, z: 0 }, visited: [], destinationsUsed: 5, elapsedMs: 60000, status: 'exhausted', resourceJourney: { center: { x: 411, y: 64, z: -360 }, visited: [], moves: 160, elapsedMs: 700000, status: 'blocked' } } };
+  const checkpoint = { ...materialWait({ causeCode: 'RESOURCE_MISSING', watchPosition: false }), resourceRecovery: recovery };
+  f.wait(checkpoint);
+  const death = { deathId: 'actual-new-life', occurredAt: f.now(), world, dimension, priorInventory: [] };
+  f.receive('bot.died', death);
+  const state = { ...death, phase: 'resolved', safe: false, attemptCount: 0, progress: { recoveredCount: 0, remainingCount: 0 }, reason: 'actual respawn', updatedAt: f.now(), checkpoint: {} };
+  f.receive('bot.recovery', state); f.status(); assert.equal(f.assignments().length, 1);
+  f.receive('bot.recovery', { ...state, safe: true }); f.status();
+  assert.equal(f.assignments().length, 2); assert.equal(f.latest().taskId, first.taskId);
+  assert.deepEqual(f.latest().payload.checkpoint.resourceRecovery, recovery);
+  f.wait({ ...f.latest().payload.checkpoint, resourceJourneyDeathId: death.deathId });
+  for (let i = 0; i < 8; i++) { f.advance(6000); f.status(); f.core.tick(); }
+  assert.equal(f.assignments().length, 2); assert.equal(f.core.getSnapshot().tasks[0]!.retryCount, 0);
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
 test('inventory waits validate bounded integer resource coordinates and normalize actual raw sources', () => {
   const wait = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'cobblestone', minimum: 1, resourcePositions: [source], failedCause: 'NO_SAFE_ACCESS' };
   assert.equal(BuildWaitingForSchema.safeParse(wait).success, true);

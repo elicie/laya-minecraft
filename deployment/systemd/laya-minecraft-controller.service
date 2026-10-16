@@ -1,0 +1,19 @@
+[Unit]
+Description=Laya Minecraft controller and decision integration
+After=network-online.target minecraft-qwen-base.service
+Wants=minecraft-qwen-base.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/elicie/Dev/laya-minecraft
+Environment=PATH=/home/elicie/tools/node22/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LAYA_AUTO_CONNECT=true
+Environment=QWEN_DECISION_URL=http://127.0.0.1:8086
+ExecStart=/home/elicie/tools/node22/bin/node --env-file-if-exists=.env --import tsx apps/server/src/main.ts
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

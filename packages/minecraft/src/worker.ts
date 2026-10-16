@@ -5,15 +5,20 @@ import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import {
-  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PROTOCOL_VERSION, survivalRecoveryNeeded,
-  type BotReport, type BuildWaitingFor, type CentralMessage, type ItemStack, type JsonObject, type Position, type RecoveryState, type ResultPayload, type SurvivalRecovery, type WorkerLaunch, type WorkerMessage,
+  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PositionSchema, PROTOCOL_VERSION, survivalRecoveryNeeded,
+  type ActionKind, type AssignmentBlock, type BotReport, type BuildWaitingFor, type CentralMessage, type ItemStack, type JsonObject, type Position, type RecoveryState, type ResultPayload, type SurvivalRecovery, type WorkerLaunch, type WorkerMessage,type ObservationInput,
 } from '../../contracts/src';
 import { MineflayerExecutor, EXECUTABLE_ACTIONS, type ExecutorOptions } from './actions';
+import {passiveFarmObservation} from './farm-observation';
+import { foodSearchCanExpand, reconcileResourceJourneys } from './resource-recovery';
+import { resourceTrip } from './resource-trip';
 import { executeVillageTask } from './village-actions';
+import { duskOrNight } from './night-burrow';
 import { ActionFailure, ConditionWait, type ActionServices } from './services';
-import { inventory, inventoryView, nearbyBlocks, position } from './observations';
+import { inventory, inventoryView, nearbyBlocks, position, vector, walkingFeet } from './observations';
 import { assessCombat, combatEquipment, HOSTILES, rangedThreat } from './combat-policy';
-import { retreatFingerprint } from './combat-retreat';
+import { retreatFingerprint, visibleRangedThreat, visibleThreat } from './combat-retreat';
+import { leaveRecoveryEdge } from './recovery-safety';
 import { createBotViewer } from './viewer';
 import { createCompatibleBot } from './compatibility';
 import { copyBuildProtection, foodRecoveryFingerprint, recoveryPositions, watchedPositions, type FoodRecoveryKnowledge } from './worker-recovery';
@@ -81,7 +86,7 @@ export class MinecraftWorker {
     if (launch.restoreSurvivalRecovery) {
       this.survivalRecovery = structuredClone(launch.restoreSurvivalRecovery);
       Object.assign(this.foodCheckpoint, this.survivalRecovery.checkpoint);
-      this.foodWait = this.survivalRecovery.wait && structuredClone(this.survivalRecovery.wait);
+      this.foodWait = (this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)?undefined:this.survivalRecovery.wait && structuredClone(this.survivalRecovery.wait);
       this.foodKnowledge.origin = this.survivalRecovery.knowledge?.origin && structuredClone(this.survivalRecovery.knowledge.origin);
       for (const block of this.survivalRecovery.knowledge?.blocks ?? []) this.foodKnowledge.blocks.set(`${block.position.x},${block.position.y},${block.position.z}`, structuredClone(block));
     }
@@ -91,7 +96,7 @@ export class MinecraftWorker {
       onProgress: (action, reason) => {
         if (!this.ready || this.active && this.active.life !== this.life || this.local && this.local.life !== this.life) return;
         this.rememberLive();
-        this.action = this.local?.mode === 'survival' ? `식량 확보 · ${action}` : action; this.reason = reason;
+        this.action = this.local?.mode === 'survival' && this.foodCheckpoint.nightBurrowPending!==true && this.foodCheckpoint.nightBasePending!==true ? `식량 확보 · ${action}` : action; this.reason = reason;
         const active = this.active;
         if (active) this.taskMessage(active.message, 'task.progress', { action, reason, checkpoint: active.services.checkpoint, observations: active.services.observations.slice(-4) });
       },
@@ -149,6 +154,9 @@ export class MinecraftWorker {
     this.dead = true; this.life++; this.ready = false; this.spawnPending = false; this.settlingLife = true;
     this.healthReceived = false; this.emergencyPending = false; this.combatWait = undefined;
     this.survivalRecovery = undefined;
+    // The new body has not entered the old body's warehouse doorway. Keeping
+    // this in-flight latch can trap a healthy respawn in shelter recovery.
+    delete this.foodCheckpoint.nightBasePending; delete this.foodCheckpoint.nightBase;
     this.lastHitAt = 0; this.hitSource = undefined; this.recoverySupport = undefined;
     this.lastRecoveryAttemptAt = 0;
     for (const field of ['resourceRecovery', 'resourceNames', 'resourcePositions', 'missingResource', 'missingFood', 'foodCause', 'failedCause']) delete this.foodCheckpoint[field];
@@ -159,7 +167,7 @@ export class MinecraftWorker {
     copyBuildProtection(this.foodCheckpoint, this.recovery.checkpoint);
     if (this.active) copyBuildProtection(this.active.services.checkpoint, this.recovery.checkpoint);
     this.action = '부활 대기'; this.reason = this.recovery.reason; this.mode = 'recovering';
-    if (this.active) { this.active.services.checkpoint.deathPosition = deathPosition ?? null; this.active.services.checkpoint.deathInventory = priorInventory; }
+    if (this.active) { this.active.services.checkpoint.deathId = death.deathId; this.active.services.checkpoint.deathPosition = deathPosition ?? null; this.active.services.checkpoint.deathInventory = priorInventory; }
     this.message('bot.died', death); this.publishRecovery();
     const life = this.life;
     this.deathCleanup = Promise.allSettled([this.cancelActive('사망으로 작업을 중단하고 진행을 보존합니다.', 'task.interrupted'), this.stopLocal()]).then(() => {
@@ -172,7 +180,7 @@ export class MinecraftWorker {
   private publishRecovery(): void {
     const state = this.recovery; if (!state) return;
     this.message('bot.recovery', structuredClone(state));
-    if (!this.ready || state.phase !== 'held') return;
+    if (!this.ready || state.phase !== 'held' && !(state.phase === 'resolved' && !state.safe)) return;
     const threat = Object.values(this.bot.entities).find(entity => HOSTILES.has(entity.name ?? '') && (entity.position.distanceTo(this.bot.entity.position) < 20 || !!state.position && entity.position.distanceTo(new Vec3(state.position.x, state.position.y, state.position.z)) < 20));
     if (!threat) { this.recoverySupport = undefined; return; }
     const fingerprint = this.combatFingerprint(threat);
@@ -180,15 +188,36 @@ export class MinecraftWorker {
     this.recoverySupport = { deathId: state.deathId, fingerprint };
     this.message('safety.alert', { response: 'support', reason: '사망 아이템 회수 위치에 위협이 있어 안전한 지원이 필요합니다. 위험한 위치로 진입하지 않고 복구 기록을 보존합니다.', supportRequired: true, threats: [{ entityId: threat.uuid ?? `${threat.id}`, name: threat.name ?? 'unknown', ...position(threat.position) }] });
   }
-  private combatFingerprint(threat?: Entity): string {
-    return `${threat ? `${threat.uuid ?? threat.id}:${threat.position.x.toFixed(1)},${threat.position.y.toFixed(1)},${threat.position.z.toFixed(1)}` : 'absent'}:${retreatFingerprint(this.bot, this.combatCheckpoint)}`;
+  private nearbyThreats(): Entity[] {
+    return Object.values(this.bot.entities).filter(e => HOSTILES.has(e.name ?? '') && e.position.distanceTo(this.bot.entity.position) < 20).sort((a, b) => a.position.distanceTo(this.bot.entity.position) - b.position.distanceTo(this.bot.entity.position));
+  }
+  private combatFingerprint(_threat?: Entity): string {
+    // The entire observed threat set owns a wait. A vanished hit source or
+    // two enemies exchanging nearest position must not create a new action.
+    const threats = this.nearbyThreats().map(e => `${e.uuid ?? e.id}:${e.name}:${Math.floor(e.position.x / 2)},${Math.floor(e.position.y / 2)},${Math.floor(e.position.z / 2)}`).sort();
+    return `${threats.join('|')}:${retreatFingerprint(this.bot, this.combatCheckpoint)}`;
   }
   private recoverDeath(): void {
     const state = this.recovery;
     if (!state || !this.recoveryPending() || this.now() - this.lastRecoveryAttemptAt < 10000) return;
     this.lastRecoveryAttemptAt = this.now();
     const life = this.life;
-    this.startLocal(s => recoverDeathStep(this.bot, state, s, () => { if (life === this.life && state === this.recovery) this.publishRecovery(); }, this.launch.config.enabled, () => this.now()), 'recovering', state.checkpoint, Math.min(12000, Math.max(1, DEATH_RECOVERY_ACTIVE_MS - deathRecoveryElapsed(state))));
+    const timeout = state.phase === 'resolved' ? 12000 : Math.min(12000, Math.max(1, DEATH_RECOVERY_ACTIVE_MS - deathRecoveryElapsed(state)));
+    const started = vector(this.bot.entity.position), wasUnsafe = !state.safe;
+    this.startLocal(async s => {
+      await recoverDeathStep(this.bot, state, s, () => { if (life === this.life && state === this.recovery) this.publishRecovery(); }, this.launch.config.enabled, () => this.now());
+      if (life === this.life && wasUnsafe && state.phase === 'resolved' && state.safe && this.bot.entity.position.distanceTo(started) > 0.5) {
+        // A verified exit changes the usable food routes; retain spent search
+        // budgets rather than waiting forever on the former unsafe footing.
+        this.foodWait = undefined;
+        const records = this.foodCheckpoint.resourceRecovery;
+        const food = records && typeof records === 'object' && !Array.isArray(records) ? records.$food : undefined;
+        if (food && typeof food === 'object' && !Array.isArray(food)) {
+          const journey = food.foodJourney;
+          if (journey && typeof journey === 'object' && !Array.isArray(journey) && journey.status === 'blocked') { journey.status = 'searching'; food.status = 'searching'; }
+        }
+      }
+    }, 'recovering', state.checkpoint, timeout);
   }
 
   private envelope(commandId?: string) { return { protocolVersion: PROTOCOL_VERSION, messageId: randomUUID(), controllerEpoch: this.launch.controllerEpoch, botId: this.launch.botId, sessionId: this.launch.sessionId, sentAt: Date.now(), ...(commandId ? { commandId } : {}) }; }
@@ -213,6 +242,10 @@ export class MinecraftWorker {
       ...(this.ready && this.bot.entity ? { position: position(this.bot.entity.position) } : {}),
       world: `${config.connection.host}:${config.connection.port}`, dimension: String(this.bot.game?.dimension ?? this.launch.rules.dimension),
       health: Math.max(0, Math.min(20, this.bot.health ?? 0)), food: Math.max(0, Math.min(20, this.bot.food ?? 0)),
+      ...(typeof this.bot.time?.isDay==='boolean'?{isDay:this.bot.time.isDay}:{}),
+      ...(Number.isSafeInteger(this.bot.time?.timeOfDay)?{timeOfDay:this.bot.time.timeOfDay}:{}),
+      ...(Number.isSafeInteger(this.bot.time?.age)?{worldAge:this.bot.time.age}:{}),
+      ...(this.ready && this.bot.entity ? {nearbyThreatsClear:!this.nearbyThreats().some(e=>e.position.distanceTo(walkingFeet(this.bot))<12)} : {}),
       inventory: this.ready && this.bot.inventory ? inventory(this.bot) : [], action: this.action, reason: this.reason,
       ...(view ? { inventoryView: view } : {}),
       ...(this.recovery ? { recovery: structuredClone(this.recovery) } : {}),
@@ -235,7 +268,9 @@ export class MinecraftWorker {
     this.dead = false;
     if (this.pendingRules) this.applyRules(this.pendingRules);
     const movements = (this.dependencies.movementsFactory ?? ((bot) => new Movements(bot)))(this.bot);
-    movements.canDig = false; movements.canOpenDoors = true; movements.allow1by1towers = false; movements.maxDropDown = 3; movements.allowParkour = false;
+    // Pathfinder counts down to the support block, one below the landing feet.
+    // A public limit of 2 allows a one-block foot descent; 1 forbids it entirely.
+    movements.canDig = false; movements.canOpenDoors = true; movements.allow1by1towers = false; movements.maxDropDown = 2; movements.infiniteLiquidDropdownDistance = false; movements.allowParkour = false;
     // Public movement settings also need to disable automatic bridging. Only
     // explicitly reserved project actions may change the terrain.
     movements.scafoldingBlocks = [];
@@ -267,7 +302,8 @@ export class MinecraftWorker {
   private mapObservation(): void {
     if (!this.ready || this.now() - this.lastMapAt < 5000) return;
     this.lastMapAt = this.now();
-    const observations = [this.executor.services(new AbortController().signal).observeInventory(), nearbyBlocks(this.bot, this.executor.options.world, this.executor.options.dimension())];
+    const observations:ObservationInput[] = [this.executor.services(new AbortController().signal).observeInventory(), nearbyBlocks(this.bot, this.executor.options.world, this.executor.options.dimension())];
+    const farm=this.executor.options.world===this.launch.rules.world&&this.executor.options.dimension()===this.launch.rules.dimension?passiveFarmObservation(this.bot,this.launch.rules,this.now()):undefined;if(farm)observations.push(farm);
     // The map samples every two blocks. Observe exact construction conditions
     // separately so a changed support cell can wake a waiting task.
     const cells = new Map<string, { x: number; y: number; z: number }>();
@@ -280,7 +316,7 @@ export class MinecraftWorker {
       cells.set(`${p.x},${p.y},${p.z}`, p);
     }
     if (cells.size) observations.push({ id: randomUUID(), kind: 'blocks', observedAt: Date.now(), world: this.executor.options.world, dimension: this.executor.options.dimension(),
-      data: { blocks: [...cells.values()].flatMap(p => { const block = this.bot.blockAt(new Vec3(p.x, p.y, p.z)); return block ? [{ position: p, name: block.name, ...(typeof block.stateId === 'number' && Number.isInteger(block.stateId) && block.stateId >= 0 ? { stateId: block.stateId } : {}) }] : []; }) } });
+      data: { blocks: [...cells.values()].flatMap(p => { const block = this.bot.blockAt(new Vec3(p.x, p.y, p.z)),age=block&&typeof block.getProperties==='function'?Number(block.getProperties().age):NaN; return block ? [{ position: p, name: block.name, ...(typeof block.stateId === 'number' && Number.isInteger(block.stateId) && block.stateId >= 0 ? { stateId: block.stateId } : {}),...(Number.isInteger(age)&&age>=0&&age<=25?{age}:{}) }] : []; }) } });
     this.message('world.observed', { observations });
   }
 
@@ -339,23 +375,43 @@ export class MinecraftWorker {
     if (this.dependencies.timers !== false) this.statusTimer = setInterval(() => { this.message('bot.status', this.report()); this.mapObservation(); }, this.launch.rules.statusIntervalMs);
     this.message('rules.applied', { version: this.launch.rules.version }, message.commandId);
   }
+  private assignmentBlock(message: Assignment): AssignmentBlock | undefined {
+    if (!this.ready || this.stopping || this.settlingLife || !this.centralConnected) return 'not-ready';
+    if (!this.launch.config.enabled) return 'paused';
+    if (this.active) return 'busy';
+    if (this.emergencyActive()) return 'emergency';
+    if (this.survivalUrgent()) return 'survival';
+    if (this.recoveryPending()) return 'recovery';
+    if (message.payload.rulesVersion !== this.launch.rules.version) return 'rules';
+  }
+  private rejectAssignment(message: Assignment, blockedBy: AssignmentBlock): void {
+    const reasons: Record<AssignmentBlock, string> = {
+      'not-ready': '실제 접속·부활과 이전 동작의 안전한 종료를 기다립니다.',
+      paused: '봇이 일시정지되어 작업 재개를 기다립니다.',
+      busy: '현재 실행 중인 작업의 실제 종료를 기다립니다.',
+      emergency: '실제 위협 대응이 끝난 뒤 보존한 작업을 재개합니다.',
+      survival: '체력·허기를 실제로 회복한 뒤 보존한 작업을 재개합니다.',
+      recovery: '사망 복구와 현재 지면의 실제 안전을 확인한 뒤 작업을 재개합니다.',
+      rules: '적용된 규칙 버전을 먼저 확인해야 합니다.',
+      state: '일반 작업을 시작할 수 있는 실제 상태 보고를 기다립니다.',
+    };
+    this.message('bot.status', this.report());
+    this.taskMessage(message, 'task.rejected', { reason: reasons[blockedBy], retryable: true, blockedBy });
+  }
   private async assign(message: Assignment): Promise<void> {
     if (this.completedAttempts.has(message.attemptId) || this.active?.message.attemptId === message.attemptId) return;
-    if (!this.ready || this.stopping || this.settlingLife || !this.centralConnected || !this.launch.config.enabled || this.active || this.emergencyActive() || this.survivalUrgent() || this.recoveryPending()) {
-      if (this.ready && this.survivalUrgent()) this.message('bot.status', this.report());
-      this.taskMessage(message, 'task.rejected', { reason: '현재 상태에서는 일반 작업을 시작할 수 없습니다.', retryable: true }); return;
-    }
+    const blocked = this.assignmentBlock(message);
+    if (blocked) { this.rejectAssignment(message, blocked); return; }
     if (!this.launch.config.allowedActions.includes(message.payload.task.kind) || !EXECUTABLE_ACTIONS.includes(message.payload.task.kind)) {
       this.taskMessage(message, 'task.rejected', { reason: '이 봇에 허용된 실행 가능한 작업이 아닙니다.', retryable: false }); return;
     }
-    if (message.payload.rulesVersion !== this.launch.rules.version) { this.taskMessage(message, 'task.rejected', { reason: '적용된 규칙 버전을 먼저 확인해야 합니다.', retryable: true }); return; }
     await this.stopLocal();
     if (this.pendingRules) this.applyRules(this.pendingRules);
-    if (!this.ready || this.stopping || this.settlingLife || !this.centralConnected || !this.launch.config.enabled || this.emergencyActive() || this.survivalUrgent() || this.recoveryPending() || message.payload.rulesVersion !== this.launch.rules.version) {
-      if (this.ready && this.survivalUrgent()) this.message('bot.status', this.report());
-      this.taskMessage(message, 'task.rejected', { reason: '작업 준비 중 월드 상태나 규칙이 바뀌었습니다.', retryable: true }); return;
-    }
+    const changed = this.assignmentBlock(message);
+    if (changed) { this.rejectAssignment(message, changed); return; }
     const controller = new AbortController(), services = this.executor.services(controller.signal, structuredClone(message.payload.checkpoint));
+    if (this.recovery?.phase==='resolved' && this.recovery.safe) services.checkpoint.confirmedRecoveryDeathId=this.recovery.deathId;
+    if (['collect','build'].includes(message.payload.task.kind)) reconcileResourceJourneys(this.bot, services.checkpoint, this.recovery);
     if (message.payload.task.kind === 'build' || message.payload.task.params.mode === 'build-site') {
       copyBuildProtection(message.payload.task.params, this.foodCheckpoint);
       copyBuildProtection(services.checkpoint, this.foodCheckpoint);
@@ -407,8 +463,15 @@ export class MinecraftWorker {
   private emergencyActive(): boolean { return this.emergencyPending || this.local?.mode === 'emergency' || !!this.combatWait; }
   private survivalUrgent(): boolean {
     if (this.ready && this.healthReceived && this.bot.health > 0) {
-      if (this.bot.health >= 20 && this.bot.food >= 18) this.survivalRecovery = undefined;
-      else if (!this.survivalRecovery && survivalRecoveryNeeded(this.bot.health, this.bot.food, this.launch.rules.combat)) this.survivalRecovery = { startedAt: this.now(), targetHealth: 20, checkpoint: {} };
+      const trip=this.active&&resourceTrip(this.active.services.checkpoint);
+      const homeDistance=trip?this.bot.entity.position.distanceTo(vector(trip.home)):0;
+      const nearReturn=trip?.phase==='returning'&&homeDistance<=96&&this.bot.health>this.launch.rules.combat.supportHealth&&this.bot.food>6;
+      const provision=!!trip&&trip.phase!=='complete'&&homeDistance>48&&this.bot.food<19&&!nearReturn;
+      if(provision)this.foodCheckpoint.expeditionFoodTarget=19;
+      const targetFood=this.foodCheckpoint.expeditionFoodTarget===19?19:18;
+      const sheltered=(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true);
+      if (this.bot.health >= 20 && this.bot.food >= targetFood&&!sheltered) { this.survivalRecovery = undefined;delete this.foodCheckpoint.expeditionFoodTarget; }
+      else if (!this.survivalRecovery && (sheltered||provision||survivalRecoveryNeeded(this.bot.health, this.bot.food, this.launch.rules.combat))) this.survivalRecovery = { startedAt: this.now(), targetHealth: 20, checkpoint: {} };
     }
     return !!this.survivalRecovery || survivalRecoveryNeeded(this.bot.health, this.bot.food, this.launch.rules.combat);
   }
@@ -431,7 +494,8 @@ export class MinecraftWorker {
         }
         if (mode === 'emergency') {
           if (error instanceof ConditionWait) Object.assign(checkpoint, error.checkpoint);
-          const threat = this.hitSource ?? Object.values(this.bot.entities).find(e => HOSTILES.has(e.name ?? '') && e.position.distanceTo(this.bot.entity.position) < 20);
+          const threats = this.nearbyThreats();
+          const threat = threats.find(e => e.id === this.hitSource?.id && e.uuid === this.hitSource?.uuid) ?? threats[0];
           this.combatWait = { fingerprint: this.combatFingerprint(threat), retryAt: this.now() + 5000, reason: this.reason, threatId: threat?.uuid ?? `${threat?.id ?? ''}` };
           this.action = '지원·안전 경로 대기';
           if (threat) this.message('safety.alert', { response: 'support', reason: `안전한 대응을 확인하지 못했습니다. ${this.reason}`, supportRequired: true, threats: [{ entityId: threat.uuid ?? `${threat.id}`, name: threat.name ?? 'unknown', ...position(threat.position) }] });
@@ -455,7 +519,7 @@ export class MinecraftWorker {
       if (mode === 'recovering' && this.recovery && !this.emergencyActive()) {
         if (controller.signal.aborted && controller.signal.reason !== 'recovery-timeout' && this.recovery.phase !== 'resolved') { this.recovery.phase = 'held'; this.recovery.reason = '회수 진행을 보존하고 안전하게 중단했습니다. 재개 조건을 확인한 뒤 남은 회수를 진행합니다.'; }
         this.recovery.updatedAt = this.now();
-        this.action = this.recovery.phase === 'resolved' ? '대기' : '사망 아이템 회수 대기'; this.reason = this.recovery.reason;
+        this.action = this.recovery.phase === 'resolved' ? this.recovery.safe ? '대기' : '안전 지면 대기' : '사망 아이템 회수 대기'; this.reason = this.recovery.reason;
         this.publishRecovery();
       }
       if (mode === 'emergency' && !this.combatWait && !this.emergencyPending) { this.action = '안전 상태 확인'; this.reason = '위험 대응 동작을 마쳤습니다. 현재 위협과 기본 생존 상태를 다시 확인합니다.'; }
@@ -469,21 +533,33 @@ export class MinecraftWorker {
       if (this.local?.mode === 'recovering') void this.stopLocal();
     }
     if (this.emergencyPending || this.local?.mode === 'emergency' || this.executor.fighting) return;
-    const enemies = Object.values(this.bot.entities).filter((e) => HOSTILES.has(e.name ?? '') && e.position.distanceTo(this.bot.entity.position) < 20).sort((a, b) => a.position.distanceTo(this.bot.entity.position) - b.position.distanceTo(this.bot.entity.position));
-    if (this.combatWait && !enemies.some(e => (e.uuid ?? `${e.id}`) === this.combatWait!.threatId) && recoverySafe(this.bot, this.launch.rules.combat.retreatHealth)) {
+    const enemies = this.nearbyThreats();
+    if (this.hitSource && !enemies.some(e => e.id === this.hitSource!.id && e.uuid === this.hitSource!.uuid)) this.hitSource = undefined;
+    if (this.combatWait && !enemies.length && recoverySafe(this.bot, this.launch.rules.combat.retreatHealth)) {
       this.combatWait = undefined;
       if (!this.local && !this.active) { this.mode = this.recoveryPending() ? 'recovering' : 'idle'; this.action = '대기'; this.reason = '위협 이탈과 현재 지면의 안전을 실제로 확인했습니다.'; this.message('bot.status', this.report()); }
     }
+    if (this.combatWait && !enemies.length) {
+      // The enemy leaving is a real change, but an edge remains unsafe. Use
+      // the same bounded, observed exit rather than keeping an orphaned gate.
+      if (!this.local && this.launch.config.enabled && this.now() >= this.combatWait.retryAt && this.combatWait.fingerprint !== this.combatFingerprint()) this.startLocal(async s => {
+        if (!await leaveRecoveryEdge(this.bot, s, () => this.now()) || !recoverySafe(this.bot, this.launch.rules.combat.retreatHealth)) throw new ConditionWait(String((s.checkpoint.recoverySafety as JsonObject | undefined)?.reason ?? '현재 발판에서 안전한 지면으로 벗어날 경로를 기다립니다.'), s.checkpoint);
+        this.combatWait = undefined; this.lastHitAt = 0; this.hitSource = undefined;
+      }, 'emergency', this.combatCheckpoint);
+      return;
+    }
     const attacked = this.now() - this.lastHitAt < 4000 || !!this.combatWait;
-    const target = this.hitSource && enemies.some((e) => e.id === this.hitSource!.id) ? this.hitSource : enemies[0];
+    const equipment = combatEquipment(this.bot);
+    const blastThreat=this.launch.config.enabled?enemies.find(e=>e.name==='creeper'&&e.position.distanceTo(this.bot.entity.position)<12&&visibleThreat(this.bot,e)):undefined;
+    const exposed = blastThreat??(!attacked && this.launch.config.enabled ? enemies.find(e => !equipment.shield && equipment.armorPoints < 12 && visibleRangedThreat(this.bot,e) || !equipment.weapon && e.position.distanceTo(this.bot.entity.position)<12 && visibleThreat(this.bot,e)) : undefined);
+    const target = blastThreat??(this.hitSource && enemies.some((e) => e.id === this.hitSource!.id) ? this.hitSource : exposed ?? enemies[0]);
     if (target) {
       const allies = Object.values(this.bot.players).filter((p) => p.entity && p.entity.id !== this.bot.entity.id && p.entity.position.distanceTo(this.bot.entity.position) < 8);
       const center = this.launch.rules.center;
       const threateningVillage = !!center && Math.hypot(target.position.x - center.x, target.position.z - center.z) <= this.launch.rules.radius || allies.some((p) => p.entity!.position.distanceTo(target.position) < 8);
-      const decision = assessCombat({ role: this.launch.config.role, health: this.bot.health, food: this.bot.food, ...combatEquipment(this.bot), rangedEnemies: enemies.filter(e => rangedThreat(e.name ?? '')).length, enemies: enemies.filter((e) => e.position.distanceTo(this.bot.entity.position) < 8).length, allies: allies.length, attacked, threateningVillage, targetName: target.name ?? '', distance: target.position.distanceTo(this.bot.entity.position) }, this.launch.rules);
+      const decision = exposed ? { response: 'retreat' as const, reason: '가까운 실제 적에게 노출돼 피격 전에 안전한 지면과 엄폐를 확보합니다.', supportRequired: true } : assessCombat({ role: this.launch.config.role, health: this.bot.health, food: this.bot.food, ...equipment, rangedEnemies: enemies.filter(e => rangedThreat(e.name ?? '')).length, enemies: enemies.filter((e) => e.position.distanceTo(this.bot.entity.position) < 8).length, allies: allies.length, attacked, threateningVillage, targetName: target.name ?? '', distance: target.position.distanceTo(this.bot.entity.position) }, this.launch.rules);
       if (decision.response !== 'ignore') {
-        const threatId = target.uuid ?? `${target.id}`;
-        if (this.combatWait && this.combatWait.threatId === threatId && (this.now() < this.combatWait.retryAt || this.combatWait.fingerprint === this.combatFingerprint(target))) {
+        if (this.combatWait && (this.now() < this.combatWait.retryAt || this.combatWait.fingerprint === this.combatFingerprint(target))) {
           this.action = '지원·안전 경로 대기'; this.reason = this.combatWait.reason; return;
         }
         this.combatWait = undefined;
@@ -494,7 +570,7 @@ export class MinecraftWorker {
           if (life !== this.life || !this.ready) return;
           this.mode = 'emergency'; this.action = decision.response; this.reason = decision.reason;
           copyBuildProtection(this.foodCheckpoint, s.checkpoint);
-          if (decision.response === 'retreat' || decision.response === 'support') await this.executor.retreat(target, s);
+          if (decision.response === 'retreat' || decision.response === 'support') await this.executor.retreat(blastThreat??enemies.find(e => visibleRangedThreat(this.bot, e)) ?? target, s);
           else await this.executor.fightEntity(target, s);
           s.check();
           this.lastHitAt = 0; this.hitSource = undefined;
@@ -509,14 +585,25 @@ export class MinecraftWorker {
     }
     if (this.local) return;
     const urgentSurvival = this.survivalUrgent();
+    if (urgentSurvival && this.launch.config.enabled && this.recovery?.phase === 'resolved' && !this.recovery.safe && !this.recovery.checkpoint.recoverySafety && this.bot.health > this.launch.rules.combat.retreatHealth && this.bot.food > 6 && !enemies.length) { this.recoverDeath(); return; }
     if (this.combatWait && !urgentSurvival) { this.action = '지원·안전 경로 대기'; this.reason = this.combatWait.reason; return; }
-    if (this.recoveryPending() && !urgentSurvival) { this.recoverDeath(); return; }
+    if (this.recoveryPending() && (!urgentSurvival||(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)&&!survivalRecoveryNeeded(this.bot.health,this.bot.food,this.launch.rules.combat))) { this.recoverDeath(); return; }
     if (!this.launch.config.enabled && !urgentSurvival) return;
+    const actualNight=this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot);
+    if(this.bot.time?.isDay===true&&!duskOrNight(this.bot)){delete this.foodCheckpoint.nightShelterUnavailable;delete this.foodCheckpoint.nightBurrowChecked;}
+    const searchOrigin=PositionSchema.safeParse((this.foodCheckpoint.nightBurrowSearch as JsonObject|undefined)?.origin);
+    if(searchOrigin.success&&vector(this.bot.entity.position).distanceTo(vector(searchOrigin.data))>16)delete this.foodCheckpoint.nightShelterUnavailable;
+    const nightGear=combatEquipment(this.bot);
+    if(actualNight&&this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable!==true&&!(nightGear.weapon&&(nightGear.shield||nightGear.armorPoints>=12))&&['build','collect'].every(action=>this.launch.config.allowedActions.includes(action as ActionKind))){
+      this.survivalRecovery??={startedAt:this.now(),targetHealth:20,checkpoint:{}};
+      this.startLocal(async s=>{await this.cancelActive('야간 거점 대피를 위해 작업 진행을 보존합니다.','task.interrupted');if(!await this.executor.shelterAtNight(s)){this.foodCheckpoint.nightBurrowPending=false;this.foodCheckpoint.nightShelterUnavailable=true;}},'survival',this.foodCheckpoint);return;
+    }
     if (this.active && !urgentSurvival) return;
     const needsFood = urgentSurvival || this.bot.food < 18;
     const urgentInterruption = urgentSurvival && !!this.active;
     const foodCheckDue = needsFood && (urgentInterruption || this.now() - this.lastFoodAttemptAt > 10000);
-    const changedFoodCondition = foodCheckDue && (urgentInterruption || !this.foodWait || foodRecoveryFingerprint(this.bot, this.foodCheckpoint, this.launch.rules.combat.retreatHealth, this.foodKnowledge) !== this.foodWait.fingerprint);
+    const canExpandFood = this.launch.config.enabled && this.launch.config.allowedActions.includes('explore') && foodSearchCanExpand(this.foodCheckpoint, this.bot);
+    const changedFoodCondition = foodCheckDue && (urgentInterruption || !this.foodWait || canExpandFood || foodRecoveryFingerprint(this.bot, this.foodCheckpoint, this.launch.rules.combat.retreatHealth, this.foodKnowledge) !== this.foodWait.fingerprint);
     if (foodCheckDue) this.lastFoodAttemptAt = this.now();
     if (changedFoodCondition) {
       this.foodWait = undefined;
@@ -525,7 +612,8 @@ export class MinecraftWorker {
         this.mode = 'survival';
         while (this.bot.food < 18 || this.survivalUrgent()) {
           s.check();
-          if (this.bot.food >= 18) {
+          if((s.checkpoint.nightBurrowPending===true||s.checkpoint.nightBasePending===true)){await this.executor.shelterAtNight(s);continue;}
+          if (this.bot.food >= (s.checkpoint.expeditionFoodTarget===19?19:18)) {
             this.action = '회복 대기'; this.reason = '허기가 충분하므로 서버에서 체력이 20까지 실제로 회복되는지 확인합니다.';
             this.message('bot.status', this.report()); await s.pause(1000); continue;
           }

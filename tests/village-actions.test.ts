@@ -266,6 +266,19 @@ test('blueprint foundations and interior occupied blocks are checked before any 
   }
 });
 
+for (const defect of ['unused-rim', 'missing-foundation', 'missing-support', 'unreachable-entry']) test(`a resumed full foundation requires real supports and a verified approach (${defect})`, async () => {
+  const f=fixture();flatGround(f);const origin={x:0,y:1,z:0},blocks=blueprint('warehouse',origin),work=task('build',blocks);work.source='user';work.params={design:'warehouse',origin};
+  for(const block of blocks.filter(block=>block.position.y===1))f.set(block.position,block.name);
+  f.set({x:-1,y:0,z:-1},'air');f.service.checkpoint.materialExpedition=true;f.service.checkpoint.confirmedRecoveryDeathId='actual-old-death';
+  if(defect==='missing-foundation')f.set({x:2,y:1,z:2},'air');
+  if(defect==='missing-support')f.set({x:2,y:0,z:2},'air');
+  if(defect==='unreachable-entry')f.service.near=async()=>{throw new ConditionWait('실제 출입 경로 없음');};
+  if(defect!=='unused-rim')f.service.ensureItem=async()=>{assert.fail('unsafe foundations or unreachable entries must not gather');};
+  const result=await executeVillageTask(work,f.service);
+  if(defect==='unused-rim'){assert.equal(result.outcome,'partial',result.reason);assert.equal(f.placed.length,8);assert.equal(f.service.checkpoint.safeDetourRequired,true);}
+  else{assert.equal(result.outcome,'condition-wait');assert.equal(f.placed.length,0);assert.match(result.reason!,defect==='unreachable-entry'?/출입 경로/:/기초/);}
+});
+
 test('missing recursive build resources wait for inventory, actual resource observations or a changed position', async () => {
   const f = fixture(), blocks = [{ position: { x: 0, y: 1, z: 0 }, name: 'oak_planks' }];
   f.set({ x: 0, y: 0, z: 0 }, 'dirt');

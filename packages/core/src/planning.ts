@@ -1,4 +1,4 @@
-import { BuildSitePreparationSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
+import { BuildSitePreparationSchema, MaterialAccessPlanSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
 import { footprintInside, positionKey } from './verification';
 import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 
@@ -41,11 +41,18 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return task;
   };
   const destination = input.destination ?? rules.warehouse ?? undefined;
+  const portal=(side:'inside'|'outside',dependencies:string[]=[]):string[]=>{
+    const base=rules.baseShelter;if(input.params.useBaseDoor!==true||!base)return dependencies;
+    const position=base[side],task=add('home',{position:jsonObject(position),radius:1.5,basePassage:side},{kind:'position',position,radius:1.5},dependencies,[`base-door:${base.world}:${base.dimension}:${positionKey(base.door)}`]);return[task.id];
+  };
   if (input.kind === 'collect' || (input.kind === 'hunt' && input.item)) {
     if (goal.completionLocation === 'inventory' || !destination) {
       if (warehouseCount === undefined || goal.targetQuantity === undefined) return { tasks, waiting: '같은 월드에 있는 봇의 실제 인벤토리 수량을 기다립니다.' };
       const missing = Math.max(0, goal.targetQuantity - warehouseCount);
-      if (!missing) return { tasks };
+      if (!missing) {
+        if (input.kind==='collect' && input.params.returnTo!==undefined) add('collect',{...input.params,item:input.item!,quantity:0,returnOnly:true},{kind:'inventory',item:input.item!,minimum:goal.targetQuantity});
+        return { tasks };
+      }
       if (!inventoryCollectors) return { tasks, waiting: '수집이 허용된 봇과 인벤토리 공간을 기다립니다. 창고 없이 봇 인벤토리에서 완료합니다.' };
       const count = Math.min(missing, inventoryCollectors, 64), share = Math.min(64, Math.ceil(missing / count));
       let remaining = missing;
@@ -59,9 +66,12 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     if (warehouseCount === undefined || goal.targetQuantity === undefined) return { tasks, waiting: '공동 창고의 실제 재고를 관측해야 합니다.' };
     const missing = Math.max(0, goal.targetQuantity - warehouseCount);
     if (!missing) return { tasks };
-    const quantity = Math.min(64, missing), item = input.item!;
-    const collect = add(input.kind, { ...input.params, item, quantity, targetQuantity: quantity }, { kind: 'inventory', item, minimum: quantity }, [], [`goal:${goal.id}:stock`]);
-    add('store', { item, quantity, destination: jsonObject(destination) }, { kind: 'transfer', container: destination, item, quantity, direction: 'store' }, [collect.id], [containerKey(destination)]);
+    const batchSize = typeof input.params.batchSize === 'number' && Number.isInteger(input.params.batchSize) && input.params.batchSize >= 1 && input.params.batchSize <= 64 ? input.params.batchSize : 64;
+    const quantity = Math.min(batchSize, missing), item = input.item!;
+    const collect = add(input.kind, { ...input.params, item, quantity, targetQuantity: quantity }, { kind: 'inventory', item, minimum: quantity }, portal('outside'), [`goal:${goal.id}:stock`]);
+    const entered=portal('inside',[collect.id]);
+    const stored=add('store', { item, quantity, destination: jsonObject(destination) }, { kind: 'transfer', container: destination, item, quantity, direction: 'store' }, entered, [containerKey(destination)]);
+    portal('outside',[stored.id]);
     return { tasks };
   }
   if (input.kind === 'store' || input.kind === 'take') {
@@ -73,10 +83,24 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'craft' || input.kind === 'smelt') {
+    if(input.kind==='craft'&&input.params.recipeFromWarehouse===true){
+      if(input.item!=='bread'||!destination)return {tasks:[],waiting:'창고의 실제 밀을 사용하는 빵 제작과 입고 계획이 필요합니다.'};
+      const dependencies=portal('inside'),quantity=input.quantity;
+      const take=add('take',{item:'wheat',quantity:quantity*3,destination:jsonObject(destination)},{kind:'transfer',container:destination,item:'wheat',quantity:quantity*3,direction:'take'},dependencies,[containerKey(destination)]);
+      const craft=add('craft',{item:'bread',quantity},{kind:'inventory',item:'bread',minimum:quantity},[take.id]);
+      const store=add('store',{item:'bread',quantity,destination:jsonObject(destination)},{kind:'transfer',container:destination,item:'bread',quantity,direction:'store'},[craft.id],[containerKey(destination)]);
+      portal('outside',[store.id]);return {tasks};
+    }
     add(input.kind, { ...input.params, item: input.item!, quantity: input.quantity }, { kind: 'inventory', item: input.item!, minimum: input.quantity });
     return { tasks };
   }
   if (input.kind === 'build') {
+    if(input.params.mode==='material-access'){
+      const parsed=MaterialAccessPlanSchema.safeParse(input.params.access);
+      if(input.source!=='user'||!parsed.success)return {tasks,waiting:'명시한 자원 접근로의 제한된 실제 지형 계획이 필요합니다.'};
+      const access=parsed.data,blocks=access.edits.map(e=>({position:e.position,name:e.after}));
+      add('build',{...input.params,access:jsonObject(access)},{kind:'blocks',blocks},[],blocks.map(b=>`block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`));return {tasks};
+    }
     if (input.params.mode === 'register-warehouse') return { tasks, waiting: '창고 연결은 같은 목표의 실제 건축 확인 뒤에만 실행할 수 있습니다.' };
     if (input.params.mode === 'prepare-site' && input.params.siteSelection !== 'preparing') return { tasks, waiting: '부지 정리는 실제 탐색 관측을 승인한 계획에서만 실행할 수 있습니다.' };
     if (input.params.siteSelection === 'preparing') {
@@ -145,12 +169,24 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     if (cells.length !== plots) return { tasks, waiting: '경작할 전체 밭 배치를 확인해야 합니다.' };
     if (input.source === 'autonomous' && (!rules.center || !footprintInside(rules.center, rules.radius, [origin, ...cells].map(position => ({ position }))))) return { tasks, waiting: '전체 자율 농장 구획이 마을 반경 안에 있어야 합니다.' };
     const reservations = [`farm:${rules.world}:${rules.dimension}:${String(input.params.id ?? 'village')}`, ...[origin, ...cells, ...cells.map(p => ({ ...p, y: p.y + 1 }))].map(p => `block:${rules.world}:${rules.dimension}:${positionKey(p)}`)];
-    const farm = add('farm', { ...input.params, crop, quantity: input.quantity, origin: jsonObject(origin), positions: cells.map(jsonObject) }, { kind: 'farm', mode, plots, crop, quantity: input.quantity, baseline: 0 }, [], reservations);
+    let dependencies:string[]=[];
+    if(input.params.warehouseInputs!==undefined){
+      if(!destination||!Array.isArray(input.params.warehouseInputs)||input.params.warehouseInputs.length>8)return{tasks:[],waiting:'밭에 가져올 실제 창고 물자 목록을 확인해야 합니다.'};
+      dependencies=portal('inside');
+      for(const row of input.params.warehouseInputs){
+        if(!row||typeof row!=='object'||Array.isArray(row)||typeof row.item!=='string'||typeof row.quantity!=='number'||!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>64)return{tasks:[],waiting:'밭의 각 창고 물자와 제한된 수량을 확인해야 합니다.'};
+        const take=add('take',{item:row.item,quantity:row.quantity,destination:jsonObject(destination)},{kind:'transfer',container:destination,item:row.item,quantity:row.quantity,direction:'take'},dependencies,[containerKey(destination)]);dependencies=[take.id];
+      }
+      if(input.params.prepareHoe===true){const hoe=add('craft',{item:'wooden_hoe',quantity:1},{kind:'inventory',item:'wooden_hoe',minimum:1},dependencies);dependencies=[hoe.id];}
+    }
+    dependencies=portal('outside',dependencies);
+    const farm = add('farm', { ...input.params, crop, quantity: input.quantity, origin: jsonObject(origin), positions: cells.map(jsonObject) }, { kind: 'farm', mode, plots, crop, quantity: input.quantity, baseline: 0 }, dependencies, reservations);
     if (mode === 'harvest') {
       const produce = ({ wheat: 'wheat', carrot: 'carrot', carrots: 'carrot', potato: 'potato', potatoes: 'potato', beetroot: 'beetroot', beetroots: 'beetroot' } as Record<string, string>)[crop];
       if (!produce) return { tasks: [], waiting: '지원하는 수확 작물을 선택해야 합니다.' };
-      add('store', { item: produce, quantity: input.quantity, destination: jsonObject(destination!) }, { kind: 'transfer', container: destination!, item: produce, quantity: input.quantity, direction: 'store' }, [farm.id], [containerKey(destination!)]);
-    }
+      const store=add('store', { item: produce, quantity: input.quantity, allHarvest:true, destination: jsonObject(destination!) }, { kind: 'transfer', container: destination!, item: produce, quantity: input.quantity, direction: 'store' }, portal('inside',[farm.id]), [containerKey(destination!)]);
+      portal('outside',[store.id]);
+    }else portal('outside',portal('inside',[farm.id]));
     return { tasks };
   }
   if (input.kind === 'fight' || input.kind === 'hunt') {

@@ -18,11 +18,12 @@ export function preserveMaterialWait(s: ActionServices, item: string, error: Con
   const failedCause = typeof source.failedCause === 'string' && source.failedCause ? source.failedCause.slice(0, 500) : undefined;
   const sourceWait = source.waitingFor;
   const watchPosition = sourceWait && typeof sourceWait === 'object' && !Array.isArray(sourceWait) && sourceWait.kind === 'inventory' && typeof sourceWait.watchPosition === 'boolean' ? sourceWait.watchPosition : true;
+  const watchDaylight=sourceWait&&typeof sourceWait==='object'&&!Array.isArray(sourceWait)&&sourceWait.kind==='inventory'&&sourceWait.watchDaylight===true;
   s.checkpoint.missingResource = missing; s.checkpoint.minimum = minimum; s.checkpoint.resourceNames = resourceNames;
   if (resourcePositions) s.checkpoint.resourcePositions = resourcePositions; else delete s.checkpoint.resourcePositions;
   if (failedCause) s.checkpoint.failedCause = failedCause; else delete s.checkpoint.failedCause;
   const details: JsonObject = { ...(resourcePositions ? { resourcePositions } : {}), ...(failedCause ? { failedCause } : {}) };
-  s.checkpoint.waitingFor = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: missing, minimum, watchPosition, resourceNames, ...details };
+  s.checkpoint.waitingFor = { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: missing, minimum, watchPosition, resourceNames, ...(watchDaylight?{watchDaylight:true}:{}), ...details };
   s.checkpoint.buildCause = { stage: 'materials', item, missingItem: missing, ...details };
   return new ConditionWait(error.message, s.checkpoint);
 }

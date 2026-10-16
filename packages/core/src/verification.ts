@@ -81,7 +81,7 @@ export function verifyCompletion(condition: CompletionCondition, context: Verifi
       return result(arrived ? 1 : 0, 1, 'Actual position must be within the destination radius');
     }
     case 'farm': {
-      const farms = observations.filter(o => o.kind === 'farm' && (!condition.crop || o.data.crop === condition.crop)).reverse().sort((a, b) => b.observedAt - a.observedAt);
+      const farms = observations.filter(o => o.kind === 'farm' && !o.data.sampleOnly && (!condition.crop || o.data.crop === condition.crop)).reverse().sort((a, b) => b.observedAt - a.observedAt);
       const farm = farms[0];
       if (farm?.kind !== 'farm') return result(0, condition.mode === 'setup' ? condition.plots : condition.quantity ?? 1, 'Awaiting observed farm conditions');
       if (condition.mode === 'setup') return result(Math.min(farm.data.planted, farm.data.watered, farm.data.plots), condition.plots, 'Planted and watered planned plots checked');

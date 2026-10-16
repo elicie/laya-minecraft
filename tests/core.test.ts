@@ -126,6 +126,20 @@ test('an observed terrain proposal reserves preparation, then actual prepared gr
   assert.equal(f.core.getSnapshot().goals[0].state, 'completed'); FleetCheckpointSchema.parse(f.core.checkpoint());
 });
 
+test('repairing the same pinned warehouse carries material shortages and spent expeditions into its rebuilt execution stage',()=>{
+  const f=fixture(),origin={x:5,y:64,z:5};f.core.createGoal({kind:'build',params:{blueprint:'warehouse',siteSelection:'fixed',origin,materialExpedition:true}});const original=f.latest();
+  const resources={sand:{origin:{x:0,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,elapsedMs:60000,status:'exhausted',reason:'actual failed sand search'}},deferred={glass_pane:{reason:'actual failed window expedition',observedAt:f.now()}};
+  f.result(original,{outcome:'condition-wait',checkpoint:{resourceRecovery:resources,buildDeferredMaterialFailures:deferred,resourceTrip:{item:'glass_pane',minimum:3,home:{x:8,y:64,z:4},trail:[{x:8,y:64,z:4}],phase:'complete',returns:3,failure:'sand unavailable'},buildProtection:{origin,width:7,depth:5,height:4},waitingFor:{kind:'blocks',causeCode:'BUILD_SITE',positions:[{x:7,y:63,z:6}]}},reason:'the actual foundation changed'});
+  const survey=f.latest();assert.equal(survey.payload.task.params.fixedOrigin&&JSON.stringify(survey.payload.task.params.fixedOrigin),JSON.stringify(origin));const proposal=preparationProposal(f,survey);f.result(survey,proposal.payload);const preparation=f.latest();assert.equal(preparation.payload.task.params.mode,'prepare-site');
+  f.result(preparation,preparedResult(f,proposal));const resumed=f.latest();assert.equal(resumed.payload.task.params.mode,undefined);assert.notEqual(resumed.taskId,original.taskId);
+  assert.deepEqual(resumed.payload.checkpoint.resourceRecovery,resources);assert.deepEqual(resumed.payload.checkpoint.buildDeferredMaterialFailures,deferred);assert.equal(resumed.payload.task.params.materialExpedition,true);assert.equal(resumed.payload.checkpoint.materialContextFromTaskId,original.taskId);
+  assert.equal(resumed.payload.checkpoint.waitingFor,undefined);assert.equal(resumed.payload.checkpoint.buildProtection,undefined);assert.equal(resumed.payload.checkpoint.fixedSiteSurveyId,undefined);assert.equal(resumed.payload.checkpoint.buildSitePreparation,undefined);
+  assert.equal(resumed.payload.task.completion.kind,'blocks');assert.deepEqual(resumed.payload.task.completion,original.payload.task.completion);assert.notEqual(f.core.getSnapshot().goals[0]!.state,'completed');
+  f.core.updateGoal(resumed.payload.task.goalId,{params:{blueprint:'warehouse',siteSelection:'fixed',origin:{x:20,y:64,z:20}}});f.receive(resumed.botId,'task.cancelled',{safeStopped:true,checkpoint:resumed.payload.checkpoint,observations:[],evidence:[]},resumed);
+  const changed=f.latest();assert.notEqual(changed.taskId,resumed.taskId);assert.equal(changed.payload.checkpoint.resourceRecovery,undefined);assert.equal(changed.payload.checkpoint.buildDeferredMaterialFailures,undefined);
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
 for (const defect of ['missing-proof', 'changed-before', 'stale-plan', 'foreign-attempt', 'forbidden-preparation']) test(`terrain proposal ${defect} cannot authorize world changes`, () => {
   const f = fixture(); f.core.createGoal({ kind: 'build', params: { blueprint: 'warehouse', siteSelection: 'nearby', ...(defect === 'forbidden-preparation' ? { allowPreparation: false } : {}) } });
   const survey = f.latest(), proposal = preparationProposal(f, survey);

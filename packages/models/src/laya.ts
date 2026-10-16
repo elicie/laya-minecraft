@@ -1,19 +1,22 @@
 import { z } from 'zod';
+import {chooseQwenBase} from './qwen-base';
 
-export interface ChoiceCandidate { id: string; description: string; }
+export interface ChoiceCandidate { id: string; description: string; action?:string; }
 export interface ModelChoice { id: string; source: 'laya' | 'code'; reason: string; confidence?: number; model?: string; }
 const answerSchema = z.object({ choice: z.string(), confidence: z.number().min(0).max(1).optional(), probabilities: z.record(z.string(), z.number()).optional() });
 const responseSchema = z.object({ answers: z.record(z.string(), answerSchema), model: z.string().optional(), state_truncated: z.boolean().optional() });
 
 export class LayaClient {
   private readonly endpoint: string;
-  constructor(private readonly options: { url?: string; model?: string; timeoutMs?: number; fetchImpl?: typeof fetch } = {}) {
+  constructor(private readonly options: { url?: string; model?: string; timeoutMs?: number; fetchImpl?: typeof fetch;qwenUrl?:string;minConfidence?:number } = {}) {
     this.endpoint = `${(options.url ?? process.env.LAYA_URL ?? 'http://127.0.0.1:8081').replace(/\/$/, '')}/api/decide`;
   }
 
   async choose(input: { state: string; candidates: ChoiceCandidate[]; signal?: AbortSignal }): Promise<ModelChoice> {
     if (input.candidates.length === 0) throw new Error('실행 가능한 행동이 없습니다.');
     if (new Set(input.candidates.map((c) => c.id)).size !== input.candidates.length) throw new Error('행동 후보 식별자가 중복됐습니다.');
+    const qwenUrl=this.options.qwenUrl??process.env.QWEN_DECISION_URL;
+    if(qwenUrl)return chooseQwenBase({...this.options,url:qwenUrl},input);
     const fallback = (reason: string): ModelChoice => ({ id: input.candidates[0].id, source: 'code', reason });
     try {
       const criteria = Object.fromEntries(input.candidates.map((c) => [c.id, c.description]));

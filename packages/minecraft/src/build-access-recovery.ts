@@ -8,6 +8,9 @@ import {
 import { ActionFailure, ConditionWait, type ActionServices } from './services';
 import { intersectsBotBody } from './terrain';
 import { preserveMaterialWait } from './material-wait';
+import { safeResourceRoute, safeResourceStand } from './resource-recovery';
+import { HOSTILES } from './combat-policy';
+import { observedGroundRoute, observedGroundStand } from './observed-ground-walk';
 
 const key = (p: Position) => `${p.x},${p.y},${p.z}`;
 const shift = (p: Position, x: number, y: number, z: number): Position => ({ x: p.x + x, y: p.y + y, z: p.z + z });
@@ -114,6 +117,8 @@ export async function prepareBuildAccess(task: TaskSpec, s: ActionServices): Pro
   const plan = BuildAccessPreparationSchema.parse(task.params.preparation);
   s.checkpoint.buildAccessPreparation = plan as unknown as JsonObject;
   delete s.checkpoint.waitingFor;
+  delete s.checkpoint.accessPreparationComplete;
+  s.checkpoint.accessReturnRouteVersion = 3;
   const protection = Array.isArray(s.checkpoint.protectedPositions) ? s.checkpoint.protectedPositions as Position[] : [];
   const validate = () => {
     const blocks = observeAccessPreparation(s, plan), proof = validateBuildAccessPreparation(plan, blocks, { allowCompletedEdits: true, protectedPositions: protection });
@@ -148,7 +153,48 @@ export async function prepareBuildAccess(task: TaskSpec, s: ActionServices): Pro
     s.check(); if (!complete(e)) throw new ActionFailure('접근로 변경의 실제 결과를 확인하지 못했습니다.', 'TERRAIN_UNCERTAIN', false, false);
     facts(s, [{ position: p, name: at(s, p)!.name }]); s.observations.push(s.observeInventory()); progress();
   };
-  for (let i = 0; i < plan.path.length; i++) {
+  if (key(feet(s)) === key(plan.target) && plan.edits.every(complete)) {
+    await s.pause(50); s.check(); validate();
+    if (key(feet(s)) === key(plan.target)) { arrived = plan.path.length; progress(); }
+  }
+  // A completed corridor can outlive a death or retreat. Rejoin the entrance
+  // through observed ground instead of walking back to its former departure.
+  if (!arrived && plan.edits.every(complete) && key(feet(s)) !== key(plan.start)) {
+    const safe = (p: Position) => (safeResourceStand(s.bot, p, () => false) || observedGroundStand(s.bot,p))
+      && !Object.values(s.bot.entities ?? {}).some(e => HOSTILES.has(e.name ?? '') && distance(e.position, p) < 12);
+    const probes:Position[]=[];
+    const route = safeResourceRoute(s.bot, plan.target, { clear: safe }) ?? observedGroundRoute(s.bot,plan.target,128,(position,reason)=>{
+      s.checkpoint.accessReturnFailure={position,reason};if(probes.length<64)probes.push(position);
+    });
+    if (route) {
+      s.checkpoint.accessReturnRoute = { from: feet(s), target: plan.target, steps: route.length, observedAt: Date.now() };
+      s.progress('접근로 복귀', '현재 위치에서 실제 지면을 확인한 경로로 기존 입구에 복귀합니다.');
+      const stand = (p: Position) => { s.check(); return safe(p); };
+      try {
+        for(let offset=0;offset<route.length;offset+=24){
+          const segment=route.slice(offset,offset+24);
+          if (!await s.walkVerified?.(segment, stand)) for (const p of segment) {
+          validate();
+          if (!stand(p)) wait(s, '입구 복귀 중 실제 지면이나 위협이 바뀌었습니다.', [p, feet(s)]);
+          await s.near(shift(p, .5, 0, .5), 0);
+          if (distance(s.bot.entity.position, shift(p, .5, 0, .5)) > 1.5) wait(s, '입구 복귀 구간의 실제 도착을 확인해야 합니다.', [p, feet(s)]);
+          }
+          s.checkpoint.accessReturnRoute={from:(s.checkpoint.accessReturnRoute as JsonObject).from!,target:plan.target,steps:route.length,arrived:Math.min(offset+24,route.length),observedAt:Date.now()};
+          s.progress('접근로 복귀',`현재 위치에서 검증한 지면을 따라 입구로 복귀합니다. ${Math.min(offset+24,route.length)}/${route.length}칸.`);
+        }
+      } catch (error) { s.check(); if (error instanceof ConditionWait) wait(s, error.message, [plan.target, feet(s), ...route]); throw error; }
+      s.check(); validate();
+      if (key(feet(s)) === key(plan.target) && safe(plan.target)) { arrived = plan.path.length; progress(); }
+    } else if (typeof s.bot.pathfinder?.getPathTo === 'function') {
+      const reason = '현재 위치에서 완료한 접근로 입구까지 안전한 실제 지면 연결을 확인하지 못했습니다.';
+      if (Number(task.params.accessReturnDepth ?? 0) < 1) {
+        facts(s, observeAccessPreparation(s, plan));
+        proposeBuildAccess(s, plan.target, [...protection, ...accessPreparationProofPositions(plan)].map(position=>({position,name:'air'})), reason);
+      }
+      wait(s, reason, [plan.target, feet(s), ...probes, ...plan.path]);
+    }
+  }
+  for (let i = arrived; i < plan.path.length; i++) {
     const step = plan.path[i]!, previous = plan.path[i - 1];
     if (previous && step.y > previous.y) for (const e of plan.edits.filter(e => key(e.position) === key(shift(previous, 0, 2, 0)))) await edit(e);
     const local = plan.edits.filter(e => e.position.x === step.x && e.position.z === step.z && e.position.y <= step.y + 1);

@@ -18,3 +18,10 @@ vendor/
 playwright-report/
 test-results/
 *.tsbuildinfo
+
+# Local Python/model artifacts
+__pycache__/
+*.py[cod]
+.venv-qwen/
+/checkpoints/
+/models/

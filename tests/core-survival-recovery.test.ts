@@ -228,3 +228,68 @@ test('a healing support helper is not sent into another fight while its recovery
   f.alert(); assert.equal(f.assignments().length, 0); assert.equal(f.core.getSnapshot().goals.length, 0);
   f.status('helper-0', { health: 20, food: 20 }); f.alert(); assert.equal(f.assignments().length, 1);
 });
+
+for (const blockedBy of ['emergency', 'recovery', 'paused', 'not-ready', 'busy', 'rules'] as const) test(`a ${blockedBy} admission race waits for a new eligible report without spending retries or losing progress`, () => {
+  const f = fixture(), goal = f.core.createGoal({ kind: 'craft', item: 'oak_planks' }), assigned = f.assignments()[0]!;
+  const checkpoint = { placed: 7, resourceRecovery: { sand: { destinationsUsed: 5, elapsedMs: 60000, resourceJourney: { moves: 95, visited: [{ x: 8, y: 64, z: 8 }] } } } };
+  f.receive('bot', 'task.progress', { action: '수집', reason: 'saved work', progress: 0.4, checkpoint }, assigned);
+  // The last scheduling report is still healthy: the rejection itself must
+  // prevent reassignment until another report, even when IPC/status race.
+  assert.equal(f.receive('bot', 'task.rejected', { reason: `waiting for ${blockedBy}`, retryable: true, blockedBy }, assigned), true);
+  for (let i = 0; i < 4; i++) { f.advance(10); f.core.tick(); }
+  assert.equal(f.assignments().length, 1);
+  const blockedReport = blockedBy === 'not-ready' ? { ready: false }
+    : blockedBy === 'busy' ? { mode: 'working', currentAttemptId: 'other-actual-work' }
+    : blockedBy === 'rules' ? { rulesVersion: 0 }
+    : { mode: blockedBy === 'recovery' ? 'recovering' : blockedBy };
+  for (let i = 0; i < 3; i++) { f.advance(10); f.status('bot', blockedReport); }
+  assert.equal(f.assignments().length, 1);
+  const waiting = f.core.getSnapshot().tasks.find(t => t.id === assigned.taskId)!;
+  assert.equal(waiting.retryCount, 0); assert.equal(waiting.assignmentWait?.blockedBy, blockedBy); assert.deepEqual(waiting.checkpoint, checkpoint);
+  assert.equal(f.core.getSnapshot().reservations.some(r => r.attemptId === assigned.attemptId), false);
+  f.advance(10); f.status();
+  const resumed = f.assignments()[1]!;
+  assert.equal(resumed.taskId, assigned.taskId); assert.equal(resumed.payload.task.goalId, goal.id); assert.deepEqual(resumed.payload.checkpoint, checkpoint);
+  assert.equal(f.core.getSnapshot().tasks.find(t => t.id === assigned.taskId)!.retryCount, 0);
+  assert.equal(f.core.getSnapshot().tasks.find(t => t.id === assigned.taskId)!.assignmentWait, undefined);
+  assert.equal(f.receive('bot', 'task.rejected', { reason: 'old rejection replay', retryable: true, blockedBy }, assigned), false);
+  FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
+function legacyHeldAssignment(extra: { started?: boolean; code?: string; retryable?: boolean; effectsKnown?: boolean; reason?: string; cancelled?: boolean } = {}) {
+  const f = fixture(); f.core.createGoal({ kind: 'craft', item: 'oak_planks' });
+  const saved = f.core.checkpoint(), task = saved.tasks[0]!, attempt = saved.attempts[0]!, goal = saved.goals[0]!;
+  const reason = extra.reason ?? '현재 상태에서는 일반 작업을 시작할 수 없습니다.';
+  task.state = 'held'; task.reason = reason; task.retryCount = 5; task.resumeCount = 44; task.progress = 0.4;
+  task.checkpoint = { placed: 7, resourceRecovery: { sand: { destinationsUsed: 5, elapsedMs: 60000, resourceJourney: { moves: 95 } } } };
+  attempt.state = 'failed'; attempt.finishedAt = f.now(); if (extra.started) attempt.startedAt = f.now();
+  attempt.result = { outcome: 'failed', observations: [], evidence: [], checkpoint: structuredClone(task.checkpoint), error: { code: extra.code ?? 'TASK_REJECTED', message: reason, retryable: extra.retryable ?? true, effectsKnown: extra.effectsKnown ?? true } };
+  goal.state = extra.cancelled ? 'cancelled' : 'held'; goal.reason = reason; saved.reservations = []; saved.agents[0]!.session!.activeAttemptId = undefined;
+  const sent: CentralMessage[] = [], restored = new FleetController({ checkpoint: saved, controllerEpoch: 'assignment-restored', now: f.now, send: (_id, message) => sent.push(message) });
+  restored.confirmWorkerStopped('bot', 'bot-session'); restored.startSession('bot', 'replacement');
+  const receive = (type: string, payload: unknown) => restored.receive({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: restored.controllerEpoch, sessionId: 'replacement', botId: 'bot', sentAt: f.now(), type, payload });
+  const ready = () => { receive('bot.ready', f.report()); receive('rules.applied', { version: restored.getSnapshot().rules.version }); receive('bot.status', f.report()); };
+  return { restored, sent, saved, task, goal, ready, receive, report: f.report };
+}
+
+test('legacy pre-execution state rejection at the retry limit resumes the same work only after fresh ready evidence, keeping all budgets and failure history', () => {
+  const f = legacyHeldAssignment();
+  assert.equal(f.restored.getSnapshot().tasks[0]!.state, 'interrupted'); assert.equal(f.restored.getSnapshot().tasks[0]!.assignmentWait?.blockedBy, 'state');
+  f.restored.tick(); assert.equal(f.sent.some(m => m.type === 'task.assign'), false);
+  f.receive('bot.ready', f.report({ mode: 'emergency' })); f.receive('rules.applied', { version: f.restored.getSnapshot().rules.version });
+  f.receive('bot.status', f.report({ mode: 'recovering' })); assert.equal(f.sent.some(m => m.type === 'task.assign'), false);
+  f.receive('bot.status', f.report());
+  const assigned = f.sent.find(m => m.type === 'task.assign')!;
+  assert.equal(assigned.taskId, f.task.id); assert.deepEqual(assigned.payload.checkpoint, f.task.checkpoint);
+  const actual = f.restored.getSnapshot().tasks[0]!;
+  assert.equal(actual.retryCount, 5); assert.equal(actual.resumeCount, 44); assert.equal(actual.progress, 0.4);
+  assert.deepEqual(f.restored.getSnapshot().attempts[0]!.result, f.saved.attempts[0]!.result);
+  assert.ok(f.restored.getSnapshot().events.some(e => e.type === 'task.assignment-resumed'));
+  FleetCheckpointSchema.parse(f.restored.checkpoint());
+});
+
+for (const extra of [{ started: true }, { code: 'ACTION_FAILED' }, { retryable: false }, { effectsKnown: false }, { reason: '실행 능력 확인 실패' }, { cancelled: true }]) test(`legacy repair preserves genuine failures, uncertain effects and cancelled goals: ${JSON.stringify(extra)}`, () => {
+  const f = legacyHeldAssignment(extra); f.ready();
+  assert.equal(f.restored.getSnapshot().tasks[0]!.state, 'held'); assert.equal(f.sent.some(m => m.type === 'task.assign'), false);
+  assert.equal(f.restored.getSnapshot().tasks[0]!.retryCount, 5);
+});

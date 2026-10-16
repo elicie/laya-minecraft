@@ -5,6 +5,7 @@ import { ItemStackSchema, PositionSchema, type ItemStack, type JsonObject, type 
 import { HOSTILES } from './combat-policy';
 import { safeCombatRoute, safeCombatStand } from './combat-retreat';
 import { ConditionWait, type ActionServices } from './services';
+import { leaveRecoveryEdge } from './recovery-safety';
 
 const recoveryCheckpointSchema = z.object({
   anchor: PositionSchema, lastInventory: z.array(ItemStackSchema).max(128),
@@ -86,8 +87,15 @@ export async function recoverDeathStep(bot: Bot, state: RecoveryState, services:
   refresh(bot, state, saved);
   state.safe = recoverySafe(bot, services.rules.combat.retreatHealth);
   state.updatedAt = now();
-  if (state.phase === 'resolved') { emit(); return; }
-  if (!state.progress.remainingCount) { resolve(state, '사망 전 아이템의 실제 보유 수량을 모두 확인했습니다.'); emit(); return; }
+  if (state.phase === 'resolved' || !state.progress.remainingCount) {
+    if (state.phase !== 'resolved') resolve(state, state.priorInventory.length ? '사망 전 아이템의 실제 보유 수량을 모두 확인했습니다.' : '회수할 사망 아이템이 없습니다.');
+    if (!state.safe) {
+      if (enabled && await leaveRecoveryEdge(bot, services, now)) state.safe = recoverySafe(bot, services.rules.combat.retreatHealth);
+      const safety = services.checkpoint.recoverySafety;
+      state.reason = state.safe ? '사망 아이템 처리와 현재 지면의 안전을 확인해 보존한 작업을 재개합니다.' : safety && typeof safety === 'object' && !Array.isArray(safety) && typeof safety.reason === 'string' ? safety.reason : '사망 아이템 처리는 끝났지만 현재 발판 주변의 안전 확인이 필요합니다.';
+    }
+    state.updatedAt = now(); emit(); return;
+  }
   if (now() - state.occurredAt >= DROP_LIFETIME_MS || state.attemptCount >= DEATH_RECOVERY_ATTEMPTS || saved.elapsedMs >= DEATH_RECOVERY_ACTIVE_MS) {
     resolve(state, `제한된 회수 시도를 마쳤습니다. 확인한 회수 ${state.progress.recoveredCount}개, 미회수 ${state.progress.remainingCount}개입니다. 남은 작업은 실제 물자를 다시 확인합니다.`); emit(); return;
   }

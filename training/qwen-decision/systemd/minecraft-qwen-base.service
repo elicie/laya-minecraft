@@ -1,0 +1,14 @@
+[Unit]
+Description=Laya Qwen3.5 9B reviewed base decision adapter
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/elicie/Dev/minecraft
+ExecStart=/home/elicie/Dev/minecraft/.venv-qwen/bin/python -u /home/elicie/Dev/minecraft/training/qwen-decision/serve.py --adapter /home/elicie/Dev/minecraft/checkpoints/qwen35-base-v6-20261016 --port 8086
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
