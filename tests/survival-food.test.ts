@@ -8,6 +8,7 @@ import { Vec3 } from 'vec3';
 import { WorkerLaunchSchema } from '../packages/contracts/src';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
+import { ResourceRecovery } from '../packages/minecraft/src/resource-recovery';
 
 function fixture(options: { warehouse?: boolean; food?: Record<string, number>; health?: number; consumeDelayMs?:number } = {}) {
   const data = minecraftData('26.1'), Recipe = require('prismarine-recipe')(data).Recipe, emitter = new EventEmitter();
@@ -124,6 +125,33 @@ test('a configured warehouse supplies exactly one actual food item with inventor
   assert.equal(f.stock.get('bread'), 1); assert.equal(f.stored.get('bread'), 7); assert.equal(f.withdrawn, 1); assert.equal(f.opened, 2); assert.equal(f.closed, 2); assert.deepEqual(f.dug, []);
   assert.ok(f.s.evidence.some(e => e.kind === 'transfer' && e.direction === 'take' && e.quantity === 1 && e.beforeInventory === 0 && e.afterInventory === 1 && e.beforeContainer === 8 && e.afterContainer === 7));
   assert.deepEqual(f.s.checkpoint.foodWarehouse, { container: f.container, items: [{ name: 'bread', count: 7 }] });
+});
+
+test('food exploration rechecks a blocked warehouse after reaching new ground without renewing spent food search', async () => {
+  const f = fixture({ warehouse: true, food: { bread: 8 }, health: 20 });
+  f.launch.config.allowedActions.push('explore');
+  const recovery = new ResourceRecovery(f.bot as unknown as Bot, f.s, '$food', [], true, () => false);
+  recovery.state.destinationsUsed = 4; recovery.state.elapsedMs = 1000;
+  const origins: Vec3[] = [], observe = f.executor.observeContainer.bind(f.executor);
+  f.executor.observeContainer = async (...args) => {
+    origins.push(f.bot.entity.position.clone());
+    if (origins.length === 1) throw new ConditionWait('The initial warehouse approach is actually blocked.');
+    return observe(...args);
+  };
+  const near = f.s.near; let moves = 0, totalMoves = 0;
+  f.s.near = async (...args) => {
+    if (origins.length < 2 && ++moves > 2) throw new Error('Known warehouse food was not rechecked after actual exploration.');
+    if (++totalMoves > 8) throw new Error('The fixture must complete its warehouse approach.');
+    const target = new Vec3(args[0].x, args[0].y, args[0].z);
+    if (f.bot.blockAt(target)?.name === 'chest') return near(target.offset(1, 0, 0), args[1]);
+    return near(...args);
+  };
+  await f.executor.ensureFood(f.s);
+  assert.equal(origins.length, 2);
+  assert.ok(origins[1]!.distanceTo(origins[0]!) >= 8);
+  assert.equal(f.stock.get('bread'), 1); assert.equal(f.stored.get('bread'), 7);
+  const spent = (f.s.checkpoint.resourceRecovery as { $food: { destinationsUsed: number; elapsedMs: number } }).$food;
+  assert.equal(moves, 2); assert.equal(spent.destinationsUsed, 6); assert.ok(spent.elapsedMs >= 1000);
 });
 
 test('an empty or inaccessible warehouse falls back to actual natural food without inventing container stock', async () => {

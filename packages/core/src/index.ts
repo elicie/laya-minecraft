@@ -2,7 +2,7 @@ import {idleResourceTaskCanYield} from './resource-affinity';
 import { randomUUID } from 'node:crypto';
 import {
   BuildAccessPreparationSchema, accessPreparationFinalBlocks, validateBuildAccessPreparation, BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, ContainerRefSchema, DeathRecordSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, MaterialAccessPlanSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
-  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, validateBuildSitePreparation,
+  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, foodReserveReturnAllowed, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
   type DeathRecord, type RecoveryState, type BlueprintDefinition, type BlueprintInput, type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type GoalDefinition, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
@@ -1289,16 +1289,19 @@ export class FleetController {
   }
   private assignmentReady(agent: Agent): boolean {
     const session = agent.session, report = session?.report;
+    const reserveReturn = !!report && foodReserveReturnAllowed(this.state.rules, report.health, report.food, (agent.survivalRecovery ?? report.survivalRecovery)?.checkpoint);
     return (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && agent.config.enabled && agent.desiredConfig?.enabled !== false
       && agent.status !== 'removing' && agent.status !== 'removed' && session?.state === 'ready' && !!report?.ready && !session.activeAttemptId
       && session.rulesVersion === this.state.rules.version && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs
-      && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) && !this.survivalBlocked(agent);
+      && !['emergency', 'recovering', 'paused', 'stopping'].includes(report.mode) && (!this.survivalBlocked(agent) || reserveReturn);
   }
   private candidateTasks(agent: Agent): Task[] {
     if (!this.assignmentReady(agent)) return [];
     const pinned = this.state.tasks.filter(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && !idleResourceTaskCanYield(t,agent.session?.report,this.taskHasActor(t)) && !(t.state === 'condition-wait' && !this.taskHasActor(t) && t.waitState?.waitingFor && (isBuildSiteTask(t) || t.kind==='farm' || t.kind === 'build' && t.waitState.waitingFor.causeCode === 'BUILD_MATERIAL')) && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
+      const report = agent.session!.report!;
+      if (this.survivalBlocked(agent) && !foodReserveReturnAllowed(this.state.rules, report.health, report.food, (agent.survivalRecovery ?? report.survivalRecovery)?.checkpoint, task)) return false;
       if (goal.input.requiredBotId && goal.input.requiredBotId !== agent.id) return false;
       if (task.assignmentWait?.botId === agent.id) return false;
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;

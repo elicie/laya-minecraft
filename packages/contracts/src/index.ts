@@ -266,3 +266,14 @@ export * from './blueprints';
 export * from './build-access-recovery';
 
 export {OperationsSchema,type Operations} from "./operations";
+
+/** Healthy reserve provisioning may yield only to the registered food base. */
+export function foodReserveReturnAllowed(rules: Rules, health: number, food: number, checkpoint?: JsonObject, task?: TaskSpec): boolean {
+  const base = rules.baseShelter, warehouse = rules.warehouse;
+  if (health < 20 || food < 18 || checkpoint?.expeditionFoodTarget !== 19 || checkpoint.nightBurrowPending === true || checkpoint.nightBasePending === true
+    || !base || !warehouse || base.warehouseId !== warehouse.id || base.world !== rules.world || base.dimension !== rules.dimension || warehouse.world !== rules.world || warehouse.dimension !== rules.dimension) return false;
+  if (!task) return true;
+  const target = PositionSchema.safeParse(task.params.position);
+  return task.kind === 'home' && task.params.basePassage === 'inside' && target.success
+    && ['x', 'y', 'z'].every(axis => target.data[axis as keyof Position] === base.inside[axis as keyof Position]);
+}
