@@ -15,6 +15,7 @@ import { collectionHints } from './resource-hints';
 import { warehouseShelter } from './warehouse-shelter';
 import { baseSupplyGoals } from './base-supply';
 import { baseDecisionAction } from './base-decisions';
+import { CheckpointJson } from './checkpoint-json';
 
 export { planGoal, containerKey, roleFits } from './planning';
 export { verifyCompletion, footprintInside } from './verification';
@@ -215,7 +216,8 @@ export class FleetController {
   getRules(): Rules { return clone(this.state.rules); }
   checkpoint(): FleetCheckpoint { return clone(this.state); }
   /** Synchronous durable serialization avoids copying the entire history first. */
-  serializeCheckpoint(): string { return JSON.stringify(this.state); }
+  private readonly checkpointJson = new CheckpointJson();
+  serializeCheckpoint(): string { return this.checkpointJson.serialize(this.state); }
   createBlueprint(input: BlueprintInput, commandId?: string): BlueprintDefinition {
     if (this.state.blueprints.length >= 1000) throw new Error('설계도는 최대 1000개까지 저장할 수 있습니다.');
     const editable = this.validateBlueprintInput(input), definition = BlueprintDefinitionSchema.parse({ ...editable, id: randomUUID(), version: 1, createdAt: this.now(), updatedAt: this.now() });

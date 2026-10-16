@@ -12,6 +12,7 @@ function bootstrapFixture(hasSand = true) {
   const stock = new Map<string, number>(), cells = new Map<string, string>(), dug: string[] = [], crafted: string[] = [];
   const entity = { position: new Vec3(0.5, 64, 0.5) };
   let heldType: number | null = null, scans = 0, opened = 0, closed = 0;
+  const furnaceState = { inputCount: 0, outputCount: 0, outputName: '' };
   for (const x of [10, 14]) for (let y = 64; y <= 67; y++) cells.set(new Vec3(x, y, 10).toString(), 'oak_log');
   for (const x of [10, 14]) cells.set(new Vec3(x, 69, 10).toString(), 'oak_leaves');
   for (let x = 4; x <= 11; x++) cells.set(new Vec3(x, 64, 4).toString(), 'stone');
@@ -70,18 +71,18 @@ function bootstrapFixture(hasSand = true) {
     },
     async openFurnace(block: ReturnType<typeof blockAt>) {
       assert.equal(block.name, 'furnace'); opened++;
-      let inputCount = 0, outputCount = 0, outputName = '';
       return {
-        inputItem: () => null, outputItem: () => outputCount ? { name: outputName, count: outputCount } : null,
+        inputItem: () => furnaceState.inputCount ? { name: 'sand', count: furnaceState.inputCount } : null,
+        outputItem: () => furnaceState.outputCount ? { name: furnaceState.outputName, count: furnaceState.outputCount } : null,
         async putInput(type: number, _metadata: unknown, count: number) {
           const name = data.items[type]!.name; assert.ok(['sand', 'oak_log'].includes(name)); assert.ok((stock.get(name) ?? 0) >= count);
-          outputName = name === 'sand' ? 'glass' : 'charcoal'; stock.set(name, stock.get(name)! - count); inputCount = count;
+          furnaceState.outputName = name === 'sand' ? 'glass' : 'charcoal'; stock.set(name, stock.get(name)! - count); furnaceState.inputCount = count;
         },
         async putFuel(type: number, _metadata: unknown, count: number) {
           const name = data.items[type]!.name; assert.ok(['coal', 'charcoal'].includes(name) || name.endsWith('_planks')); assert.ok((stock.get(name) ?? 0) >= count);
-          assert.ok(count * (name.endsWith('_planks') ? 1.5 : 8) >= inputCount); stock.set(name, stock.get(name)! - count); outputCount = inputCount; inputCount = 0;
+          assert.ok(count * (name.endsWith('_planks') ? 1.5 : 8) >= furnaceState.inputCount); stock.set(name, stock.get(name)! - count); furnaceState.outputCount = furnaceState.inputCount; furnaceState.inputCount = 0;
         },
-        async takeOutput() { stock.set(outputName, (stock.get(outputName) ?? 0) + outputCount); outputCount = 0; },
+        async takeOutput() { stock.set(furnaceState.outputName, (stock.get(furnaceState.outputName) ?? 0) + furnaceState.outputCount); furnaceState.outputCount = 0; },
         async close() { closed++; },
       };
     },
@@ -102,8 +103,32 @@ function bootstrapFixture(hasSand = true) {
     if (result.status !== 'success') throw new ConditionWait('실제로 관측한 지상 경로가 없습니다.');
     for (const step of result.path) { const feet = new Vec3(step.x, step.y, step.z); assert.ok(walkable(feet)); entity.position = feet.offset(0.5, 0, 0.5); }
   };
-  return { executor, services, stock, cells, dug, crafted, get scans() { return scans; }, get opened() { return opened; }, get closed() { return closed; } };
+  return { executor, services, stock, cells, dug, crafted, furnaceState, get scans() { return scans; }, get opened() { return opened; }, get closed() { return closed; } };
 }
+
+test('a resumed smelt takes its actual saved-furnace output before searching for already committed raw input', async () => {
+  const f = bootstrapFixture(false);
+  f.stock.set('glass', 3); f.cells.set(new Vec3(2,64,0).toString(), 'furnace');
+  Object.assign(f.furnaceState, { outputName: 'glass', outputCount: 3 });
+  f.services.checkpoint.furnacePosition = { x: 2, y: 64, z: 0 };
+  f.services.checkpoint.resourceRecovery = { sand: { elapsedMs: 60000, destinationsUsed: 5 } };
+  const budget = JSON.stringify(f.services.checkpoint.resourceRecovery);
+  await f.executor.execute({ id: 'saved-glass', goalId: 'original-smelt', kind: 'smelt', params: { item: 'glass' }, dependencies: [], reservationKeys: [], completion: { kind: 'inventory', item: 'glass', minimum: 6 } }, f.services);
+  assert.equal(f.stock.get('glass'), 6); assert.equal(f.furnaceState.outputCount, 0);
+  assert.deepEqual(f.dug, []); assert.deepEqual(f.crafted, []); assert.equal(f.scans, 0);
+  assert.equal(JSON.stringify(f.services.checkpoint.resourceRecovery), budget); assert.equal(f.closed, f.opened);
+});
+
+test('a resumed smelt waits for its real committed batch before gathering more sand', async () => {
+  const f = bootstrapFixture(false);
+  f.stock.set('glass', 3); f.cells.set(new Vec3(2,64,0).toString(), 'furnace');
+  Object.assign(f.furnaceState, { outputName: 'glass', inputCount: 3 });
+  f.services.checkpoint.furnacePosition = { x: 2, y: 64, z: 0 };
+  f.services.pause = async () => { f.furnaceState.outputCount = 3; f.furnaceState.inputCount = 0; };
+  await f.executor.execute({ id: 'pending-glass', goalId: 'original-smelt', kind: 'smelt', params: { item: 'glass' }, dependencies: [], reservationKeys: [], completion: { kind: 'inventory', item: 'glass', minimum: 6 } }, f.services);
+  assert.equal(f.stock.get('glass'), 6); assert.deepEqual(f.dug, []); assert.deepEqual(f.crafted, []);
+  assert.equal(f.scans, 0); assert.equal(f.closed, f.opened);
+});
 
 test('empty inventory and actual 26.1 recipes bootstrap glass panes from only observed oak, stone, sand and coal', async () => {
   const f = bootstrapFixture();
@@ -112,7 +137,7 @@ test('empty inventory and actual 26.1 recipes bootstrap glass panes from only ob
   for (const name of ['oak_planks', 'stick', 'crafting_table', 'wooden_pickaxe', 'furnace', 'glass_pane']) assert.ok(f.crafted.includes(name), `${name} must be actually crafted`);
   assert.equal(f.dug.filter(name => name === 'stone').length, 8);
   assert.equal(f.dug.filter(name => name === 'sand').length, 6);
-  assert.ok(f.opened >= 1 && f.opened <= 2); assert.equal(f.closed, f.opened);
+  assert.ok(f.opened >= 1 && f.opened <= 3, 'an existing furnace may need one additional contents inspection'); assert.equal(f.closed, f.opened);
   assert.ok(f.services.observations.some(o => o.kind === 'inventory' && o.data.items.some(i => i.name === 'glass_pane' && i.count === 16)));
   assert.ok(f.scans < 200, 'shared bootstrap dependencies keep all real wood/fuel variant scans bounded');
 });
