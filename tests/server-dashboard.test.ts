@@ -47,6 +47,17 @@ test('map view keeps only fresh latest actual cells with a global 1200-cell boun
   assert.equal(cells.some(b => b.name === 'lava'), false); assert.equal(new Set(cells.map(b => JSON.stringify(b.position))).size, 1200);
 });
 
+test('fresh observations from other worlds or dimensions cannot displace the village map cell budget', () => {
+  const state = fixture(), village = observation(state, 'village', state.updatedAt - 10, [{ position: { x: 1, y: 64, z: 0 }, name: 'chest' }]);
+  const foreignCells = Array.from({ length: 1200 }, (_, x) => ({ position: { x, y: 64, z: 0 }, name: 'lava' }));
+  const foreignWorld = { ...observation(state, 'other-world', state.updatedAt, foreignCells), world: 'another-server:25566' };
+  const foreignDimension = { ...observation(state, 'other-dimension', state.updatedAt, foreignCells), dimension: 'the_nether' };
+  state.observations = [foreignWorld, foreignDimension, village];
+  const projected = dashboardSnapshot(state, state.updatedAt); FleetSnapshotSchema.parse(projected);
+  assert.equal(projected.observations.length, 1); assert.equal(projected.observations[0]!.id, 'village');
+  assert.deepEqual(projected.observations[0], village); assert.equal(state.observations.length, 3, 'full observations remain untouched');
+});
+
 async function serverFixture() {
   const state = fixture(), store = new ControlStore(':memory:');
   const checkpoint = (): FleetCheckpoint => ({ ...structuredClone(state), processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [] });

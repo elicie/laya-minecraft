@@ -40,7 +40,7 @@ function agentView(agent: Agent): Agent {
     } } : {}) } } : {}) };
 }
 function mapObservations(snapshot: FleetSnapshot, now: number): Observation[] {
-  const fresh = snapshot.observations.filter(o => now - o.observedAt <= snapshot.rules.observationMaxAgeMs && o.observedAt <= now + 1000)
+  const fresh = snapshot.observations.filter(o => o.world === snapshot.rules.world && o.dimension === snapshot.rules.dimension && now - o.observedAt <= snapshot.rules.observationMaxAgeMs && o.observedAt <= now + 1000)
     .sort((a, b) => b.observedAt - a.observedAt || b.receivedAt - a.receivedAt);
   const cells = new Set<string>(), other = new Set<string>(), result: Observation[] = [];
   for (const observation of fresh) {
