@@ -290,8 +290,15 @@ export class MineflayerExecutor {
     s.check();
   }
 
-  async observeContainer(container: ContainerRef, s: ActionServices): Promise<ObservationInput> {
-    const block = await this.approachContainer(container, s);
+  canObserveContainerHere(container:ContainerRef):boolean {
+    if(container.world!==this.options.world||container.dimension!==this.options.dimension()||this.bot.entity.onGround!==true||!observedGroundStand(this.bot,this.bot.entity.position))return false;
+    const block=this.bot.blockAt(vector(container.position));
+    return !!block&&['chest','trapped_chest','barrel'].includes(block.name)&&vector(this.bot.entity.position).offset(0,1.62,0).distanceTo(block.position.offset(.5,.5,.5))<=4.5&&typeof this.bot.canSeeBlock==='function'&&this.bot.canSeeBlock(block);
+  }
+  async observeContainer(container: ContainerRef, s: ActionServices, allowMovement=true): Promise<ObservationInput> {
+    s.check();
+    if(!allowMovement&&!this.canObserveContainerHere(container))throw new ConditionWait('현재 안전한 발판에서 직접 열 수 있는 창고만 이동 없이 관측합니다.');
+    const block = allowMovement?await this.approachContainer(container, s):this.bot.blockAt(vector(container.position))!;
     const window = await this.bot.openContainer(block);
     try {
       const result: ObservationInput = { ...observationBase(this.options.world, this.options.dimension()), kind: 'container', data: { container, items: window.containerItems().map((i) => ({ name: i.name, count: i.count })) } };

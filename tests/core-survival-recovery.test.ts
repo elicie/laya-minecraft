@@ -119,9 +119,9 @@ test('binding an existing equipment job safely transfers the same checkpoint wit
  assert.equal(f.core.getSnapshot().goals.find(x=>x.id===g.id)!.generation,0);
 });
 
-test('binding the user job to a different worker frees the former helper autonomous work before the user job completes',()=>{
+for(const hardBound of [true,false])test(`binding the user job to a different worker frees the former helper ${hardBound?'bound':'preferred-only'} autonomous work before the user job completes`,()=>{
  const f=fixture(1);f.core.updateRules({autonomyEnabled:true});f.ready('bot');f.ready('helper-0');
- const autonomous=f.core.createGoal({kind:'craft',item:'oak_planks',source:'autonomous',preferredBotId:'helper-0',requiredBotId:'helper-0'}),first=f.assignments().at(-1)!;
+ const autonomous=f.core.createGoal({kind:'craft',item:'oak_planks',source:'autonomous',preferredBotId:'helper-0',...(hardBound?{requiredBotId:'helper-0'}:{})}),first=f.assignments().at(-1)!;
  f.receive('helper-0','task.started',{},first);
  const user=f.core.createGoal({kind:'craft',item:'stone_sword',preferredBotId:'helper-0',requiredBotId:'helper-0',executionMode:'immediate'});
  const checkpoint={farmStep:4,resourceRecovery:{sand:{destinationsUsed:5,elapsedMs:60000}}};
@@ -132,6 +132,18 @@ test('binding the user job to a different worker frees the former helper autonom
  const resumed=f.assignments().filter(t=>t.payload.task.goalId===autonomous.id).at(-1)!;
  assert.equal(resumed.taskId,first.taskId);assert.equal(resumed.botId,'helper-0');assert.deepEqual(resumed.payload.checkpoint,checkpoint);
  assert.equal(f.core.getSnapshot().goals.find(g=>g.id===user.id)!.state,'active');
+});
+
+for(const owner of ['different','same','unknown'] as const)test(`restored unowned autonomous frontier releases a bound user blocker only for a known ${owner} owner`,()=>{
+ const f=fixture(1);f.core.updateRules({autonomyEnabled:true});f.ready('helper-0');
+ const autonomous=f.core.createGoal({kind:'craft',item:'oak_planks',source:'autonomous',preferredBotId:'helper-0'}),first=f.assignments().at(-1)!;
+ f.receive('helper-0','task.started',{},first);const user=f.core.createGoal({kind:'craft',item:'stone_sword',preferredBotId:'helper-0',requiredBotId:'helper-0',executionMode:'immediate'});
+ const checkpoint={farmStep:4,resourceRecovery:{sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:60000}}};f.receive('helper-0','task.cancelled',{safeStopped:true,checkpoint,observations:[],evidence:[]},first);
+ const saved=f.core.checkpoint(),task=saved.tasks.find(t=>t.id===first.taskId)!,goal=saved.goals.find(g=>g.id===autonomous.id)!;delete task.affinityBotId;task.blockedByGoalId=user.id;
+ saved.goals.find(g=>g.id===user.id)!.input.requiredBotId=owner==='same'?'helper-0':'bot';
+ if(owner==='unknown'){delete goal.input.preferredBotId;delete task.attemptId;}
+ const restored=new FleetController({checkpoint:saved,controllerEpoch:'restored-owner',now:f.now,send:()=>{}});restored.tick();const actual=restored.getSnapshot().tasks.find(t=>t.id===task.id)!;
+ assert.equal(actual.blockedByGoalId,owner==='different'?undefined:user.id);assert.deepEqual(actual.checkpoint,checkpoint);assert.equal(actual.generation,task.generation);
 });
 
 test('a helper safely preserves its work, attacks the exact requested hostile and resumes its checkpoint', () => {

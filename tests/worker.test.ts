@@ -33,6 +33,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class ControlledExecutor extends MineflayerExecutor {
+    override canObserveContainerHere(container:ContainerRef):boolean{return options.warehouseObservation===true&&bot.entity.position.distanceTo(new Vec3(container.position.x,container.position.y,container.position.z))<=4;}
     override async shelterAtNight(s:ActionServices):Promise<boolean>{if(!options.nightShelterWait)return super.shelterAtNight(s);shelters++;assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});s.checkpoint.nightBasePending=true;s.progress('창고 야간 대피','보존한 식량 탐색을 중단하고 야간을 대피합니다.');await s.pause(120000);return true;}
     override async observeContainer(container:ContainerRef,s:ActionServices):Promise<ObservationInput>{
       if(!options.warehouseObservation)return super.observeContainer(container,s);
@@ -80,6 +81,12 @@ test('idle stock refresh does not start a distant warehouse journey',async()=>{
  f.emitter.emit('spawn');f.emitter.emit('health');f.worker.pollSafety();await settle();
  assert.equal(f.messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container')),false);
  await f.worker.shutdown('test complete');
+});
+
+test('idle stock refresh leaves a nearby resource work point alone when the chest is beyond interaction reach',async()=>{
+ const f=fixture({warehouseObservation:true});f.launch.rules.warehouse={id:'nearby',world:f.launch.rules.world,dimension:'overworld',position:{x:6,y:64,z:0}};f.emitter.emit('spawn');f.emitter.emit('health');
+ try{const before=f.bot.entity.position.clone();f.worker.pollSafety();await settle();assert.ok(f.bot.entity.position.equals(before));assert.equal(f.messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container')),false);}
+ finally{await f.worker.shutdown('test complete');}
 });
 test('a restored sealed shelter resumes its own exit before generic unsafe post-death footing recovery',async()=>{
  const f=fixture({restoredSealed:true,nightShelterWait:true,unarmed:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});

@@ -656,10 +656,10 @@ export class MinecraftWorker {
     const warehouse = this.launch.rules.warehouse;
     // Background stock refresh is local observation, not a new return trip.
     // Distant work and shelter retain ownership of the actor's movement.
-    if (this.centralConnected && warehouse && this.bot.entity.position.distanceTo(vector(warehouse.position))<=8 && Date.now() - this.lastWarehouseAt > 10000) {
+    if (this.centralConnected && warehouse && this.executor.canObserveContainerHere(warehouse) && Date.now() - this.lastWarehouseAt > 10000) {
       this.lastWarehouseAt = Date.now();
       this.startLocal(async (s) => {
-        const observation = await this.executor.observeContainer(warehouse, s);
+        const observation = await this.executor.observeContainer(warehouse, s, false);
         if (observation.kind === 'container') this.foodCheckpoint.foodWarehouse = { container: { ...observation.data.container, position: { ...observation.data.container.position } }, items: observation.data.items.map(item => ({ ...item })) };
         this.message('world.observed', { observations: s.observations });
       }, 'idle');
