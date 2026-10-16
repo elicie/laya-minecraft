@@ -15,7 +15,7 @@ const rcon = (command: string) => execFileSync('docker', ['exec', 'minecraft-lay
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 async function waitFor(check: () => boolean, seconds = 15) { const until = Date.now() + seconds * 1000; while (!check() && Date.now() < until) await sleep(50); assert.ok(check(), 'Actual validation observation timed out.'); }
 
-test('a restored healthy reserve episode walks to its actual registered warehouse, then takes and eats one real bread', { timeout: 70000 }, async () => {
+for (const restoredSafety of [false, true]) test(`a restored healthy reserve episode ${restoredSafety ? 'verifies stale death safety and ' : ''}walks to its actual registered warehouse, then takes and eats one real bread`, { timeout: 70000 }, async () => {
   assert.equal(execFileSync('docker', ['inspect', '-f', '{{(index (index .NetworkSettings.Ports "25565/tcp") 0).HostPort}}', 'minecraft-laya-validation'], { encoding: 'utf8' }).trim(), '25566');
   const cycle = /true/.test(rcon('gamerule doDaylightCycle')), spawning = /true/.test(rcon('gamerule doMobSpawning'));
   const name = 'LayaReserveLive', origin = { x: 30205, y: 80, z: 30205 }, blocks = blueprint('warehouse', origin);
@@ -36,9 +36,13 @@ test('a restored healthy reserve episode walks to its actual registered warehous
     const ended = once(prep, 'end'); prep.quit('save actual reserve hunger'); await ended; prep = undefined; await sleep(300);
     bot = await createCompatibleBot(connection); bot.loadPlugin(pathfinder);
     const budget = { destinationsUsed: 13, elapsedMs: 180000 }, messages: WorkerMessage[] = [];
-    const launch = WorkerLaunchSchema.parse({ botId: 'reserve-live', sessionId: 'reserve-session', controllerEpoch: 'reserve-epoch', config: { name, connection: { host: connection.host, port: connection.port, version: connection.version, auth: connection.auth } }, rules: { world: container.world, warehouse: container, baseShelter: base, autonomyEnabled: false }, restoreSurvivalRecovery: { startedAt: Date.now() - 1000, targetHealth: 20, checkpoint: { expeditionFoodTarget: 19, resourceRecovery: { $food: budget } } } });
+    const launch = WorkerLaunchSchema.parse({ botId: 'reserve-live', sessionId: 'reserve-session', controllerEpoch: 'reserve-epoch', config: { name, connection: { host: connection.host, port: connection.port, version: connection.version, auth: connection.auth } }, rules: { world: container.world, warehouse: container, baseShelter: base, autonomyEnabled: false }, ...(restoredSafety ? { restoreRecovery: { deathId: 'old-resolved-fixture-life', occurredAt: Date.now() - 1000000, world: container.world, dimension: container.dimension, priorInventory: [], phase: 'resolved', safe: false, reason: 'prior footing', attemptCount: 0, progress: { recoveredCount: 0, remainingCount: 0 }, updatedAt: Date.now(), checkpoint: { recoverySafety: { reason: 'prior body footing', status: 'waiting' } } } } : {}), restoreSurvivalRecovery: { startedAt: Date.now() - 1000, targetHealth: 20, checkpoint: { expeditionFoodTarget: 19, resourceRecovery: { $food: budget } } } });
     worker = new MinecraftWorker(launch, bot, message => messages.push(message), { timers: false }); await once(bot, 'spawn');
     await waitFor(() => messages.some(message => message.type === 'bot.ready') && bot!.entity.onGround === true && blocks.every(block => bot!.blockAt(new Vec3(block.position.x, block.position.y, block.position.z))?.name === block.name)); assert.equal(bot.food, 18); assert.equal(bot.health, 20);
+    if (restoredSafety) {
+      for (let i = 0; i < 100 && !messages.some(message => message.type === 'bot.recovery' && message.payload.safe); i++) { worker.pollSafety(); await sleep(50); }
+      assert.ok(messages.some(message => message.type === 'bot.recovery' && message.payload.safe), 'The actual ground must clear the restored safety gate before return.');
+    }
     const task = { id: 'base-return', goalId: 'base-return-goal', kind: 'home', params: { position: base.inside, radius: 1.5, basePassage: 'inside' }, completion: { kind: 'position', position: base.inside, radius: 1.5 }, dependencies: [], reservationKeys: [] };
     const assign = (id: string, t = task) => ({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: launch.controllerEpoch, botId: launch.botId, sessionId: launch.sessionId, sentAt: Date.now(), type: 'task.assign', taskId: t.id, attemptId: id, payload: { task: t, checkpoint: {}, rulesVersion: launch.rules.version } });
     await worker.receive(assign('ordinary-rejected', { ...task, id: 'ordinary-home', params: { ...task.params, position: { x: 30230, y: 80, z: 30230 } } }));
@@ -58,7 +62,7 @@ test('a restored healthy reserve episode walks to its actual registered warehous
     try { assert.equal(chest.containerItems().filter(item => item.name === 'bread').reduce((sum, item) => sum + item.count, 0), 7); }
     finally { await chest.close(); }
     assert.ok(blocks.every(block => bot!.blockAt(new Vec3(block.position.x, block.position.y, block.position.z))?.name === block.name));
-    console.log('Actual reserve return', JSON.stringify({ restoredFood: 18, ordinaryDestinationRejected: true, actualBaseReturnCompleted: true, actualBreadTakenAndEaten: 1, finalFood: bot.food, health: bot.health, originalFoodBudget: budget, fixtureBreadSupplied: true, productionWorld: false }));
+    console.log('Actual reserve return', JSON.stringify({ restoredFood: 18, restoredSafetyVerified: restoredSafety, ordinaryDestinationRejected: true, actualBaseReturnCompleted: true, actualBreadTakenAndEaten: 1, finalFood: bot.food, health: bot.health, originalFoodBudget: budget, fixtureBreadSupplied: true, productionWorld: false }));
   } finally {
     prep?.quit('reserve fixture complete'); if (worker) await worker.shutdown('reserve return validation complete'); else bot?.quit('reserve fixture complete'); await sleep(150);
     rcon('forceload remove 30192 30192 30240 30240'); rcon(`gamerule doDaylightCycle ${cycle}`); rcon(`gamerule doMobSpawning ${spawning}`); rcon('time set 1000');
