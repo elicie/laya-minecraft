@@ -532,7 +532,7 @@ export class MineflayerExecutor {
       }
       if (this.bot.inventory.emptySlotCount() === 0 && !this.bot.inventory.items().some((i) => i.name === itemName && i.count < i.stackSize)) throw new ConditionWait('인벤토리 공간을 확보해야 합니다.');
       await this.settleDirectHarvest(dropBlocks[itemName]??[itemName],s,recovery);
-      const eligible = (b: Block) => this.collectMatches(itemName,b.name) && !skipped.has(`${b.position}`) && this.collectible(b,s) && (this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position));
+      const eligible = (b: Block) => this.collectMatches(itemName,b.name) && !skipped.has(`${b.position}`) && this.collectible(b,s) && (this.directlyHarvestable(b,s)||recovery.canApproach()&&!recovery.failed(b.position)&&recovery.within(b.position));
       const selected = selectedSource ? this.bot.blockAt(vector(selectedSource)) : undefined;
       const block = selectedSource ? selected && eligible(selected) ? selected : null : this.bot.findBlock({ matching: b => this.collectMatches(itemName,b.name), useExtraInfo: eligible, maxDistance:48 });
       const direct=!!block&&this.directlyHarvestable(block,s);
@@ -619,7 +619,7 @@ export class MineflayerExecutor {
       // Recheck actual stock before choosing another species or search leg.
       if(stocked()){recovery.progress();return;}
       await this.settleDirectHarvest(names,s,recovery);
-      const block = this.bot.findBlock({ matching:b=>names.includes(b.name),useExtraInfo:b=>this.collectible(b,s)&&(this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position)&&this.resourceStands(b,s).some(p=>recovery.route(vector(p)))),maxDistance:48 });
+      const block = this.bot.findBlock({ matching:b=>names.includes(b.name),useExtraInfo:b=>this.collectible(b,s)&&(this.directlyHarvestable(b,s)||recovery.canApproach()&&!recovery.failed(b.position)&&recovery.within(b.position)&&this.resourceStands(b,s).some(p=>recovery.route(vector(p)))),maxDistance:48 });
       if (block && (recovery.canApproach()||this.directlyHarvestable(block,s))) {
         try { await this.collect(block.name,this.count(block.name)+1,s,position(block.position),recovery); continue; }
         catch(error) {s.check();if(!(error instanceof ConditionWait))throw error;recovery.reject(block.position,block.name,error.message);continue;}

@@ -37,7 +37,7 @@ test('a real pathfinding offset settles within its dry ledge cell before mining 
  const p=new Vec3(27110,80,27110),ledge=new Vec3(27120,80,27120),target=ledge.offset(1,-1,0);
  rcon('forceload add 27100 27100 27135 27135');rcon('fill 27100 79 27100 27135 85 27135 air');rcon('fill 27100 78 27100 27135 78 27135 stone');rcon('fill 27100 79 27100 27135 79 27135 grass_block');
  for(const z of [27110,27111,27112]){rcon(`setblock 27111 80 ${z} oak_log`);rcon(`setblock 27111 83 ${z} oak_leaves[persistent=true]`);}
- rcon('setblock 27121 79 27120 stone');rcon('setblock 27120 79 27119 air');rcon('execute positioned 27120 80 27120 run kill @e[type=!player,distance=..40]');
+ rcon('setblock 27121 79 27120 stone');rcon('setblock 27120 79 27120 stone');rcon('setblock 27120 79 27119 air');rcon('execute positioned 27120 80 27120 run kill @e[type=!player,distance=..40]');
  const b=await createCompatibleBot({host:'127.0.0.1',port:25566,version:'1.21.1',auth:'offline',username:'LayaDirectStone'});b.loadPlugin(pathfinder);
  try{
   await once(b,'spawn');rcon('tp LayaDirectStone 27110.5 80 27110.5');rcon('clear LayaDirectStone');
@@ -51,7 +51,7 @@ test('a real pathfinding offset settles within its dry ledge cell before mining 
   let atBreak:any;b.on('blockUpdate',(_old,next)=>{if(next?.position.equals(target)&&next.name==='air')atBreak={budget:structuredClone((s.checkpoint.resourceRecovery as any).cobblestone),position:b.entity.position.clone()};});
   await e.ensureItem('cobblestone',1,s);
   assert.equal(e.count('cobblestone'),1);assert.ok(atBreak);assert.equal(atBreak.budget.destinationsUsed,5);assert.equal(atBreak.budget.approachesUsed,8);assert.equal(atBreak.budget.elapsedMs,60000);
-  assert.ok(atBreak.position.floored().equals(ledge));assert.ok(atBreak.position.distanceTo(before)<.5);assert.ok(b.entity.position.distanceTo(before)<2);assert.equal(b.blockAt(ledge.offset(0,-1,0))?.name,'grass_block');
+  assert.ok(atBreak.position.floored().equals(ledge));assert.ok(atBreak.position.distanceTo(before)<.5);assert.ok(b.entity.position.distanceTo(before)<2);assert.equal(b.blockAt(ledge.offset(0,-1,0))?.name,'stone','the nearer matching stone under the actor must remain its support');
   console.log('Actual offset ledge harvest',JSON.stringify({itemsGiven:false,toolCraftedFromHarvestedWood:true,harvested:e.count('cobblestone'),center:s.checkpoint.footprintCenter,budgetsAtBreak:atBreak,productionWorld:false}));
  }finally{b.quit('offset ledge validation finished');await sleep(150);rcon('forceload remove 27100 27100 27135 27135');}
 });
