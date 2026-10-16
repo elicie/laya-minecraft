@@ -15,7 +15,7 @@ const clearance=(b:ReturnType<Bot['blockAt']>)=>resourceClearance(b)||openDoorCl
 
 /** A loaded, solid natural support permits a verified walk along an edge.
  * This never licenses an unobserved step, a large drop, digging or placement. */
-export function observedGroundStand(bot: Bot, feet: Position, onReject?: (p:Position,reason:string)=>void,allowAdjacentWater=false): boolean {
+export function observedGroundTerrainStand(bot: Bot, feet: Position, onReject?: (p:Position,reason:string)=>void,allowAdjacentWater=false): boolean {
   const p=walkingFeet(bot,feet);
   for(const q of [p,p.offset(0,1,0)])if(!clearance(bot.blockAt(q))){onReject?.(position(q),`몸 공간 ${bot.blockAt(q)?.name??'unloaded'}`);return false;}
   const support=p.offset(0,-1,0),block=bot.blockAt(support);
@@ -28,7 +28,12 @@ export function observedGroundStand(bot: Bot, feet: Position, onReject?: (p:Posi
     onReject?.(position(support),`실제 지지 발판 ${block?.name??'unloaded'}`);return false;
   }
   for(const [dx,dz]of [[1,0],[-1,0],[0,1],[0,-1]])for(const dy of [0,-1]){const name=bot.blockAt(p.offset(dx!,dy,dz!))?.name??'';if(hazards.has(name)&&!(allowAdjacentWater&&name==='water'))return false;}
-  return !Object.values(bot.entities??{}).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(p.offset(.5,0,.5))<12);
+  return true;
+}
+
+export function observedGroundStand(bot: Bot, feet: Position, onReject?: (p:Position,reason:string)=>void,allowAdjacentWater=false): boolean {
+  const p=walkingFeet(bot,feet);
+  return observedGroundTerrainStand(bot,p,onReject,allowAdjacentWater)&&!Object.values(bot.entities??{}).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(p.offset(.5,0,.5))<12);
 }
 
 export function observedGroundRoute(bot: Bot, destination: Position, radius=128,onReject?: (p:Position,reason:string)=>void,allowAdjacentWater=false,blocked?:(p:Position)=>boolean): Position[]|undefined {
