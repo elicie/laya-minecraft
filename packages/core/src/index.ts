@@ -446,6 +446,13 @@ export class FleetController {
         const attempt = this.state.attempts.find(a => a.id === task.attemptId);
         if (this.taskHasActor(task) && attempt?.botId !== parsed.requiredBotId) this.cancelTask(task, '지정한 봇에게 진행을 보존해 인계합니다.', true);
       }
+      for (const task of this.state.tasks) {
+        if (task.blockedByGoalId !== goal.id || task.source !== 'autonomous' || !task.affinityBotId || task.affinityBotId === parsed.requiredBotId || this.taskHasActor(task)) continue;
+        // This entire user job now belongs to a different worker. Its former
+        // helper must be able to resume farming before construction finishes.
+        delete task.blockedByGoalId;task.updatedAt=this.now();
+        this.changed('autonomy.returned', '다른 봇에게 고정된 사용자 작업의 이전 자율 작업을 같은 진행에서 재개합니다.', { taskId:task.id,goalId:task.goalId,botId:task.affinityBotId });
+      }
       goal.updatedAt = this.now();
       this.changed('goal.assignment-bound', '기존 작업과 탐색 예산을 보존하고 담당 봇을 고정했습니다.', { goalId, commandId });
       this.applied(commandId, { goalId }); this.tick(); return clone(goal);
