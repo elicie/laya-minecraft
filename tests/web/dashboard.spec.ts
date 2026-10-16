@@ -208,7 +208,7 @@ test("collection without a warehouse shows its inventory completion basis and pr
   const goal: Goal = { id: "inventory-goal", input: GoalInputSchema.parse({ kind: "collect", item: "oak_log", quantity: 32 }), title: "창고 없이 원목 32개", state: "active", completionLocation: "inventory", targetQuantity: 32, taskIds: [], createdAt: now, updatedAt: now, progress: { current: 10, target: 32 }, generation: 0 };
   state.goals = [goal];
   await installStream(page);
-  await page.route("**/api/v1/snapshot", route => route.fulfill({ json: state }));
+  await page.route("**/api/v1/snapshot?view=dashboard", route => route.fulfill({ json: state }));
   await page.route("**/api/v1/goals/interpret", route => route.fulfill({ json: { source: "code", warnings: [], goal: goal.input } }));
   await page.route("**/api/v1/goals", route => {
     submitted = route.request().postDataJSON() as GoalDefinition;
@@ -595,19 +595,25 @@ test("narrow screen keeps controls reachable without document overflow", async (
   );
 });
 
-test("an idle stream with zero bots stays connected without new snapshots", async ({
+test("an idle fleet confirms its connection with a fresh HTTP read even when its snapshot is unchanged", async ({
   page,
 }) => {
   const state = snapshot();
   state.agents = [];
+  let reads = 0;
   await page.clock.install();
   await installStream(page);
-  await page.route("**/api/v1/**", (route) => route.fulfill({ json: state }));
+  await page.route("**/api/v1/**", (route) => {
+    reads++;
+    return route.fulfill({ json: state });
+  });
   await page.goto("/");
   await page.clock.runFor(10);
-  await expect(page.getByRole("status")).toContainText("중앙 시스템 연결됨");
+  await expect(page.locator(".connection")).toContainText("중앙 시스템 연결됨");
+  const initialReads = reads;
   await page.clock.fastForward(11_000);
-  await expect(page.getByRole("status")).toContainText("중앙 시스템 연결됨");
+  await expect.poll(() => reads).toBeGreaterThan(initialReads);
+  await expect(page.locator(".connection")).toContainText("중앙 시스템 연결됨");
 });
 
 test("long activity histories stay inside cards and keep narrow controls reachable", async ({

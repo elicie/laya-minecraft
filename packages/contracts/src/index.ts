@@ -62,7 +62,7 @@ export const RulesSchema = z.object({
   warehouse: ContainerRefSchema.nullable().default(null),
   baseShelter: BaseShelterSchema.nullable().default(null),
   foodSearchHints: z.array(z.object({position:PositionSchema,resource:z.enum(['pig','cow','sheep','chicken','rabbit','wheat','carrots','potatoes','melon','sweet_berry_bush']),observedAt:z.number().nonnegative(),world:z.string().min(1),dimension:z.string().min(1)}).strict()).max(32).default([]),
-  baseAutonomy: z.object({id:IdSchema,origin:PositionSchema,positions:z.array(PositionSchema).min(1).max(8),breadTarget:z.number().int().min(1).max(64).default(8),woodTarget:z.number().int().min(1).max(64).default(2),botId:IdSchema.optional()}).strict().nullable().default(null),
+  baseAutonomy: z.object({id:IdSchema,origin:PositionSchema,positions:z.array(PositionSchema).min(1).max(32),breadTarget:z.number().int().min(1).max(64).default(8),woodTarget:z.number().int().min(1).max(64).default(2),botId:IdSchema.optional()}).strict().nullable().default(null),
   maxRetries: z.number().int().min(0).max(5).default(5),
   statusIntervalMs: z.number().int().min(250).max(10000).default(1000),
   statusTimeoutMs: z.number().int().min(1000).max(60000).default(10000),
@@ -262,3 +262,5 @@ export * from './build-site-preparation';
 export * from './blueprints';
 
 export * from './build-access-recovery';
+
+export {OperationsSchema,type Operations} from "./operations";

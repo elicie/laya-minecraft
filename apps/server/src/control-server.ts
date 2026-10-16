@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { z } from 'zod';
+import { constants, createGzip, gzipSync } from 'node:zlib';
 import {
   BotInputSchema, BotPatchSchema, GoalInputSchema, GoalPatchSchema, RulesPatchSchema, BlueprintInputSchema,
   type Agent, type BotInput, type BotPatch, type CoreEvent, type ExecutionMode,
@@ -13,6 +14,9 @@ import {
 } from '../../../packages/contracts/src';
 import { ControlStore, type CommandReceipt, type StoredEvent } from './store';
 import { proxyViewerHttp, proxyViewerUpgrade, type ViewerTarget } from './viewer-proxy';
+import { dashboardSnapshot } from './dashboard-snapshot';
+import {createOperationsReader} from './operations';
+import { SseClient, sseFrame } from './sse-client';
 
 export interface FleetControlPort {
   readonly controllerEpoch?: string;
@@ -54,20 +58,34 @@ const emptyRequest = z.object({}).strict();
 
 export function createControlServer(options: ControlServerOptions) {
   const { core, store } = options;
-  const clients = new Set<ServerResponse>();
+  const readOperations=createOperationsReader({snapshot:()=>core.getSnapshot(),modelUrl:process.env.QWEN_DECISION_URL,trainingRoot:process.env.QWEN_TRAINING_ROOT||resolve('training/runs')});
+  const clients = new Map<SseClient, 'full' | 'dashboard'>();
   const viewerPorts = new Map<string, number>();
   const allocatedPorts = new Set<number>();
   let dirtySnapshot = false;
   let checkpointDirty = false;
   let closed = false;
 
-  function sendStream(res: ServerResponse, event: string, value: unknown, id?: string): void {
-    if (res.destroyed || res.writableEnded) return;
-    if (res.writableLength > 512 * 1024) { clients.delete(res); res.destroy(); return; }
-    res.write(`${id ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
-  }
   function broadcast(event: string, value: unknown, id?: string): void {
-    for (const client of clients) sendStream(client, event, value, id);
+    if (!clients.size) return;
+    let frame: string | undefined;
+    let dashboardFrame: string | undefined;
+    for (const [client, view] of clients) {
+      if (event === 'event' && view === 'dashboard') {
+        dashboardFrame ??= sseFrame(event, eventSummary(value as CoreEvent), id);
+        client.send(dashboardFrame);
+      } else { frame ??= sseFrame(event, value, id); client.send(frame); }
+    }
+  }
+  function eventSummary(event: CoreEvent): CoreEvent { const { data: _data, ...summary } = event; return summary; }
+  function broadcastSnapshot(): void {
+    if (!clients.size) return;
+    const snapshot = core.getSnapshot();
+    const frames: Partial<Record<'full' | 'dashboard', string>> = {};
+    for (const [client, view] of clients) {
+      frames[view] ??= sseFrame('snapshot', view === 'dashboard' ? dashboardSnapshot(snapshot, (options.now ?? Date.now)()) : snapshot);
+      client.send(frames[view]!, 'snapshot');
+    }
   }
   function commandUpdate(id: string, state: 'applying' | 'applied' | 'failed', result?: unknown, error?: string): void {
     const receipt = store.updateCommand(id, state, result, error);
@@ -148,10 +166,20 @@ export function createControlServer(options: ControlServerOptions) {
         proxyViewerHttp(req, res, target);
         return;
       }
+      if(req.method==='GET'&&path==='/api/v1/operations'){json(res,200,await readOperations());return;}
       if (req.method === 'GET' && path === '/api/v1/health') {
         json(res, 200, { ok: true, controllerEpoch: core.controllerEpoch ?? core.getSnapshot().controllerEpoch }); return;
       }
-      if (req.method === 'GET' && path === '/api/v1/snapshot') { json(res, 200, core.getSnapshot()); return; }
+      if (req.method === 'GET' && path === '/api/v1/snapshot') {
+        const snapshot = core.getSnapshot();
+        if (url.searchParams.get('view') === 'dashboard') {
+          const value = JSON.stringify(dashboardSnapshot(snapshot, (options.now ?? Date.now)()));
+          const compressed = acceptsGzip(req);
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'Accept-Encoding', ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
+          res.end(compressed ? gzipSync(value) : value);
+        } else json(res, 200, snapshot);
+        return;
+      }
       if (req.method === 'GET' && path === '/api/v1/blueprints') { json(res, 200, core.getSnapshot().blueprints); return; }
       if (req.method === 'GET' && path === '/api/v1/events') {
         const requestedLimit = Number(url.searchParams.get('limit') ?? 100);
@@ -159,13 +187,19 @@ export function createControlServer(options: ControlServerOptions) {
         json(res, 200, store.listEvents(requestedLimit, url.searchParams.get('after') ?? undefined)); return;
       }
       if (req.method === 'GET' && path === '/api/v1/stream') {
-        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-        res.write('retry: 2000\n\n');
-        clients.add(res);
-        sendStream(res, 'snapshot', core.getSnapshot());
+        const view = url.searchParams.get('view') === 'dashboard' ? 'dashboard' : 'full';
+        const compressed = view === 'dashboard' && acceptsGzip(req);
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no', ...(view === 'dashboard' ? { vary: 'Accept-Encoding' } : {}), ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
+        const writer = compressed ? createGzip({ flush: constants.Z_SYNC_FLUSH }) : undefined;
+        writer?.pipe(res);
+        const client = new SseClient(res, { writer, onClose: () => clients.delete(client) });
+        clients.set(client, view);
+        client.send('retry: 2000\n\n');
+        const snapshot = core.getSnapshot();
+        client.send(sseFrame('snapshot', view === 'dashboard' ? dashboardSnapshot(snapshot, (options.now ?? Date.now)()) : snapshot), 'snapshot');
         const lastId = req.headers['last-event-id'];
-        if (typeof lastId === 'string') for (const event of store.listEvents(200, lastId)) sendStream(res, 'event', event, event.id);
-        req.on('close', () => clients.delete(res));
+        if (typeof lastId === 'string') for (const event of store.listEvents(200, lastId)) client.send(sseFrame('event', view === 'dashboard' ? eventSummary(event as unknown as CoreEvent) : event, event.id));
+        req.on('close', () => client.close());
         return;
       }
       const commandPath = path.match(/^\/api\/v1\/commands\/([^/]+)$/);
@@ -269,10 +303,10 @@ export function createControlServer(options: ControlServerOptions) {
 
   const snapshotTimer = setInterval(() => {
     if (checkpointDirty) { store.saveCheckpoint(core.checkpoint()); checkpointDirty = false; }
-    if (dirtySnapshot) { if (clients.size) broadcast('snapshot', core.getSnapshot()); dirtySnapshot = false; }
+    if (dirtySnapshot) { broadcastSnapshot(); dirtySnapshot = false; }
   }, 1000);
   snapshotTimer.unref();
-  const keepAliveTimer = setInterval(() => { for (const client of clients) client.write(': heartbeat\n\n'); }, 15_000);
+  const keepAliveTimer = setInterval(() => { for (const client of clients.keys()) client.send(': heartbeat\n\n', 'heartbeat'); }, 15_000);
   keepAliveTimer.unref();
   const pruneTimer = setInterval(() => store.prune((core.getRules?.() ?? core.getSnapshot().rules).logRetentionDays), 60 * 60 * 1000);
   pruneTimer.unref();
@@ -290,7 +324,7 @@ export function createControlServer(options: ControlServerOptions) {
     closed = true;
     clearInterval(snapshotTimer); clearInterval(keepAliveTimer); clearInterval(pruneTimer);
     store.saveCheckpoint(core.checkpoint());
-    for (const client of clients) client.end();
+    for (const client of clients.keys()) client.close();
     clients.clear();
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
@@ -299,6 +333,15 @@ export function createControlServer(options: ControlServerOptions) {
 
 class HttpError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string) { super(message); }
+}
+function acceptsGzip(req: IncomingMessage): boolean {
+  const encodings = (req.headers['accept-encoding'] ?? '').split(',').map(value => {
+    const [name, ...parameters] = value.trim().toLowerCase().split(';');
+    const quality = parameters.find(parameter => parameter.trim().startsWith('q='));
+    return { name, quality: quality === undefined ? 1 : Number(quality.trim().slice(2)) };
+  });
+  const encoding = encodings.find(value => value.name === 'gzip') ?? encodings.find(value => value.name === '*');
+  return !!encoding && Number.isFinite(encoding.quality) && encoding.quality > 0;
 }
 function json(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });

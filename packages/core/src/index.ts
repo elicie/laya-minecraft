@@ -1367,7 +1367,7 @@ export class FleetController {
     agent.session!.activeAttemptId = attempt.id;
     for (const key of task.reservationKeys) this.state.reservations.push({ key, taskId: task.id, attemptId: attempt.id, botId: agent.id, sessionId: attempt.sessionId, acquiredAt: this.now() });
     this.goal(task.goalId).state = 'active'; this.goal(task.goalId).reason = undefined;
-    this.changed('scheduler.decision', decision.reason, { taskId: task.id, botId: agent.id, attemptId: attempt.id, data: { source: decision.source, observation,selectedTaskId:task.id, ...(decision.model ? { model: decision.model } : {}) } });
+    this.changed('scheduler.decision', decision.reason, { taskId: task.id, botId: agent.id, attemptId: attempt.id, data: { source: decision.source, observation,selectedTaskId:task.id, ...(decision.model ? { model: decision.model } : {}),...(decision.confidence===undefined?{}:{confidence:decision.confidence}) } });
     this.send(agent, 'task.assign', { task: taskSpec(task), checkpoint: task.checkpoint, rulesVersion: this.state.rules.version }, { taskId: task.id, attemptId: attempt.id });
     this.changed('task.assigned', '작업을 배정하고 수락을 기다립니다.', { taskId: task.id, botId: agent.id, attemptId: attempt.id });
   }

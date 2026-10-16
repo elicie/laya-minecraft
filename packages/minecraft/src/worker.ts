@@ -482,10 +482,11 @@ export class MinecraftWorker {
   }
   private startLocal(action: (s: ActionServices) => Promise<void>, mode: BotReport['mode'], checkpoint: JsonObject = {}, timeoutMs?: number): void {
     if (this.local || this.stopping || !this.ready || this.settlingLife) return;
-    const controller = new AbortController(); this.mode = mode;
+    const controller = new AbortController(); this.mode = mode;let failed=false;
     const local: LocalAction = { controller, promise: Promise.resolve(), mode, life: this.life }; this.local = local;
     const timeout = timeoutMs === undefined ? undefined : setTimeout(() => controller.abort('recovery-timeout'), Math.max(1, timeoutMs));
     local.promise = action(this.executor.services(controller.signal, checkpoint)).catch((error) => {
+      failed=true;
       if (local.life === this.life && this.ready && (!controller.signal.aborted || controller.signal.reason === 'recovery-timeout')) {
         this.reason = error instanceof Error ? error.message : '조건을 확인해야 합니다.';
         if (mode === 'survival') {
@@ -511,6 +512,10 @@ export class MinecraftWorker {
       this.executor.stopControls(); if (this.local === local) this.local = undefined;
       if (local.life !== this.life || !this.ready) return;
       this.mode = this.emergencyActive() ? 'emergency' : this.active ? 'working' : this.recoveryPending() ? 'recovering' : 'idle';
+      if(mode==='idle'&&this.mode==='idle'){
+        this.action=this.launch.config.role==='guard'?'주변 경계':'대기';
+        if(!failed)this.reason=controller.signal.aborted?'재고 관측을 안전하게 중단했습니다. 다음 작업을 기다립니다.':'창고 재고 관측을 마쳤습니다. 다음 작업을 기다립니다.';
+      }
       if (mode === 'survival' && !this.active && !this.emergencyActive()) {
         this.action = this.bot.food < 18 ? '식량 대기' : this.survivalUrgent() ? '회복 대기' : this.launch.config.role === 'guard' ? '주변 경계' : '대기';
         if (controller.signal.aborted) this.reason = '식량 복구 진행을 보존하고 안전하게 중단했습니다.';

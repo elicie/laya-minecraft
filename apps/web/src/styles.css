@@ -1667,3 +1667,15 @@ dialog::backdrop {
 .build-task-progress dt { color: var(--muted); }
 .build-task-progress dd { margin: 0; overflow-wrap: anywhere; }
 .build-task-progress .muted, .build-goal-progress > .muted { font-size: 10px; line-height: 1.7; margin-top: 7px; }
+
+.operations-panel { margin-bottom: 22px; }
+.operations-panel .panel-heading { gap: 16px; flex-wrap: wrap; }
+.operations-content { padding: 20px; }
+.operations-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 14px; margin: 12px 0 22px; }
+.operations-grid article,.training-run { background: var(--panel, #182830); border: 1px solid var(--line,#30434a); border-radius: 8px; padding: 16px; overflow-wrap: anywhere; }
+.operations-content h3 { margin: 8px 0 12px; }
+.operations-content p { line-height: 1.65; margin: 8px 0; }
+.training-run { margin-bottom: 12px; }
+.operations-decisions { padding-left: 22px; }
+.operations-decisions li { padding: 8px 0; }
+.operations-decisions time,.operations-content small { color: var(--muted,#9db1ba); }

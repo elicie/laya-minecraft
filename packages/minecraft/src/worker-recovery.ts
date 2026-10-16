@@ -62,6 +62,9 @@ export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retrea
     if (!knowledge.blocks.has(key) && knowledge.blocks.size >= 256) knowledge.blocks.delete(knowledge.blocks.keys().next().value!);
     knowledge.blocks.set(key, { position: p, name: block.name, state: age === undefined ? '' : `age:${age}` });
   }
+  const base=checkpoint.nightBase;
+  const baseDoor=base&&typeof base==='object'&&!Array.isArray(base)?PositionSchema.safeParse(base.door):undefined;
+  const doorFacts=baseDoor?.success?[baseDoor.data,{...baseDoor.data,y:baseDoor.data.y+1}].map(p=>{const b=bot.blockAt(new Vec3(p.x,p.y,p.z));return b?[p,b.name,b.getProperties?.().open??null]:[p,null,null];}):undefined;
   const blocks = [...knowledge.blocks].map(([key, block]) => [key, block.name, block.state]).sort((a, b) => a[0].localeCompare(b[0]));
   const threats = Object.values(bot.entities).filter(entity => HOSTILES.has(entity.name ?? ''));
   const threatened = [...knowledge.blocks].filter(([, block]) => threats.some(entity => Math.hypot(entity.position.x - block.position.x, entity.position.y - block.position.y, entity.position.z - block.position.z) < 20)).map(([key]) => key).sort();
@@ -77,6 +80,7 @@ export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retrea
   const burrow=checkpoint.nightBurrow,outside=burrow&&typeof burrow==='object'&&!Array.isArray(burrow)?PositionSchema.safeParse(burrow.outside):undefined;
   const displaced=outside?.success&&burrow&&typeof burrow==='object'&&!Array.isArray(burrow)&&burrow.phase==='digging'?bot.entity.position.distanceTo(new Vec3(outside.data.x,outside.data.y,outside.data.z))>6:false;
   return JSON.stringify({ items: [...items].sort(([a], [b]) => a.localeCompare(b)), food: bot.food, criticalHealth: bot.health <= retreatHealth, dimension: bot.game?.dimension, blocks, entities, threatened,
+    ...(checkpoint.nightBasePending===true?{baseShelterWindow:duskOrNight(bot),baseDoor:doorFacts}:{}),
     ...(checkpoint.nightBurrowPending===true?{shelterWindow:duskOrNight(bot),shelterDisplaced:displaced}:{}),
     ...(warehouse?.success && warehouseItems?.success ? { warehouse: { container: warehouse.data, items: [...stock].sort(([a], [b]) => a.localeCompare(b)) } } : {}) });
 }

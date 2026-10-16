@@ -10,7 +10,7 @@ export function passiveFarmObservation(bot:Bot,rules:Rules,now=Date.now()):Obser
  if(!water||rows.some(r=>!r.soil||!r.crop))return;
  let planted=0,watered=0,ripe=0;
  for(const {p,soil,crop}of rows){
-  if(soil!.name==='farmland'&&water.name==='water'&&p.y===farm.origin.y&&Math.max(Math.abs(p.x-farm.origin.x),Math.abs(p.z-farm.origin.z))<=4)watered++;
+  if(soil!.name==='farmland'&&Number(soil!.getProperties().moisture)>0&&water.name==='water'&&p.y===farm.origin.y&&Math.max(Math.abs(p.x-farm.origin.x),Math.abs(p.z-farm.origin.z))<=4)watered++;
   if(crop!.name!=='wheat')continue;
   const age=typeof crop!.getProperties==='function'?Number(crop!.getProperties().age):NaN;if(!Number.isInteger(age)||age<0||age>7)return;
   planted++;if(age===7)ripe++;

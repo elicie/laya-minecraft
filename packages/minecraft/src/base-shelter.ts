@@ -8,6 +8,7 @@ import {openDoorClearance} from './open-door';
 import {crossOpenDoor} from './door-passage';
 import {centerSupportedCell} from './standing-footprint';
 import {settleWarehouseThreshold} from './base-threshold';
+import {withWarehouseDoor} from './warehouse-door-lease';
 
 export function warehouseInterior(s:ActionServices,p:Position=s.bot.entity.position):boolean{
  const base=s.rules.baseShelter;if(!base||base.world!==s.rules.world||base.dimension!==s.rules.dimension)return false;
@@ -39,12 +40,13 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
   if(!verified()){if(pending)throw new ConditionWait('등록한 야간 거점의 실제 기초·벽·지붕과 출입구를 다시 확인해야 합니다.',s.checkpoint);return false;}
   const stable=async()=>{for(let i=0;i<20&&b.entity.onGround!==true;i++){s.check();await s.pause(50);}if(b.entity.onGround!==true||!observedGroundStand(b,b.entity.position))throw new ConditionWait('거점 출입 전 실제 안정 착지를 확인해야 합니다.',s.checkpoint);};
   const door=async(open:boolean)=>{
-    s.check();while(!enabled()){s.check();await s.pause(1000);}
+    s.check();if(!enabled())throw new ConditionWait('출입문 사용 권한을 다시 확인해야 합니다.',s.checkpoint);
     const block=actual(base.door);if(!block||!block.name.endsWith('_door')||block.name==='iron_door'||!verified())throw new ConditionWait('실제 목재 출입문과 거점 상태를 확인해야 합니다.',s.checkpoint);
     if(block.getProperties().open===open)return;
     const upper=actual({...base.door,y:base.door.y+1}),target=[block,upper].find(q=>q&&q.name===block.name&&b.entity.position.offset(0,1.62,0).distanceTo(vector(q.position).offset(.5,.5,.5))<=4.5&&b.canSeeBlock(q));
     if(!target)throw new ConditionWait('출입문이 직접 보이고 실제 상호작용 거리 안에 있어야 합니다.',s.checkpoint);
-    await b.activateBlock(target);await s.pause(150);
+    await b.activateBlock(target);
+    for(let i=0;i<20&&actual(base.door)?.getProperties().open!==open;i++){s.check();await s.pause(50);}
     if(actual(base.door)?.getProperties().open!==open)throw new ConditionWait('목재 출입문의 실제 개폐 결과를 확인해야 합니다.',s.checkpoint);
   };
   const approachOutside=async()=>{
@@ -58,14 +60,14 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
       if(!inside()){
         await approachOutside();
         if(!clear(b.entity.position)||!clear(base.inside))throw new ConditionWait('창고 출입 전에 실제 주변 위협 이탈이 필요합니다.',s.checkpoint);
-        await door(true);await crossOpenDoor(s,base.door,base.inside,enabled,()=>clear(b.entity.position));await stable();
+        await withWarehouseDoor(s,async()=>{await door(true);await crossOpenDoor(s,base.door,base.inside,enabled,()=>clear(b.entity.position));await stable();await door(false);});
       }
       if(!inside())throw new ConditionWait('창고 내부의 실제 도착을 확인해야 합니다.',s.checkpoint);
-      await door(false);
+      await withWarehouseDoor(s,()=>door(false));
     }else if(inside()){
       if(b.time?.doDaylightCycle===true&&night()||!clear(base.outside,12))throw new ConditionWait('낮과 안전한 창고 출구를 확인한 뒤 작업을 재개합니다.',s.checkpoint);
       await s.near(vector(base.inside).offset(.5,0,.5),0);await stable();
-      await door(true);await crossOpenDoor(s,base.door,base.outside,enabled,()=>clear(b.entity.position,12));await stable();await centerSupportedCell(b,s);await door(false);await stable();
+      await withWarehouseDoor(s,async()=>{await door(true);await crossOpenDoor(s,base.door,base.outside,enabled,()=>clear(b.entity.position,12));await stable();await centerSupportedCell(b,s);await door(false);await stable();});
     }else{await approachOutside();}
     s.checkpoint.basePassage={warehouseId:base.warehouseId,mode,position:position(b.entity.position),completedAt:Date.now()};return true;
   }
@@ -78,24 +80,25 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
     if(!inside()){
       await approachOutside();
       if(!clear(b.entity.position)||!clear(base.inside))throw new ConditionWait('거점 출입 전에 실제 주변 위협 이탈이 필요합니다.',s.checkpoint);
-      await door(true);await crossOpenDoor(s,base.door,base.inside,enabled,()=>clear(b.entity.position));await stable();
+      await withWarehouseDoor(s,async()=>{await door(true);await crossOpenDoor(s,base.door,base.inside,enabled,()=>clear(b.entity.position));await stable();await door(false);});
     }
     if(!inside())throw new ConditionWait('등록한 창고 내부의 실제 도착을 확인해야 합니다.',s.checkpoint);
-    await door(false);setPhase('closed');s.observations.push(s.observeInventory());
+    await withWarehouseDoor(s,()=>door(false));setPhase('closed');s.observations.push(s.observeInventory());
   }
   if(phase==='closed'){
     if(!inside())throw new ConditionWait('보존한 야간 거점의 실제 내부 위치를 다시 확인해야 합니다.',s.checkpoint);
     s.progress('창고 야간 대피','완공한 창고 안에서 출입문을 닫고 실제 낮과 안전한 출구를 기다립니다.');
     while(night()||!enabled()||!clear(base.outside,12)){
-      s.check();if(!verified()||actual(base.door)?.getProperties().open!==false)throw new ConditionWait('야간 거점의 벽·지붕과 닫힌 문 상태가 바뀌었습니다.',s.checkpoint);
-      if(b.food<18&&enabled())try{await eat?.();}catch(error){s.check();if(!(error instanceof ConditionWait))throw error;s.checkpoint.nightBaseFoodWait=error.message;}await s.pause(1000);
+      s.check();if(!verified())throw new ConditionWait('야간 거점의 벽·지붕 상태가 바뀌었습니다.',s.checkpoint);
+      if(actual(base.door)?.getProperties().open!==false)await withWarehouseDoor(s,()=>door(false));
+      if(b.food<18&&enabled())try{await eat?.();}catch(error){s.check();if(!(error instanceof ConditionWait))throw error;s.checkpoint.nightBaseFoodWait=error.message;}s.progress('창고 야간 대피','완공한 창고 안에서 출입문을 닫고 실제 낮과 안전한 출구를 기다립니다.');await s.pause(1000);
     }
     setPhase('opening');
   }
   if(phase==='opening'){
     while(night()||!enabled()||!clear(base.outside,12)){s.check();await s.pause(1000);}
-    await s.near(vector(base.inside).offset(.5,0,.5),0);await stable();
-    await door(true);await crossOpenDoor(s,base.door,base.outside,enabled,()=>clear(b.entity.position,12));await stable();await centerSupportedCell(b,s);await door(false);await stable();
+    if(inside())await s.near(vector(base.inside).offset(.5,0,.5),0);await stable();
+    await withWarehouseDoor(s,async()=>{if(inside()){await door(true);await crossOpenDoor(s,base.door,base.outside,enabled,()=>clear(b.entity.position,12));await stable();await centerSupportedCell(b,s);}else if(vector(walkingFeet(b)).distanceTo(vector(base.outside))>1)throw new ConditionWait('보존한 거점 출구의 실제 도착을 확인해야 합니다.',s.checkpoint);await door(false);await stable();});
     setPhase('done');s.checkpoint.nightBasePending=false;s.observations.push(s.observeInventory());
     s.progress('창고 야간 대피 종료','실제 낮에 안전한 출구로 나와 출입문을 닫고 보존한 작업을 재개합니다.');
   }

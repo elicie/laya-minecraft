@@ -1,0 +1,69 @@
+{
+  "model": "qwen35-base-v7-20261016",
+  "base": "Qwen/Qwen3.5-9B",
+  "parent": "qwen35-base-v6-20261016",
+  "optimizerSteps": 121,
+  "trainRows": 964,
+  "calibrationRows": 96,
+  "trainableParameters": 18481152,
+  "weightSquaredDeltaFromParent": 0.2591685865991167,
+  "adapterSha256": "8c91fd176dab38ac2204e449109ca817ffcaf74e30d0c497cf3e4ed548c548c8",
+  "freshOriginals": {
+    "training": 36,
+    "calibration": 12,
+    "evaluation": 24,
+    "source": "controlled observations on disposable25566, not production or human annotation"
+  },
+  "rawBefore": {
+    "correct": 213,
+    "total": 216,
+    "illegal": 3,
+    "accuracy": 0.9861111111111112
+  },
+  "rawAfter": {
+    "correct": 216,
+    "total": 216,
+    "illegal": 0,
+    "accuracy": 1.0
+  },
+  "broadEvaluationApproved": true,
+  "broadBaseAccuracy": {
+    "correct": 216,
+    "total": 216,
+    "illegal": 0,
+    "accuracy": 1.0
+  },
+  "normalizedProfileApproved": true,
+  "normalizedEvaluation": {
+    "correct": 216,
+    "total": 216,
+    "illegal": 0,
+    "accuracy": 1.0
+  },
+  "deploymentProfile": "audited-normalized-base-v1",
+  "knownRegressionRaw": {
+    "correct": 161,
+    "total": 161,
+    "illegal": 0,
+    "accuracy": 1.0
+  },
+  "knownRegressionNormalized": {
+    "correct": 161,
+    "total": 161,
+    "illegal": 0,
+    "accuracy": 1.0
+  },
+  "legacyBefore": {
+    "correct": 737,
+    "total": 738,
+    "illegal": 0,
+    "accuracy": 0.9986449864498645
+  },
+  "legacyAfter": {
+    "correct": 737,
+    "total": 738,
+    "illegal": 0,
+    "accuracy": 0.9986449864498645
+  },
+  "note": "새 제어 관측 원본 24개와 문항 변형 192개에서 원문 213/216→216/216, 허용 밖 선택 3→0. 과거 별도 거점 회귀 161/161, 기존 평가 737/738 유지. 검증한 문구·선택지 순서와 별칭만 지원하며 임의의 새 질문은 지원 범위가 아닙니다. 입력 정규화 효과는 가중치 학습 성과와 별도로 평가했습니다."
+}

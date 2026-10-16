@@ -8,6 +8,7 @@ import type {
 import { BotDetail } from "./components/BotDetail";
 import { BlueprintManager } from "./components/BlueprintManager";
 import { Events } from "./components/Events";
+import {OperationsPanel} from "./components/OperationsPanel";
 import { BotForm, GoalForm, RulesForm, VillageForm } from "./components/Forms";
 import { VillageMap } from "./components/VillageMap";
 import { PreparationProgress } from "./components/PreparationProgress";
@@ -407,6 +408,7 @@ export function App() {
             icon={<Radio size={24} />}
           />
         </div>
+        <OperationsPanel />
         <div className="main-grid">
           <div className="main-column">
             <VillageMap
