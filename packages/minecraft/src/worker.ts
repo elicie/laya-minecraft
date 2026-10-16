@@ -553,9 +553,12 @@ export class MinecraftWorker {
       this.combatWait = undefined;
       if (!this.local && !this.active) { this.mode = this.recoveryPending() ? 'recovering' : 'idle'; this.action = '대기'; this.reason = '위협 이탈과 현재 지면의 안전을 실제로 확인했습니다.'; this.message('bot.status', this.report()); }
     }
-    if (this.combatWait && !enemies.length) {
+    if (this.combatWait && !enemies.length && !this.survivalUrgent()) {
       // The enemy leaving is a real change, but an edge remains unsafe. Use
       // the same bounded, observed exit rather than keeping an orphaned gate.
+      // Critical hunger/health recovery must run first: the footing gate
+      // itself requires health above retreatHealth and cannot heal the actor.
+      // Keep combatWait intact until actual recovery proves it safe.
       if (!this.local && this.launch.config.enabled && this.now() >= this.combatWait.retryAt && this.combatWait.fingerprint !== this.combatFingerprint()) this.startLocal(async s => {
         if (!await leaveRecoveryEdge(this.bot, s, () => this.now()) || !recoverySafe(this.bot, this.launch.rules.combat.retreatHealth)) throw new ConditionWait(String((s.checkpoint.recoverySafety as JsonObject | undefined)?.reason ?? '현재 발판에서 안전한 지면으로 벗어날 경로를 기다립니다.'), s.checkpoint);
         this.combatWait = undefined; this.lastHitAt = 0; this.hitSource = undefined;
