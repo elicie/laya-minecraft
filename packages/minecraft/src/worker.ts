@@ -606,6 +606,15 @@ export class MinecraftWorker {
         return;
       }
     }
+    // Optional reserve provisioning must not keep a restored body's stale
+    // death-safety gate unresolved. Prove the current ground first, without
+    // altering either recovery record or any spent search allowance.
+    if(this.launch.config.enabled&&this.recoveryPending()&&foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint)){
+      if(this.local?.mode==='survival'){
+        if(!this.local.controller.signal.aborted){const life=this.life;void this.stopLocal().then(()=>{if(life===this.life&&this.ready&&!this.stopping)this.recoverDeath();});}
+      }else if(!this.local)this.recoverDeath();
+      return;
+    }
     if (this.local) return;
     const urgentSurvival = this.survivalUrgent() && !(this.active && foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint,this.active.message.payload.task));
     if(this.launch.config.enabled&&(!this.recovery||this.recovery.phase==='resolved')&&(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)){

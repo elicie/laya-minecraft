@@ -301,3 +301,18 @@ test('reserve return exception cannot bypass injury, low hunger, a sealed shelte
     } finally { await f.worker.shutdown(); }
   }
 });
+
+test('restored reserve provisioning proves stale death footing safe before starting food search or a base return', async () => {
+  const budget = { destinationsUsed: 13, elapsedMs: 180000 }, now = Date.now();
+  const f = fixture({ health: 20, food: 18, warehouse: reserveWarehouse, baseShelter: reserveShelter, restore: { startedAt: 1, targetHealth: 20, checkpoint: { expeditionFoodTarget: 19, resourceRecovery: { $food: budget } } }, recovery: { deathId: 'old-resolved-life', occurredAt: now - 1000000, world: reserveWarehouse.world, dimension: reserveWarehouse.dimension, priorInventory: [], phase: 'resolved', reason: 'prior footing', attemptCount: 0, progress: { recoveredCount: 0, remainingCount: 0 }, safe: false, updatedAt: now, checkpoint: { recoverySafety: { reason: 'prior body footing', status: 'waiting' } } }, ensureFood: s => s.pause(120000) });
+  // This is the unit fixture's fake world, not a patched library instance.
+  Object.assign(f.bot, { blockAt: (p: Vec3) => ({ name: p.y < 64 ? 'dirt' : 'air', position: p, boundingBox: p.y < 64 ? 'block' : 'empty', shapes: p.y < 64 ? [[0, 0, 0, 1, 1, 1]] : [] }) });
+  try {
+    f.worker.pollSafety(); await settle();
+    assert.ok(f.messages.some(m => m.type === 'bot.recovery' && m.payload.safe), 'Current observed ground must clear the old safety gate.');
+    assert.equal(f.foodAttempts, 0);
+    await f.worker.receive(f.envelope('task.assign', { task: reserveHome, checkpoint: {}, rulesVersion: f.launch.rules.version }, { taskId: reserveHome.id, attemptId: 'safe-reserve-return' }));
+    assert.equal(f.executions, 1);
+    assert.deepEqual((status(f.messages).survivalRecovery!.checkpoint.resourceRecovery as JsonObject).$food, budget);
+  } finally { await f.worker.shutdown(); }
+});
