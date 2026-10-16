@@ -88,6 +88,15 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 
 API prefix는 /api/v1입니다. GET /snapshot과 SSE GET /stream이 동일한 전체 상태 형식을 사용합니다. SSE event 종류는 snapshot, event, command입니다. GET /events는 보존 중인 로그 조회입니다.
 
+UI는 `GET /snapshot?view=dashboard`와 `GET /stream?view=dashboard`를 사용합니다.
+동일한 `FleetSnapshotSchema` 형식으로 모든 목표와 작업·시도 식별자를 유지하되
+복구용 체크포인트와 시도 결과의 상세 증거는 화면 응답에서 제외합니다.
+진행 표시용 체크포인트, 유효 기간 내 관측과 최근 이벤트 200개를 전달합니다.
+원본 전체 API, SQLite 체크포인트와 30일 기록 보존에는 영향을 주지 않습니다.
+화면 응답은 `Accept-Encoding`에 따라 gzip을 지원하며 SSE는 프레임마다
+flush합니다. 수신이 밀리면 전송 중 프레임 하나와 최신 현황 하나를 유지하고,
+이벤트 대기열은 256개·512KiB, 연속 전송 대기는 30초로 제한합니다.
+
 명령 API는 봇 등록과 제거, 역할과 정지 상태 변경, 목표 해석과 등록·수정·취소, 마을과 규칙 변경을 제공합니다. 목표 해석은 실행을 시작하지 않고 구조화된 미리보기를 반환합니다. 목표 등록은 기본 예약이며 명시적인 executionMode로 즉시 전환할 수 있습니다.
 
 `GET /blueprints`는 저장한 설계도를 조회하고, `POST /blueprints`, `PATCH /blueprints/:id`, `DELETE /blueprints/:id`는 생성·수정·삭제를 요청합니다. 수정은 이름·템플릿·크기·목재·재료·가구를 포함한 전체 편집 정의를 받으며 버전과 식별자는 중앙이 부여합니다. 설계도 목록은 전체 상태의 `blueprints`에도 포함되고 기존 체크포인트에 목록이 없으면 빈 목록으로 복원합니다. 기본 템플릿은 수정하지 않습니다.
