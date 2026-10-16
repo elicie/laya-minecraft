@@ -6,18 +6,18 @@ import type { Bot } from 'mineflayer';
 import type { Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
-import { WorkerLaunchSchema, WorkerMessageSchema, type ContainerRef, type JsonObject, type ObservationInput, type ResultPayload, type RecoveryState, type SurvivalRecovery, type TaskSpec, type WorkerMessage } from '../packages/contracts/src';
+import { WorkerLaunchSchema, WorkerMessageSchema, type BaseShelter, type ContainerRef, type JsonObject, type ObservationInput, type ResultPayload, type RecoveryState, type SurvivalRecovery, type TaskSpec, type WorkerMessage } from '../packages/contracts/src';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { foodRecoveryFingerprint, type FoodRecoveryKnowledge } from '../packages/minecraft/src/worker-recovery';
 import { ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 import { ResourceRecovery } from '../packages/minecraft/src/resource-recovery';
 
-function fixture(options: { health?: number; food?: number; restore?: SurvivalRecovery; recovery?: RecoveryState; warehouse?: ContainerRef; ensureFood?(s: ActionServices): Promise<void> } = {}) {
+function fixture(options: { health?: number; food?: number; restore?: SurvivalRecovery; recovery?: RecoveryState; warehouse?: ContainerRef; baseShelter?: BaseShelter; ensureFood?(s: ActionServices): Promise<void> } = {}) {
   const events = new EventEmitter(), messages: WorkerMessage[] = [], items: { name: string; count: number }[] = [];
   let now = Date.now(), executions = 0, foodAttempts = 0, foodRunning = false, overlap = false, retreats = 0, warehouseObservations = 0;
   const cells = new Map<string, { name: string; age?: number }>(), warehouseItems: { name: string; count: number }[] = [];
-  const launch = WorkerLaunchSchema.parse({ botId: 'health', sessionId: 'session', controllerEpoch: 'epoch', config: { name: 'HealthWorker' }, rules: { world: '127.0.0.1:25566', warehouse: options.warehouse ?? null }, ...(options.restore ? { restoreSurvivalRecovery: options.restore } : {}),...(options.recovery?{restoreRecovery:options.recovery}:{}) });
+  const launch = WorkerLaunchSchema.parse({ botId: 'health', sessionId: 'session', controllerEpoch: 'epoch', config: { name: 'HealthWorker' }, rules: { world: '127.0.0.1:25566', warehouse: options.warehouse ?? null, baseShelter: options.baseShelter ?? null }, ...(options.restore ? { restoreSurvivalRecovery: options.restore } : {}),...(options.recovery?{restoreRecovery:options.recovery}:{}) });
   const bot = Object.assign(events, { health: options.health ?? 20, food: options.food ?? 20, game: { dimension: 'overworld' }, entity: { id: 1, position: new Vec3(0, 64, 0) }, entities: {} as Record<number, Entity>, players: {},
     inventory: { items: () => items, slots: Array.from({ length: 46 }, () => null) },
     pathfinder: { setGoal() {}, setMovements() {}, thinkTimeout: 0 }, findBlocks() { return []; },
@@ -269,4 +269,35 @@ test('shelter waits watch real dusk, twenty-block threats and a displaced body w
   const threat={id:2,name:'zombie',position:new Vec3(15,64,0)} as unknown as Entity;f.bot.entities[2]=threat;const near=fp();assert.notEqual(near,night);threat.position=new Vec3(21,64,0);assert.equal(fp(),night);
   f.bot.time.timeOfDay=1000;f.bot.time.isDay=true;const day=fp();assert.notEqual(day,night);f.bot.entity.position=new Vec3(5,64,0);assert.equal(fp(),day);f.bot.entity.position=new Vec3(7,64,0);const moved=fp();assert.notEqual(moved,day);f.bot.entity.position=new Vec3(9,64,0);assert.equal(fp(),moved);
  }finally{await f.worker.shutdown();}
+});
+
+
+const reserveWarehouse: ContainerRef = { id: 'reserve-base', world: '127.0.0.1:25566', dimension: 'overworld', position: { x: 2, y: 64, z: 0 } };
+const reserveShelter: BaseShelter = { warehouseId: reserveWarehouse.id, world: reserveWarehouse.world, dimension: reserveWarehouse.dimension, door: { x: 1, y: 64, z: 0 }, outside: { x: 0, y: 64, z: 0 }, inside: { x: 2, y: 64, z: 0 }, blocks: Array.from({ length: 16 }, (_, x) => ({ position: { x, y: 63, z: 0 }, name: 'stone' })) };
+const reserveHome: TaskSpec = { id: 'reserve-home', goalId: 'reserve-goal', kind: 'home', params: { position: reserveShelter.inside, radius: 1, basePassage: 'inside' }, completion: { kind: 'position', position: reserveShelter.inside, radius: 1 }, dependencies: [], reservationKeys: [] };
+
+test('healthy reserve provisioning yields to an exact registered-base return while retaining its food budget', async () => {
+  const budget = { destinationsUsed: 13, elapsedMs: 180000 };
+  const f = fixture({ health: 20, food: 18, warehouse: reserveWarehouse, baseShelter: reserveShelter, restore: { startedAt: 1, targetHealth: 20, checkpoint: { expeditionFoodTarget: 19, resourceRecovery: { $food: budget } } }, ensureFood: s => s.pause(120000) });
+  try {
+    f.worker.pollSafety(); await settle(); assert.equal(f.foodAttempts, 1);
+    await f.worker.receive(f.assign('ordinary-building-rejected')); assert.equal(f.executions, 0);
+    await f.worker.receive(f.envelope('task.assign', { task: reserveHome, checkpoint: {}, rulesVersion: f.launch.rules.version }, { taskId: reserveHome.id, attemptId: 'reserve-return' }));
+    await settle(); f.worker.pollSafety(); await settle();
+    assert.equal(f.executions, 1); assert.equal(f.overlap, false); assert.equal(f.foodAttempts, 1);
+    assert.equal(f.messages.some(m => m.type === 'task.interrupted' && m.attemptId === 'reserve-return'), false);
+    assert.deepEqual((status(f.messages).survivalRecovery!.checkpoint.resourceRecovery as JsonObject).$food, budget);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('reserve return exception cannot bypass injury, low hunger, a sealed shelter or an unrelated destination', async () => {
+  for (const mode of ['injured', 'hungry', 'sealed', 'elsewhere'] as const) {
+    const f = fixture({ health: mode === 'injured' ? 19 : 20, food: mode === 'hungry' ? 17 : 18, warehouse: reserveWarehouse, baseShelter: reserveShelter, restore: { startedAt: 1, targetHealth: 20, checkpoint: { expeditionFoodTarget: 19, ...(mode === 'sealed' ? { nightBurrowPending: true } : {}) } } });
+    try {
+      const task = mode === 'elsewhere' ? { ...reserveHome, params: { ...reserveHome.params, position: { x: 200, y: 64, z: 200 } } } : reserveHome;
+      await f.worker.receive(f.envelope('task.assign', { task, checkpoint: {}, rulesVersion: f.launch.rules.version }, { taskId: task.id, attemptId: mode }));
+      assert.equal(f.executions, 0, mode);
+      assert.ok(f.messages.some(m => m.type === 'task.rejected' && m.attemptId === mode));
+    } finally { await f.worker.shutdown(); }
+  }
 });

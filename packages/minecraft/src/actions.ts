@@ -8,7 +8,7 @@ import { ActionFailure, ConditionWait, checkAbort, pause, type ActionServices } 
 import { inventory, inventoryObservation, observationBase, position, vector,walkingFeet } from './observations';
 import { assessCombat, combatEquipment, rangedThreat, HUNTABLE, HOSTILES } from './combat-policy';
 import { retreatToSafety, safeCombatRoute, visibleRangedThreat, visibleThreat } from './combat-retreat';
-import { deferBuildWindows, exploreBuildSite } from './village-actions';
+import { buildTemplate, deferBuildWindows, exploreBuildSite } from './village-actions';
 import { ResourceRecovery, resourceClearance, safeResourceStand, safeResourceRoute } from './resource-recovery';
 import { approachKnownBase, beginResourceTrip, recordResourceTripPosition, resourceTrip, returnFromResourceTrip, resumeResourceTrip, walkTripSteps } from './resource-trip';
 import {settleWarehouseThreshold} from './base-threshold';
@@ -1004,19 +1004,25 @@ export class MineflayerExecutor {
     s.checkpoint.resourceRecoveryScope = '$food';
     let waiting: ConditionWait | undefined;
     try {
-      const warehouseStarted = Date.now();
-      try { if (await this.warehouseFood(s)) return; }
-      catch (error) {
-        s.check(); if (!(error instanceof ConditionWait)) throw error;
-        const container = s.rules.warehouse, feet = vector(this.bot.entity.position).floored();
-        const positions = [position(feet), position(feet.offset(0, 1, 0)), position(feet.offset(0, -1, 0)), ...(container ? [container.position] : [])];
-        const blocks = positions.flatMap(p => { const actual = this.bot.blockAt(vector(p)); return actual ? [{ position: p, name: actual.name }] : []; });
-        s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks } });
-        waiting = new ConditionWait(error.message, { ...error.checkpoint, resourcePositions: positions });
-      }
-      const warehouseElapsed = Math.max(0, Date.now() - warehouseStarted);
+      let warehousePosition: Vec3 | undefined, warehouseElapsed = 0;
+      const checkWarehouse = async (): Promise<boolean> => {
+        warehousePosition = vector(this.bot.entity.position); const started = Date.now();
+        try { return await this.warehouseFood(s); }
+        catch (error) {
+          s.check(); if (!(error instanceof ConditionWait)) throw error;
+          const container = s.rules.warehouse, feet = vector(this.bot.entity.position).floored();
+          const positions = [position(feet), position(feet.offset(0, 1, 0)), position(feet.offset(0, -1, 0)), ...(container ? [container.position] : [])];
+          const blocks = positions.flatMap(p => { const actual = this.bot.blockAt(vector(p)); return actual ? [{ position: p, name: actual.name }] : []; });
+          s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'blocks', data: { blocks } });
+          waiting = new ConditionWait(error.message, { ...error.checkpoint, resourcePositions: positions });
+          return false;
+        } finally { warehouseElapsed += Math.max(0, Date.now() - started); }
+      };
       for (let round = 0; ; round++) {
         s.check();
+        // A blocked base approach belongs to its actual viewpoint. Recheck
+        // after real exploration, retaining both food and return allowances.
+        if ((!warehousePosition || warehousePosition.distanceTo(vector(this.bot.entity.position)) >= 8) && await checkWarehouse()) return;
         const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
         const evaluation: RecipeEvaluation = { remaining: 1024, table, recipes: new Map(), sources: new Map(), costs: new Map(), resourceNames: new Set() };
         const candidates = [...foodNames].filter(item => {
@@ -1033,7 +1039,7 @@ export class MineflayerExecutor {
         if (recovery.state.foodJourney && !this.options.config.enabled) {
           recovery.pauseFoodJourney(); throw recovery.wait('식량 원정의 이동 기록을 보존하고 일시정지했습니다.');
         }
-        if (round === 0) recovery.state.elapsedMs = Math.min(recovery.timeLimit + 20000, recovery.state.elapsedMs + warehouseElapsed);
+        recovery.state.elapsedMs = Math.min(recovery.timeLimit + 20000, recovery.state.elapsedMs + warehouseElapsed); warehouseElapsed = 0;
         for (const { item } of candidates.slice(0, 5)) {
           if (!recovery.state.foodJourney && recovery.state.elapsedMs >= recovery.timeLimit) break;
           const started = Date.now();
@@ -1233,7 +1239,7 @@ export class MineflayerExecutor {
           // A resumed material expedition may be hundreds of blocks from the
           // entrance. Finish that saved trip before the building asks to approach.
           const pending=resourceTrip(s.checkpoint);
-          if(pending&&pending.item==='cobblestone'&&pending.minimum>8&&s.checkpoint.buildStage==='foundation'&&task.completion.kind==='blocks'&&['cabin','house','warehouse'].includes(String(task.params.design??task.params.blueprint))){
+          if(pending&&pending.item==='cobblestone'&&pending.minimum>8&&s.checkpoint.buildStage==='foundation'&&task.completion.kind==='blocks'&&['cabin','house','warehouse'].includes(buildTemplate(task)??'')){
             s.checkpoint.foundationBatchAdjustment={from:pending.minimum,to:8,observedAt:Date.now()};pending.minimum=8;s.checkpoint.resourceTrip=pending as unknown as typeof s.checkpoint;
           }
           if(pending&&pending.phase!=='complete'){

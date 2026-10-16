@@ -57,9 +57,15 @@ function observedBlocks(s: ActionServices, blocks: ExpectedBlock[]): ExpectedBlo
   });
 }
 
+/** Resolve the pinned definition as well as catalog names for build policies. */
+export function buildTemplate(task: TaskSpec): string | undefined {
+  try { return resolveBlueprint(String(task.params.design ?? task.params.blueprint ?? ''), task.params.blueprintDefinition).template; }
+  catch { return undefined; }
+}
+
 /** Finish the usable shell before repeating an already failed window expedition. */
 export function deferBuildWindows(task: TaskSpec, s: ActionServices, item: string): boolean {
-  if (!['glass', 'glass_pane'].includes(item) || count(s, item) > 0 || !['cabin', 'house', 'warehouse'].includes(String(task.params.design ?? task.params.blueprint))) return false;
+  if (!['glass', 'glass_pane'].includes(item) || count(s, item) > 0 || !['cabin', 'house', 'warehouse'].includes(buildTemplate(task) ?? '')) return false;
   const blocks = task.completion.kind === 'blocks' ? task.completion.blocks : [];
   if (!blocks.some(b => !['glass', 'glass_pane'].includes(b.name) && at(s, b.position)?.name !== b.name)) return false;
   const trip = resourceTrip(s.checkpoint);

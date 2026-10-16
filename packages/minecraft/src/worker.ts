@@ -5,7 +5,7 @@ import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import type { Entity } from 'prismarine-entity';
 import { Vec3 } from 'vec3';
 import {
-  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PositionSchema, PROTOCOL_VERSION, survivalRecoveryNeeded,
+  BuildWaitingForSchema, CentralMessageSchema, WorkerLaunchSchema, WorkerMessageSchema, PositionSchema, PROTOCOL_VERSION, survivalRecoveryNeeded, foodReserveReturnAllowed,
   type ActionKind, type AssignmentBlock, type BotReport, type BuildWaitingFor, type CentralMessage, type ItemStack, type JsonObject, type Position, type RecoveryState, type ResultPayload, type SurvivalRecovery, type WorkerLaunch, type WorkerMessage,type ObservationInput,
 } from '../../contracts/src';
 import { MineflayerExecutor, EXECUTABLE_ACTIONS, type ExecutorOptions } from './actions';
@@ -385,7 +385,7 @@ export class MinecraftWorker {
     if (!this.launch.config.enabled) return 'paused';
     if (this.active) return 'busy';
     if (this.emergencyActive()) return 'emergency';
-    if (this.survivalUrgent()||this.nightWorkBlocked()) return 'survival';
+    if (this.survivalUrgent()&&!foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint,message.payload.task)||this.nightWorkBlocked()) return 'survival';
     if (this.recoveryPending()) return 'recovery';
     if (message.payload.rulesVersion !== this.launch.rules.version) return 'rules';
   }
@@ -607,7 +607,7 @@ export class MinecraftWorker {
       }
     }
     if (this.local) return;
-    const urgentSurvival = this.survivalUrgent();
+    const urgentSurvival = this.survivalUrgent() && !(this.active && foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint,this.active.message.payload.task));
     if(this.launch.config.enabled&&(!this.recovery||this.recovery.phase==='resolved')&&(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)){
       // A restored body can be deliberately below ground or behind a closed
       // door. Finish that shelter's verified exit before generic death-recovery

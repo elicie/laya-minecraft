@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { RecoveryStateSchema, WorkerLaunchSchema, WorkerMessageSchema, type Position } from '../packages/contracts/src';
+import { blueprintPreset } from '../packages/contracts/src/blueprint-catalog';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ResourceRecovery, foodSearchCanExpand, reconcileResourceJourneys, safeResourceStand, safeResourceRoute } from '../packages/minecraft/src/resource-recovery';
 import { observedGroundRoute } from '../packages/minecraft/src/observed-ground-walk';
@@ -277,11 +278,12 @@ test('a four-hundred-block food displacement gets one distance-based return allo
   const approach=f.services.checkpoint.resourceTripApproach as {moves:number;maxMoves:number;maxElapsedMs:number;origin:{x:number}};assert.equal(approach.origin.x,400);assert.equal(approach.maxMoves,31);assert.equal(approach.maxElapsedMs,260000);assert.equal(f.services.checkpoint.resourceTripInterruptedLives,undefined);assert.equal((f.services.checkpoint.resourceTripDisplacements as unknown[]).length,1);assert.ok((f.services.checkpoint.resourceTripApproach as {moves:number}).moves>12);assert.equal((f.services.checkpoint.resourceRecovery as {sand:{elapsedMs:number}}).sand.elapsedMs,60000);
 });
 
-test('a resumed foundation lowers its carried target to eight while retaining its original route and budgets',async()=>{
+for(const registered of [false,true])test(`a resumed ${registered?'registered':'preset'} foundation lowers its carried target to eight while retaining its original route and budgets`,async()=>{
   const f=fixture();f.bot.health=20;f.bot.food=20;await beginResourceTrip(f.services,'cobblestone',35);await f.services.near({x:24.5,y:64,z:.5});await recordResourceTripPosition(f.services);
   f.stock.set('cobblestone',8);f.services.checkpoint.buildStage='foundation';f.services.checkpoint.resourceRecovery={sand:{destinationsUsed:5,elapsedMs:60000}};
   f.executor.options.villageTask=async(_task,s)=>{assert.equal(resourceTrip(s.checkpoint)!.minimum,8);assert.equal(resourceTrip(s.checkpoint)!.phase,'complete');assert.ok(f.bot.entity.position.distanceTo(new Vec3(.5,64,.5))<1);return{outcome:'partial',checkpoint:s.checkpoint,observations:s.observations,evidence:[]};};
-  const result=await f.executor.execute({id:'small-floor',goalId:'warehouse',kind:'build',params:{materialExpedition:true,design:'warehouse'},completion:{kind:'blocks',blocks:[{position:{x:0,y:64,z:8},name:'cobblestone'}]},dependencies:[],reservationKeys:[]},f.services);
+  const definition=registered?{...blueprintPreset('warehouse'),id:'128787ca-e9c5-48b9-9e63-76b956839ada',version:1,createdAt:1,updatedAt:1}:undefined;
+  const result=await f.executor.execute({id:'small-floor',goalId:'warehouse',kind:'build',params:{materialExpedition:true,blueprint:definition?.id??'warehouse',...(definition?{blueprintDefinition:definition}:{})},completion:{kind:'blocks',blocks:[{position:{x:0,y:64,z:8},name:'cobblestone'}]},dependencies:[],reservationKeys:[]},f.services);
   assert.equal(result.outcome,'partial');assert.equal(f.stock.get('cobblestone'),8);assert.equal(f.dug.length,0);assert.equal((f.services.checkpoint.resourceRecovery as {sand:{elapsedMs:number}}).sand.elapsedMs,60000);assert.equal((f.services.checkpoint.foundationBatchAdjustment as {from:number}).from,35);
 });
 

@@ -4,6 +4,7 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { DEFAULT_RULES, type ExpectedBlock, type JsonObject, type Position, type TaskSpec } from '../packages/contracts/src';
 import { blueprint, materialRequirements } from '../packages/contracts/src/blueprints';
+import { blueprintPreset } from '../packages/contracts/src/blueprint-catalog';
 import { executeVillageTask } from '../packages/minecraft/src/village-actions';
 import { ActionFailure, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 
@@ -152,8 +153,11 @@ test('a partial small-design preparation uses confirmed materials while preservi
   assert.deepEqual((result.checkpoint.resourceRecovery as JsonObject).sand, budget);
 });
 
-test('a failed zero-stock window expedition permits the entire usable warehouse shell but never claims its missing windows are complete', async () => {
-  const blocks = blueprint('warehouse', { x: 0, y: 1, z: 0 }), f = fixture(blocks, { capacity: 36 }); f.task.params.design = 'warehouse';
+for (const registered of [false, true]) test(`a failed zero-stock window expedition permits the entire usable ${registered ? 'registered' : 'preset'} warehouse shell but never claims its missing windows are complete`, async () => {
+  const definition = registered ? { ...blueprintPreset('warehouse'), id: '128787ca-e9c5-48b9-9e63-76b956839ada', version: 1, createdAt: 1, updatedAt: 1 } : undefined;
+  const design = definition?.id ?? 'warehouse';
+  const blocks = blueprint(design, { x: 0, y: 1, z: 0 }, 'oak', definition), f = fixture(blocks, { capacity: 36 }); f.task.params.blueprint = design;
+  if (definition) f.task.params.blueprintDefinition = definition;
   const trip = { item: 'glass_pane', minimum: 3, home: { x: 3, y: 1, z: -1 }, trail: [{ x: 3, y: 1, z: -1 }], phase: 'complete', returns: 1, failure: 'Actual sand search failed' };
   f.s.checkpoint.resourceTrip = trip;
   const budget = { destinationsUsed: 5, elapsedMs: 60000, status: 'exhausted' }; f.s.checkpoint.resourceRecovery = { sand: budget };

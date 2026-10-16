@@ -354,3 +354,22 @@ for (const extra of [{ started: true }, { code: 'ACTION_FAILED' }, { retryable: 
   assert.equal(f.restored.getSnapshot().tasks[0]!.state, 'held'); assert.equal(f.sent.some(m => m.type === 'task.assign'), false);
   assert.equal(f.restored.getSnapshot().tasks[0]!.retryCount, 5);
 });
+
+test('reserve provisioning schedules only the exact registered-base home and keeps ordinary and unsafe work blocked', () => {
+  for (const mode of ['reserve', 'injured', 'hungry', 'sealed', 'ordinary-recovery'] as const) {
+    const sent: CentralMessage[] = [], warehouse = { id: 'reserve-warehouse', world, dimension, position: { x: 2, y: 64, z: 0 } };
+    const base = { warehouseId: warehouse.id, world, dimension, inside: warehouse.position, outside: { x: 0, y: 64, z: 0 }, door: { x: 1, y: 64, z: 0 }, blocks: Array.from({ length: 16 }, (_, x) => ({ position: { x, y: 63, z: 0 }, name: 'stone' })) };
+    const core = new FleetController({ controllerEpoch: 'reserve-epoch', now: () => 100000, send: (_id, message) => sent.push(message), rules: { world, dimension, warehouse, baseShelter: base, autonomyEnabled: false } });
+    core.addAgent({ id: 'reserve-bot', name: 'ReserveBot', allowedActions: ['home', 'collect'] }); core.startSession('reserve-bot', 'reserve-session');
+    const report = { ready: true, world, dimension, position: { x: 200, y: 64, z: 200 }, health: mode === 'injured' ? 19 : 20, food: mode === 'hungry' ? 17 : 18, inventory: [], mode: 'survival', action: '식량 확보', reason: 'reserve provisioning', capabilities: ['home', 'collect'], rulesVersion: core.getSnapshot().rules.version, survivalRecovery: { startedAt: 1, targetHealth: 20, checkpoint: { ...(mode === 'ordinary-recovery' ? {} : { expeditionFoodTarget: 19 }), ...(mode === 'sealed' ? { nightBurrowPending: true } : {}) } } };
+    const receive = (type: string, payload: unknown) => core.receive({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: 'reserve-epoch', sessionId: 'reserve-session', botId: 'reserve-bot', sentAt: 100000, type, payload });
+    receive('bot.ready', report); receive('rules.applied', { version: core.getSnapshot().rules.version });
+    core.createGoal({ kind: 'collect', item: 'oak_log', priority: 100, requiredBotId: 'reserve-bot' });
+    core.createGoal({ kind: 'home', params: { basePassage: 'inside', position: { x: 250, y: 64, z: 250 }, radius: 1 }, requiredBotId: 'reserve-bot', priority: 100 });
+    const goal = core.createGoal({ kind: 'home', params: { basePassage: 'inside', position: base.inside, radius: 1 }, requiredBotId: 'reserve-bot', priority: 90 });
+    const assignments = sent.filter((m): m is Extract<CentralMessage, { type: 'task.assign' }> => m.type === 'task.assign');
+    assert.equal(assignments.length, mode === 'reserve' ? 1 : 0, mode);
+    if (mode === 'reserve') assert.equal(assignments[0]!.payload.task.goalId, goal.id);
+    assert.deepEqual(core.getSnapshot().agents[0]!.survivalRecovery, report.survivalRecovery);
+  }
+});
