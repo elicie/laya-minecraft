@@ -251,6 +251,10 @@ test('restored shelter work reobserves its world once instead of retaining a pre
  const f=fixture({restore:{startedAt:Date.now()-1000,targetHealth:20,checkpoint:{nightBurrowPending:true,nightBurrow:{outside:{x:0,y:64,z:0},direction:{x:1,y:0,z:0},phase:'digging'}},wait:{fingerprint:'old-block-watch',reason:'old threat'}}});
  try{assert.equal(status(f.messages).survivalRecovery!.wait,undefined);assert.equal(status(f.messages).survivalRecovery!.checkpoint.nightBurrowPending,true);}finally{await f.worker.shutdown();}
 });
+for(const version of [1,2])test(`nearby soil shelter capability ${version===1?'reobserves one old refusal':'keeps its already observed refusal'} without replenishing resource work`,async()=>{
+ const f=fixture({health:5,food:17,restore:{startedAt:1,targetHealth:20,checkpoint:{nightShelterUnavailable:true,nightSoilShaftSearchVersion:version,resourceRecovery:{$food:{destinationsUsed:5,elapsedMs:60000}}},wait:{fingerprint:'old-soil-watch',reason:'shallow soil'}}});
+ try{const saved=status(f.messages).survivalRecovery!;assert.equal(saved.checkpoint.nightSoilShaftSearchVersion,2);assert.equal(saved.checkpoint.nightShelterUnavailable,version===1?undefined:true);assert.equal(saved.wait?.fingerprint,version===1?undefined:'old-soil-watch');assert.deepEqual(saved.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});}finally{await f.worker.shutdown();}
+});
 
 test('a healthy new body resolves its physical recovery before resuming an unfinished shelter',async()=>{
  const now=Date.now(),f=fixture({health:20,food:20,recovery:{deathId:'actual-new-body',occurredAt:now-1000,world:'127.0.0.1:25566',dimension:'overworld',priorInventory:[],phase:'recovering',reason:'new body',attemptCount:0,progress:{recoveredCount:0,remainingCount:0},safe:false,updatedAt:now,checkpoint:{}},restore:{startedAt:now-1000,targetHealth:20,checkpoint:{nightBurrowPending:true,nightBurrow:{outside:{x:0,y:64,z:0},direction:{x:1,y:0,z:0},phase:'digging'}}}});

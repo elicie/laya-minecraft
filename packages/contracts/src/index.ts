@@ -82,12 +82,14 @@ export const DEFAULT_RULES: Rules = RulesSchema.parse({});
 export const GoalInputSchema = z.object({
   kind: ActionKindSchema, item: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(1000000).default(1),
   quantityMode: z.enum(['total', 'additional']).default('total'), mode: z.enum(['once', 'maintain']).default('once'),
-  destination: ContainerRefSchema.optional(), preferredBotId: IdSchema.optional(), executionMode: ExecutionModeSchema.default('queued'),
+  destination: ContainerRefSchema.optional(), preferredBotId: IdSchema.optional(), requiredBotId: IdSchema.optional(), completionLocation: z.enum(['warehouse', 'inventory']).optional(), executionMode: ExecutionModeSchema.default('queued'),
   params: JsonObjectSchema.default({}), source: z.enum(['user', 'autonomous']).default('user'),
   title: z.string().min(1).max(500).optional(), priority: z.number().int().min(0).max(100).default(50),
 }).strict().superRefine((g, ctx) => {
   if (['collect', 'store', 'take', 'craft', 'smelt'].includes(g.kind) && !g.item) ctx.addIssue({ code: 'custom', path: ['item'], message: 'An item is required for quantity tasks' });
   if (g.mode === 'maintain' && g.quantityMode === 'additional') ctx.addIssue({ code: 'custom', path: ['quantityMode'], message: 'Maintain goals require a fixed total quantity' });
+  if (g.completionLocation && !(['collect', 'hunt'].includes(g.kind) && g.item)) ctx.addIssue({ code: 'custom', path: ['completionLocation'], message: 'Completion location applies to item collection goals' });
+  if (g.completionLocation === 'inventory' && g.destination) ctx.addIssue({ code: 'custom', path: ['destination'], message: 'Inventory goals cannot have a warehouse destination' });
 });
 export type GoalInput = z.input<typeof GoalInputSchema>;
 export type GoalDefinition = z.output<typeof GoalInputSchema>;
@@ -105,7 +107,7 @@ export const BuildSiteSchema = z.object({ origin: BlockPositionSchema, design: z
 export type BuildSite = z.infer<typeof BuildSiteSchema>;
 export const BuildSitePreparationSchema = BuildSiteSchema.extend({ near: PositionSchema, edits: z.array(z.object({ position: BlockPositionSchema, before: z.string().min(1), after: z.enum(['air', 'dirt']) }).strict()).max(192), path: z.array(BlockPositionSchema).min(1).max(65) }).strict();
 export type BuildSitePreparation = z.infer<typeof BuildSitePreparationSchema>;
-export const MaterialAccessPlanSchema=z.object({edits:z.array(z.object({stand:BlockPositionSchema,position:BlockPositionSchema,before:z.enum(['air','dirt','grass_block','sand','red_sand']),after:z.enum(['air','oak_planks'])}).strict()).min(1).max(24),exit:BlockPositionSchema}).strict();
+export const MaterialAccessPlanSchema=z.object({edits:z.array(z.object({stand:BlockPositionSchema,position:BlockPositionSchema,before:z.enum(['air','dirt','grass_block','sand','red_sand']),after:z.enum(['air','oak_planks','dirt'])}).strict()).min(1).max(24),exit:BlockPositionSchema}).strict();
 export const PreparationVerificationSchema = z.object({ controllerEpoch: IdSchema, sessionId: IdSchema, attemptId: IdSchema, botId: IdSchema, observedAt: time }).strict();
 export const BuildWaitingForSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('blocks'), causeCode: z.enum(['BUILD_SUPPORT', 'BUILD_SITE', 'BUILD_ACCESS', 'BUILD_OBSERVATION']), positions: z.array(BlockPositionSchema).min(1).max(10000), watchPosition: z.boolean().optional(), watchSafety: z.boolean().optional() }).strict(),

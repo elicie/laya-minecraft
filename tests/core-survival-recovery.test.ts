@@ -11,10 +11,11 @@ function fixture(helpers = 0) {
   const core = new FleetController({ controllerEpoch: 'death-epoch', now: () => clock, send: (_id, message) => sent.push(message), rules: { world, dimension, autonomyEnabled: false } });
   const receive = (botId: string, type: string, payload: unknown, task?: Extract<CentralMessage, { type: 'task.assign' }>, overrides = {}) => core.receive({ protocolVersion: 1, messageId: randomUUID(), controllerEpoch: core.controllerEpoch, sessionId: core.getSnapshot().agents.find(a => a.id === botId)?.session?.id, botId, sentAt: clock, type, payload, ...(task ? { taskId: task.taskId, attemptId: task.attemptId } : {}), ...overrides });
   const report = (extra = {}) => ({ ready: true, world, dimension, position: { x: 0.5, y: 64, z: 0.5 }, health: 20, food: 20, inventory: [], action: '대기', reason: 'ready', mode: 'idle', capabilities: ['craft', 'fight', 'build', 'collect'], rulesVersion: core.getSnapshot().rules.version, ...extra });
-  const status = (botId = 'bot', extra = {}) => receive(botId, 'bot.status', report(extra));
-  const ready = (botId = 'bot', extra = {}) => { receive(botId, 'bot.ready', report(extra)); receive(botId, 'rules.applied', { version: core.getSnapshot().rules.version }); };
+  const inventory = (botId: string) => botId.startsWith('helper-') ? [{ name: 'stone_sword', count: 1 }] : [];
+  const status = (botId = 'bot', extra = {}) => receive(botId, 'bot.status', report({ inventory: inventory(botId), ...extra }));
+  const ready = (botId = 'bot', extra = {}) => { receive(botId, 'bot.ready', report({ inventory: inventory(botId), ...extra })); receive(botId, 'rules.applied', { version: core.getSnapshot().rules.version }); };
   core.addAgent({ id: 'bot', name: 'DeathWorker', allowedActions: helpers ? ['build'] : ['craft', 'fight', 'build', 'collect'] }); core.startSession('bot', 'bot-session'); ready();
-  for (let i = 0; i < helpers; i++) { const id = `helper-${i}`; core.addAgent({ id, name: `Helper${i}`, role: i ? 'hunter' : 'guard', allowedActions: ['fight', 'craft'] }); core.startSession(id, `${id}-session`); ready(id); }
+  for (let i = 0; i < helpers; i++) { const id = `helper-${i}`; core.addAgent({ id, name: `Helper${i}`, role: i ? 'hunter' : 'guard', allowedActions: ['fight', 'craft'] }); core.startSession(id, `${id}-session`); ready(id, { inventory: [{ name: 'stone_sword', count: 1 }] }); }
   const assignments = () => sent.filter((m): m is Extract<CentralMessage, { type: 'task.assign' }> => m.type === 'task.assign');
   const death = (id = 'death-1'): DeathRecord => ({ deathId: id, occurredAt: clock, world, dimension, position: { x: 2.5, y: 64, z: 1.5 }, priorInventory: [{ name: 'dirt', count: 10 }, { name: 'wooden_pickaxe', count: 1 }] });
   const recovery = (record = death(), extra: Partial<RecoveryState> = {}): RecoveryState => RecoveryStateSchema.parse({ ...record, phase: 'recovering', reason: '시체 주변 실제 경로를 확인합니다.', attemptCount: 1, progress: { recoveredCount: 0, remainingCount: 11 }, updatedAt: clock, checkpoint: { anchor: record.position, attemptsUsed: 1 }, ...extra });
@@ -83,6 +84,28 @@ test('support without an available helper records the actual constraint once ins
   assert.equal(f.core.getSnapshot().goals.length, 0);
   const events = f.core.getSnapshot().events.filter(e => e.type === 'support.unavailable');
   assert.equal(events.length, 1); assert.match(events[0]!.message, /지원 가능한 봇이 없습니다/);
+});
+
+test('an unarmed guard keeps preparing equipment instead of being interrupted for support', () => {
+  const f = fixture(1); f.status('helper-0', { inventory: [] });
+  f.core.createGoal({ kind: 'craft', item: 'stone_sword', preferredBotId: 'helper-0' });
+  const original = f.assignments()[0]!;
+  f.alert();
+  assert.equal(f.core.getSnapshot().goals.some(g => typeof g.input.params.supportRequestId === 'string'), false);
+  assert.equal(f.sent.some(m => m.type === 'task.cancel' && m.attemptId === original.attemptId), false);
+  f.status('helper-0', { inventory: [{ name: 'stone_sword', count: 1 }] }); f.advance(16000);
+  f.status('helper-0', { inventory: [{ name: 'stone_sword', count: 1 }] }); f.status('bot'); f.alert();
+  assert.equal(f.core.getSnapshot().goals.some(g => typeof g.input.params.supportRequestId === 'string'), true);
+});
+
+test('personal guard equipment cannot be crafted by a different idle bot while its owner is unavailable', () => {
+  const f = fixture(2); f.status('helper-1', { mode: 'emergency' });
+  const goal = f.core.createGoal({ kind: 'craft', item: 'stone_sword', requiredBotId: 'helper-1', preferredBotId: 'helper-0' });
+  assert.equal(f.assignments().length, 0);
+  f.status('helper-1');
+  assert.equal(f.assignments().length, 1); assert.equal(f.assignments()[0]!.botId, 'helper-1');
+  assert.equal(f.assignments()[0]!.payload.task.goalId, goal.id);
+  assert.throws(() => f.core.createGoal({ kind: 'craft', item: 'stone_sword', requiredBotId: 'missing-bot' }));
 });
 
 test('a helper safely preserves its work, attacks the exact requested hostile and resumes its checkpoint', () => {

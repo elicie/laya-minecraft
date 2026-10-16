@@ -88,6 +88,16 @@ function cover(bot: Bot, threat: Entity, feet: Position): boolean {
   return typeof p.x === 'number' && typeof p.y === 'number' && typeof p.z === 'number' && bot.blockAt(vector(p as Position))?.boundingBox === 'block';
 }
 
+/** A distant crossbow behind observed cover must not pin recovery forever.
+ * Nearby enemies, melee threats and unknown/unblocked sight remain unsafe. */
+export function recoveryThreatsClear(bot:Bot,feet:Position):boolean{
+  return !Object.values(bot.entities).some(e=>{
+    if(!HOSTILES.has(e.name??''))return false;
+    const distance=e.position.distanceTo(vector(feet));
+    return distance<20&&!(distance>=12&&rangedThreat(e.name??'')&&cover(bot,e,walkingFeet(bot,feet)));
+  });
+}
+
 export function visibleThreat(bot: Bot, threat: Entity): boolean {
   if (!bot.world || typeof bot.world.raycast !== 'function') return false;
   const eye = vector(threat.position).offset(0, Math.min(threat.height ?? 1.8, 1.6), 0), destination = vector(bot.entity.position).offset(0, 1.5, 0), delta = destination.minus(eye), length = delta.norm();
@@ -109,7 +119,10 @@ export function retreatFingerprint(bot: Bot, checkpoint: JsonObject): string {
   const actual = saved ? Object.values(bot.entities).find(e => (e.uuid ?? `${e.id}`) === saved.threatId) : undefined;
   const p = actual?.position, threat = actual ? `${actual.name}:${Math.floor(p!.x / 2)},${Math.floor(p!.y / 2)},${Math.floor(p!.z / 2)}` : 'absent';
   const probes = saved?.probes.map(probe => { const b = bot.blockAt(vector(probe.position)); return `${key(probe.position)}:${b?.name ?? probe.name}:${b?.stateId ?? probe.stateId ?? ''}`; }).join('|') ?? '';
-  return `${bot.health}:${bot.food}:${JSON.stringify(combatEquipment(bot))}:${threat}:${probes}`;
+  // A preflight can run during a jump. Its distant probe window must not
+  // hide the later observed landing and keep the actor waiting in danger.
+  // Ordinary movement between equally stable cells is not a new allowance.
+  return `${bot.health}:${bot.food}:${JSON.stringify(combatEquipment(bot))}:${threat}:${stableCombatFooting(bot,bot.entity.position)}:${probes}`;
 }
 
 export async function retreatToSafety(bot: Bot, threat: Entity, services: ActionServices, protectedPosition: (p: Position) => boolean): Promise<void> {

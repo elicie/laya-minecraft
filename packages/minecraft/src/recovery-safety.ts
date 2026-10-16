@@ -3,7 +3,7 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { PositionSchema, type JsonObject, type Position } from '../../contracts/src';
 import { HOSTILES } from './combat-policy';
-import { safeCombatRoute, safeCombatStand, stableCombatFooting } from './combat-retreat';
+import { recoveryThreatsClear, safeCombatRoute, safeCombatStand, stableCombatFooting } from './combat-retreat';
 import { ConditionWait, type ActionServices } from './services';
 import { walkingFeet } from './observations';
 import { observedGroundRoute, observedGroundStand } from './observed-ground-walk';
@@ -25,12 +25,12 @@ export async function leaveRecoveryEdge(bot: Bot, s: ActionServices, now: () => 
   const state = parsed.success ? parsed.data : { anchor: plain(walkingFeet(bot)), attempts: 0, elapsedMs: 0, probes: [], status: 'searching' as const, fingerprint: '', reason: '', displacements:[] as {from:Position;to:Position}[] };
   s.checkpoint.recoverySafety = state as unknown as JsonObject;
   const threats = () => Object.values(bot.entities).filter(e => HOSTILES.has(e.name ?? ''));
-  const clear = (p: Position) => !threats().some(e => vector(e.position).distanceTo(vector(p)) < 20);
+  const clear = (p: Position) => recoveryThreatsClear(bot,p);
   const sample = (p: Position) => {
     const q = vector(p).floored(), block = bot.blockAt(q); if (!block) return;
     state.probes = [...state.probes.filter(probe => key(probe.position) !== key(q)), { position: plain(q), name: block.name, ...(typeof block.stateId === 'number' ? { stateId: block.stateId } : {}) }].slice(-128);
   };
-  const fingerprint = () => JSON.stringify({ healthReady: bot.health > s.rules.combat.retreatHealth, foodReady: bot.food > 6,
+  const fingerprint = () => JSON.stringify({ healthReady: bot.health > s.rules.combat.retreatHealth, foodReady: bot.food > 6, coveredCurrentStand:clear(walkingFeet(bot)),
     blocks: state.probes.map(probe => { const actual = bot.blockAt(vector(probe.position)); return [key(probe.position), actual?.name ?? probe.name, actual?.stateId ?? probe.stateId]; }),
     threats: threats().filter(e => vector(e.position).distanceTo(vector(state.anchor)) < 32).map(e => `${e.id}:${Math.floor(e.position.x)},${Math.floor(e.position.y)},${Math.floor(e.position.z)}`).sort() });
   const waiting = (reason: string): false => { state.status = 'waiting'; state.fingerprint = fingerprint(); state.reason = reason; s.progress('안전 지면 대기', reason); return false; };

@@ -7,11 +7,29 @@ import { WorkerLaunchSchema, type TaskSpec } from '../packages/contracts/src';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
 import { preserveMaterialWait } from '../packages/minecraft/src/material-wait';
+import {foodRecoveryFingerprint} from '../packages/minecraft/src/worker-recovery';
 
 function options() {
   const launch = WorkerLaunchSchema.parse({ botId: 'b', sessionId: 's', controllerEpoch: 'e', config: { name: 'ActionBot' }, rules: {} });
   return { config: launch.config, rules: launch.rules, world: launch.rules.world, dimension: () => 'overworld' };
 }
+
+test('an unarmored night food search holds when no shelter is usable and wakes on daylight without a new search budget',async()=>{
+ const f=woodRecipeFixture(['oak']),clock={isDay:false,timeOfDay:13000,doDaylightCycle:true};Object.assign(f.bot,{health:20,food:17,time:clock});
+ class NoShelter extends MineflayerExecutor{override async shelterAtNight(){return false;}}
+ const e=new NoShelter(f.bot as unknown as Bot,options()),s=e.services(new AbortController().signal, {resourceRecovery:{$food:{destinationsUsed:5}}});
+ await assert.rejects(e.ensureFood(s),ConditionWait);assert.equal(f.dug.length,0);assert.equal(s.checkpoint.nightShelterUnavailable,true);assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5}});
+ const knowledge={blocks:new Map()},before=foodRecoveryFingerprint(f.bot as unknown as Bot,s.checkpoint,6,knowledge);clock.timeOfDay=14000;assert.equal(foodRecoveryFingerprint(f.bot as unknown as Bot,s.checkpoint,6,knowledge),before);clock.isDay=true;clock.timeOfDay=0;assert.notEqual(foodRecoveryFingerprint(f.bot as unknown as Bot,s.checkpoint,6,knowledge),before);
+});
+
+test('user construction defaults to bounded material trips and preserves saved search consumption',async()=>{
+ for(const setting of [undefined,true,false]){
+  const f=woodRecipeFixture([]),task:TaskSpec={id:'build',goalId:'build',source:'user',kind:'build',params:setting===undefined?{}:{materialExpedition:setting},completion:{kind:'blocks',blocks:[{position:{x:3,y:64,z:3},name:'cobblestone'}]},dependencies:[],reservationKeys:[]};
+  const executor=new MineflayerExecutor(f.bot as unknown as Bot,{...options(),villageTask:async(_task,s)=>({outcome:'completed',observations:s.observations,evidence:s.evidence,checkpoint:s.checkpoint})});
+  const s=executor.services(new AbortController().signal,{resourceRecovery:{sand:{destinationsUsed:5,elapsedMs:60000}}});await executor.execute(task,s);
+  assert.equal(s.checkpoint.materialExpedition,setting===false?undefined:true);assert.deepEqual(s.checkpoint.resourceRecovery,{sand:{destinationsUsed:5,elapsedMs:60000}});
+ }
+});
 
 function navigation(bot: object, sources: Vec3[] = []) {
   const b = bot as { entity: { position: Vec3 }; blockAt(p: Vec3): { name: string; boundingBox?: string }; };

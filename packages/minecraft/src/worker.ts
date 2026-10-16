@@ -87,6 +87,11 @@ export class MinecraftWorker {
       this.survivalRecovery = structuredClone(launch.restoreSurvivalRecovery);
       Object.assign(this.foodCheckpoint, this.survivalRecovery.checkpoint);
       this.foodWait = (this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)?undefined:this.survivalRecovery.wait && structuredClone(this.survivalRecovery.wait);
+      if(this.foodCheckpoint.nightShelterUnavailable===true&&this.foodCheckpoint.nightSoilShaftSearchVersion!==2){
+        // The old current-cell-only refusal cannot describe the new bounded
+        // search of nearby deeper soil. Reobserve once; retain resource spend.
+        this.foodCheckpoint.nightSoilShaftSearchVersion=2;delete this.foodCheckpoint.nightShelterUnavailable;this.foodWait=undefined;
+      }
       this.foodKnowledge.origin = this.survivalRecovery.knowledge?.origin && structuredClone(this.survivalRecovery.knowledge.origin);
       for (const block of this.survivalRecovery.knowledge?.blocks ?? []) this.foodKnowledge.blocks.set(`${block.position.x},${block.position.y},${block.position.z}`, structuredClone(block));
     }
@@ -588,8 +593,23 @@ export class MinecraftWorker {
         return;
       }
     }
+    // A long-running food search must yield when dusk arrives. It otherwise
+    // bypasses the idle-only night policy until the entire search finishes.
+    if(this.local?.mode==='survival'&&this.launch.config.enabled&&this.foodCheckpoint.nightBurrowPending!==true&&this.foodCheckpoint.nightBasePending!==true&&this.foodCheckpoint.nightShelterUnavailable!==true&&this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot)&&this.bot.health>this.launch.rules.combat.retreatHealth&&['build','collect'].every(action=>this.launch.config.allowedActions.includes(action as ActionKind))){
+      const gear=combatEquipment(this.bot);
+      if(!(gear.weapon&&(gear.shield||gear.armorPoints>=12))){
+        if(!this.local.controller.signal.aborted){const life=this.life;void this.stopLocal().then(()=>{if(life!==this.life||!this.ready||this.stopping||!this.launch.config.enabled)return;this.startLocal(async s=>{if(!await this.executor.shelterAtNight(s))this.foodCheckpoint.nightShelterUnavailable=true;},'survival',this.foodCheckpoint);});}
+        return;
+      }
+    }
     if (this.local) return;
     const urgentSurvival = this.survivalUrgent();
+    if(this.launch.config.enabled&&(!this.recovery||this.recovery.phase==='resolved')&&(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)){
+      // A restored body can be deliberately below ground or behind a closed
+      // door. Finish that shelter's verified exit before generic death-recovery
+      // footing checks, which would otherwise try to leave the sealed room.
+      this.startLocal(async s=>{await this.cancelActive('보존한 은신처의 안전한 종료를 먼저 확인합니다.','task.interrupted');await this.executor.shelterAtNight(s);},'survival',this.foodCheckpoint);return;
+    }
     if (urgentSurvival && this.launch.config.enabled && this.recovery?.phase === 'resolved' && !this.recovery.safe && !this.recovery.checkpoint.recoverySafety && this.bot.health > this.launch.rules.combat.retreatHealth && this.bot.food > 6 && !enemies.length) { this.recoverDeath(); return; }
     if (this.combatWait && !urgentSurvival) { this.action = '지원·안전 경로 대기'; this.reason = this.combatWait.reason; return; }
     if (this.recoveryPending() && (!urgentSurvival||(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)&&!survivalRecoveryNeeded(this.bot.health,this.bot.food,this.launch.rules.combat))) { this.recoverDeath(); return; }
@@ -625,7 +645,7 @@ export class MinecraftWorker {
           this.action = '식량 확보'; this.reason = '기본 생존에 필요한 식량을 확보합니다.';
           if (!await this.executor.eat(s)) {
             await this.executor.ensureFood(s);
-            if (!await this.executor.eat(s)) throw new ConditionWait('확보한 식량의 실제 섭취 조건을 확인해야 합니다.');
+            if (this.bot.food<(s.checkpoint.expeditionFoodTarget===19?19:18)&&!await this.executor.eat(s)) throw new ConditionWait('확보한 식량의 실제 섭취 조건을 확인해야 합니다.');
           }
           await s.pause(250);
         }
@@ -634,7 +654,9 @@ export class MinecraftWorker {
     }
     if (this.active) return;
     const warehouse = this.launch.rules.warehouse;
-    if (this.centralConnected && warehouse && Date.now() - this.lastWarehouseAt > 10000) {
+    // Background stock refresh is local observation, not a new return trip.
+    // Distant work and shelter retain ownership of the actor's movement.
+    if (this.centralConnected && warehouse && this.bot.entity.position.distanceTo(vector(warehouse.position))<=8 && Date.now() - this.lastWarehouseAt > 10000) {
       this.lastWarehouseAt = Date.now();
       this.startLocal(async (s) => {
         const observation = await this.executor.observeContainer(warehouse, s);

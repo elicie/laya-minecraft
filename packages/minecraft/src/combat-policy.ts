@@ -27,7 +27,7 @@ export function assessCombat(state: CombatAssessment, rules: Rules): CombatDecis
   if (state.targetName === 'creeper' && state.distance < 7) return { response: 'retreat', reason: '가까운 크리퍼의 폭발 범위에서 벗어납니다.', supportRequired: true };
   const outnumbered = state.enemies > (state.allies + 1) * rules.combat.enemyRatioLimit;
   if (outnumbered || !state.weapon && state.enemies > 1) return { response: state.shield ? 'support' : 'retreat', reason: '적의 수와 장비가 불리해 지원을 요청합니다.', supportRequired: true };
-  if (!state.weapon && state.allies === 0 && HOSTILES.has(state.targetName)) return { response: 'retreat', reason: '무기와 가까운 지원이 없어 맨손으로 전투를 지속하지 않고 안전한 거리를 확보합니다.', supportRequired: true };
+  if (!state.weapon && HOSTILES.has(state.targetName)) return { response: 'retreat', reason: '동료 수와 관계없이 실제 무기가 없으므로 안전한 거리를 확보하고 장비와 지원을 기다립니다.', supportRequired: true };
   const exposedToRanged = rangedThreat(state.targetName) || (state.rangedEnemies ?? 0) > 0;
   const rangedProtection = state.weapon && (state.shield || (state.armorPoints ?? 0) >= 12 || state.allies >= Math.max(1, state.enemies));
   if (exposedToRanged && (!rangedProtection || state.health <= rules.combat.supportHealth || state.food <= 6)) return { response: state.shield ? 'support' : 'retreat', reason: '원거리 적에게 접근할 장비나 회복 상태가 부족해 엄폐와 지원을 확보합니다.', supportRequired: true };

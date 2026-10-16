@@ -24,6 +24,7 @@ export interface FleetControlPort {
   getRules?(): Rules;
   getSnapshot(): FleetSnapshot;
   checkpoint(): FleetCheckpoint;
+  serializeCheckpoint?(): string;
   addAgent(input: BotInput, commandId?: string): Agent;
   createGoal(input: GoalInput, commandId?: string): unknown;
   createBlueprint(input: BlueprintInput, commandId?: string): unknown;
@@ -66,6 +67,11 @@ export function createControlServer(options: ControlServerOptions) {
   let checkpointDirty = false;
   let closed = false;
 
+  function persist(event?: StoredEvent): void {
+    if (core.serializeCheckpoint) store.saveSerializedCheckpoint(core.serializeCheckpoint(), event);
+    else store.saveCheckpoint(core.checkpoint(), event);
+  }
+
   function broadcast(event: string, value: unknown, id?: string): void {
     if (!clients.size) return;
     let frame: string | undefined;
@@ -105,7 +111,7 @@ export function createControlServer(options: ControlServerOptions) {
       if (event.type !== 'bot.status') { store.appendEvent(event as unknown as StoredEvent); broadcast('event', event, event.id); }
     }
     else {
-      store.saveCheckpoint(core.checkpoint(), event as unknown as StoredEvent);
+      persist(event as unknown as StoredEvent);
       checkpointDirty = false;
       broadcast('event', event, event.id);
     }
@@ -302,7 +308,7 @@ export function createControlServer(options: ControlServerOptions) {
   });
 
   const snapshotTimer = setInterval(() => {
-    if (checkpointDirty) { store.saveCheckpoint(core.checkpoint()); checkpointDirty = false; }
+    if (checkpointDirty) { persist(); checkpointDirty = false; }
     if (dirtySnapshot) { broadcastSnapshot(); dirtySnapshot = false; }
   }, 1000);
   snapshotTimer.unref();
@@ -323,7 +329,7 @@ export function createControlServer(options: ControlServerOptions) {
     if (closed) return;
     closed = true;
     clearInterval(snapshotTimer); clearInterval(keepAliveTimer); clearInterval(pruneTimer);
-    store.saveCheckpoint(core.checkpoint());
+    persist();
     for (const client of clients.keys()) client.close();
     clients.clear();
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

@@ -17,7 +17,12 @@ export async function prepareMaterialAccess(task:TaskSpec,s:ActionServices,prote
   for(let index=0;index<plan.edits.length;index++){
     s.check();if(!clear())wait('자원 접근로를 정리하기 전 실제 체력·허기와 위협을 확인해야 합니다.');
     const edit=plan.edits[index]!,p=vector(edit.position),actual=b.blockAt(p),pending=s.checkpoint.materialAccessPending as {index?:number;cleared?:boolean;phase?:string}|undefined;
-    if(actual?.name===edit.after)continue;
+    // An existing full grass block satisfies a requested dirt foothold too.
+    // Replanning may carry the same terrain plan without the prior executor's
+    // checkpoint; never dig an already sound footing just to replay its edit.
+    if(actual?.name===edit.after||edit.after==='dirt'&&actual?.name==='grass_block'){
+      s.checkpoint.materialAccessCompleted=Math.max(Number(s.checkpoint.materialAccessCompleted??0),index+1);continue;
+    }
     if(!actual||actual.name!==edit.before&&!(actual.name==='air'&&pending?.index===index&&(pending.cleared===true||pending.phase==='digging')))wait('자원 접근로의 실제 원래 블록이 명시한 관측과 다릅니다.');
     await s.near(vector(edit.stand).offset(.5,0,.5),0);await s.pause(100);
     for(let tick=0;tick<20&&(b.entity.onGround!==true||Math.abs(b.entity.position.y-edit.stand.y)>.1);tick++){s.check();await s.pause(50);}
@@ -32,9 +37,9 @@ export async function prepareMaterialAccess(task:TaskSpec,s:ActionServices,prote
       s.progress('자원 접근로 정리',`실제 관측한 흙·모래를 정리합니다 (${index+1}/${plan.edits.length}).`);
       s.checkpoint.materialAccessPending={index,phase:'digging'};await b.dig(current!);s.checkpoint.materialAccessPending={index,cleared:true};await s.pause(150);
     }
-    if(edit.after==='oak_planks'){
-      if(!b.inventory.items().some(i=>i.name==='oak_planks'&&i.count>0))wait('자원 접근 발판에 놓을 실제 판자가 필요합니다.');
-      await s.place(edit.position,'oak_planks','oak_planks');
+    if(edit.after==='oak_planks'||edit.after==='dirt'){
+      if(!b.inventory.items().some(i=>i.name===edit.after&&i.count>0))wait('자원 접근 발판에 놓을 실제 소지 재료가 필요합니다.');
+      await s.place(edit.position,edit.after,edit.after);
     }
     if(b.blockAt(p)?.name!==edit.after)wait('정리한 자원 접근로 블록의 실제 결과를 확인해야 합니다.');
     if(edit.before==='sand')await s.recoverDrops?.(edit.position,'sand',sandBefore+1);

@@ -8,12 +8,14 @@ import { ControlStore } from '../apps/server/src/store';
 
 class SnapshotCountingCore extends FleetController {
   snapshotReads = 0;
+  checkpointCopies = 0;
   override getSnapshot() { this.snapshotReads++; return super.getSnapshot(); }
+  override checkpoint() { this.checkpointCopies++; return super.checkpoint(); }
 }
 class CountingStore extends ControlStore {
   checkpointWrites = 0;
-  override saveCheckpoint(checkpoint: unknown, event?: Parameters<ControlStore['saveCheckpoint']>[1]) {
-    this.checkpointWrites++; super.saveCheckpoint(checkpoint,event);
+  override saveSerializedCheckpoint(checkpoint: string, event?: Parameters<ControlStore['saveCheckpoint']>[1]) {
+    this.checkpointWrites++; super.saveSerializedCheckpoint(checkpoint,event);
   }
 }
 
@@ -57,6 +59,7 @@ test('status and world report bursts coalesce checkpoint writes without snapshot
   api=createControlServer({core,store,port:0});
   const address=await api.listen();
   const agent=core.addAgent({name:'BurstReports'}); core.startSession(agent.id,'burst-session');
+  assert.equal(core.checkpointCopies, 0, 'durable writes serialize directly without copying full retained history');
   const rules=core.getRules();
   const report={ready:true,world:rules.world,dimension:rules.dimension,position:{x:.5,y:64,z:.5},health:20,food:20,inventory:[],action:'idle',reason:'fresh',mode:'idle',capabilities:['build'],rulesVersion:rules.version};
   const receive=(type:string,payload:unknown)=>core.receive({protocolVersion:1,messageId:randomUUID(),controllerEpoch:core.controllerEpoch,botId:agent.id,sessionId:'burst-session',sentAt:Date.now(),type,payload});

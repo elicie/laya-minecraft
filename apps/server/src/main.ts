@@ -93,7 +93,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
         while (supervisor.records().length && Date.now() < deadline) await new Promise<void>(resolve => setTimeout(resolve, 20));
         if (supervisor.records().length) errors.push(new Error('봇 종료 콜백을 확인하지 못했습니다.'));
       }
-      try { if (store && core) store.saveCheckpoint(core.checkpoint()); } catch (error) { errors.push(error); }
+      try { if (store && core) store.saveSerializedCheckpoint(core.serializeCheckpoint()); } catch (error) { errors.push(error); }
       try { await api?.close(); } catch (error) { errors.push(error); }
       try { store?.close(); } catch (error) { errors.push(error); }
       try { release(); } catch (error) { errors.push(error); }
@@ -129,7 +129,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
       scoreEveryDecision:!!process.env.QWEN_DECISION_URL,
       onEvent: event => {
         if (api) api.observeEvent(event);
-        else store!.saveCheckpoint(core!.checkpoint(), { ...event });
+        else store!.saveSerializedCheckpoint(core!.serializeCheckpoint(), { ...event });
       },
     });
     const orphans = await supervisor.reconcileOrphans();

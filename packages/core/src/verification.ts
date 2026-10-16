@@ -11,6 +11,8 @@ export interface VerificationContext {
   sessionId?: string;
   attemptId?: string;
   notBefore?: number;
+  /** Only explicit, executed quarry dirt footholds may naturally grow grass. */
+  naturalDirtPositions?: readonly Position[];
 }
 export interface Verification { complete: boolean; current: number; target?: number; reason: string; }
 export function distance(a: Position, b: Position): number { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
@@ -68,7 +70,8 @@ export function verifyCompletion(condition: CompletionCondition, context: Verifi
         const key = positionKey(block.position), previous = blocks.get(key);
         if (!previous || observation.observedAt >= previous.time) blocks.set(key, { name: block.name, time: observation.observedAt });
       }
-      const count = condition.blocks.filter(b => blocks.get(positionKey(b.position))?.name === b.name).length;
+      const soil=new Set(context.naturalDirtPositions?.map(positionKey));
+      const count = condition.blocks.filter(b => {const actual=blocks.get(positionKey(b.position))?.name;return actual===b.name||b.name==='dirt'&&actual==='grass_block'&&soil.has(positionKey(b.position));}).length;
       return result(count, condition.blocks.length, 'Each required block must be observed at its planned position');
     }
     case 'entity-death': {

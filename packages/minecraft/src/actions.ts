@@ -353,6 +353,7 @@ export class MineflayerExecutor {
   private async approachContainer(container: ContainerRef, s: ActionServices): Promise<Block> {
     this.assertContainer(container); s.check();
     if(s.rules.baseShelter?.warehouseId===container.id&&s.checkpoint.nightBasePending!==true){
+      if(this.bot.entity.position.distanceTo(vector(s.rules.baseShelter.outside))>32)await approachKnownBase(s,s.rules.baseShelter.outside);
       if(!await restInWarehouse(s,()=>this.options.config.enabled,undefined,'enter'))throw new ConditionWait('등록한 창고의 실제 안전한 출입을 먼저 확인해야 합니다.',s.checkpoint);
     }
     // A raised chest behind the warehouse wall has no reachable integer path
@@ -955,6 +956,11 @@ export class MineflayerExecutor {
     s.check();
     if(s.checkpoint.nightBurrowPending===true||s.checkpoint.nightBasePending===true)await this.shelterAtNight(s);
     if (this.bot.inventory.items().some(i => foodNames.has(i.name))) return;
+    const gear=combatEquipment(this.bot);
+    if(this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot)&&this.bot.health>this.options.rules.combat.retreatHealth&&!(gear.weapon&&(gear.shield||gear.armorPoints>=12))){
+      if(!await this.shelterAtNight(s)){s.checkpoint.nightShelterUnavailable=true;throw new ConditionWait('야간의 장비 없는 식량 원정은 실제 안전한 대피처와 낮을 먼저 확인합니다.',s.checkpoint);}
+      if(this.bot.food>=(s.checkpoint.expeditionFoodTarget===19?19:18)||this.bot.inventory.items().some(i=>foodNames.has(i.name)))return;
+    }
     const scope = s.checkpoint.resourceRecoveryScope;
     s.checkpoint.resourceRecoveryScope = '$food';
     let waiting: ConditionWait | undefined;
@@ -1182,7 +1188,7 @@ export class MineflayerExecutor {
           // material trip; terrain approval from a previous task is not needed.
           s.checkpoint.buildProtection={origin:min,width:Math.max(...blocks.map(b=>b.position.x))-min.x+1,depth:Math.max(...blocks.map(b=>b.position.z))-min.z+1,height:Math.max(...blocks.map(b=>b.position.y))-min.y};
         }
-        if (task.kind==='build' && task.params.materialExpedition===true && !['prepare-site','prepare-access'].includes(String(task.params.mode)) && this.options.config.allowedActions.includes('explore')) {
+        if (task.kind==='build' && (task.params.materialExpedition===true||task.source==='user'&&task.params.materialExpedition!==false) && !['prepare-site','prepare-access','material-access','register-warehouse'].includes(String(task.params.mode)) && this.options.config.allowedActions.includes('explore')) {
           s.checkpoint.materialExpedition=true; s.checkpoint.resourceExpedition=true;
           s.checkpoint.observedEnvironment={timeOfDay:this.bot.time?.timeOfDay??null,isDay:this.bot.time?.isDay??null,observedAt:Date.now()};
           // A resumed material expedition may be hundreds of blocks from the
@@ -1227,6 +1233,7 @@ export class MineflayerExecutor {
         const p = PositionSchema.parse(task.params.position ?? s.rules.center);
         if(task.kind==='home'&&['inside','outside'].includes(String(task.params.basePassage))){
           const mode=task.params.basePassage==='inside'?'enter':'exit',base=s.rules.baseShelter,target=mode==='enter'?base?.inside:base?.outside;
+          if(mode==='enter'&&base&&target&&vector(target).distanceTo(vector(p))<=.01&&this.bot.entity.position.distanceTo(vector(base.outside))>32)await approachKnownBase(s,base.outside);
           if(!target||vector(target).distanceTo(vector(p))>.01||!await restInWarehouse(s,()=>this.options.config.enabled,undefined,mode))throw new ConditionWait('등록한 창고와 실제 안전한 출입 경로를 확인해야 합니다.',s.checkpoint);
         }else await s.near(p, typeof task.params.radius === 'number' ? task.params.radius : 2);
         s.observations.push({ ...observationBase(this.options.world, this.options.dimension()), kind: 'position', data: { position: position(this.bot.entity.position) } }); break;

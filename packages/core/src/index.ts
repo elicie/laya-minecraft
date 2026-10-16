@@ -105,6 +105,19 @@ export class FleetController {
     if (options.checkpoint) this.restoreExpiredAccessProofs();
     if (options.checkpoint) this.restoreAccessReturnWaits();
     if (options.checkpoint) this.restoreMaterialReturnWaits();
+    if (options.checkpoint) this.restoreNaturalQuarryFootings();
+  }
+
+  private restoreNaturalQuarryFootings():void{
+    for(const task of this.state.tasks){
+      const goal=this.goal(task.goalId),attempt=this.state.attempts.find(a=>a.id===task.attemptId),plan=MaterialAccessPlanSchema.safeParse(task.params.access);
+      if(task.kind!=='build'||task.source!=='user'||task.params.mode!=='material-access'||task.state!=='held'||task.generation!==goal.generation||terminalGoals.has(goal.state)||goal.state==='cancelling'||task.checkpoint.quarrySoilReobserveVersion===1||!plan.success||Number(task.checkpoint.materialAccessCompleted)!==plan.data.edits.length||attempt?.state!=='uncertain'||attempt.result?.outcome!=='completed'||task.completion.kind!=='blocks')continue;
+      const actual=new Map((attempt.result.observations??[]).filter(o=>o.kind==='blocks'&&o.world===this.state.rules.world&&o.dimension===this.state.rules.dimension).flatMap(o=>o.kind==='blocks'?o.data.blocks.map(b=>[positionKey(b.position),b.name] as const):[]));
+      const differences=task.completion.blocks.filter(b=>actual.get(positionKey(b.position))!==b.name);
+      if(!differences.length||differences.some(b=>b.name!=='dirt'||actual.get(positionKey(b.position))!=='grass_block'||!plan.data.edits.some(e=>e.after==='dirt'&&positionKey(e.position)===positionKey(b.position))))continue;
+      task.checkpoint.quarrySoilReobserveVersion=1;task.state='interrupted';task.resumeCount++;task.updatedAt=this.now();task.assignmentWait={botId:attempt.botId,blockedBy:'state',rejectedAt:this.now()};task.reason='완료한 채취 발판의 자연 잔디 변화를 실제 지면으로 한 번 재관측합니다. 기존 작업과 탐색 예산은 보존합니다.';
+      if(goal.state==='held'&&!this.currentTasks(goal).some(t=>t.state==='held')){goal.state='condition-wait';goal.reason=task.reason;goal.updatedAt=this.now();}
+    }
   }
 
   private queueAccessRecheck(task: Task, attempt: TaskAttempt): void {
@@ -193,6 +206,8 @@ export class FleetController {
   getAgents(): Agent[] { return clone(this.state.agents); }
   getRules(): Rules { return clone(this.state.rules); }
   checkpoint(): FleetCheckpoint { return clone(this.state); }
+  /** Synchronous durable serialization avoids copying the entire history first. */
+  serializeCheckpoint(): string { return JSON.stringify(this.state); }
   createBlueprint(input: BlueprintInput, commandId?: string): BlueprintDefinition {
     if (this.state.blueprints.length >= 1000) throw new Error('설계도는 최대 1000개까지 저장할 수 있습니다.');
     const editable = this.validateBlueprintInput(input), definition = BlueprintDefinitionSchema.parse({ ...editable, id: randomUUID(), version: 1, createdAt: this.now(), updatedAt: this.now() });
@@ -396,10 +411,11 @@ export class FleetController {
     const definition = GoalInputSchema.parse(input);
     this.pinBlueprint(definition);
     if (['guard', 'follow', 'survive'].includes(definition.kind)) definition.mode = 'maintain';
-    if (!definition.destination && this.state.rules.warehouse && (['collect', 'store', 'take'].includes(definition.kind) || (definition.kind === 'hunt' && definition.item) || (definition.kind === 'farm' && definition.params.mode === 'harvest'))) definition.destination = clone(this.state.rules.warehouse);
+    if (definition.completionLocation !== 'inventory' && !definition.destination && this.state.rules.warehouse && (['collect', 'store', 'take'].includes(definition.kind) || (definition.kind === 'hunt' && definition.item) || (definition.kind === 'farm' && definition.params.mode === 'harvest'))) definition.destination = clone(this.state.rules.warehouse);
     if (definition.preferredBotId) this.agent(definition.preferredBotId);
+    if (definition.requiredBotId) this.agent(definition.requiredBotId);
     const goal: Goal = { id: randomUUID(), input: definition, title: goalTitle(definition), state: 'queued', taskIds: [], createdAt: this.now(), updatedAt: this.now(), progress: { current: 0, target: definition.quantity }, generation: 0 };
-    if (isStockGoal(goal)) goal.completionLocation = definition.destination ? 'warehouse' : 'inventory';
+    if (isStockGoal(goal)) goal.completionLocation = definition.completionLocation ?? (definition.destination ? 'warehouse' : 'inventory');
     if (definition.quantityMode === 'total') goal.targetQuantity = definition.quantity;
     this.state.goals.push(goal);
     if (definition.executionMode === 'immediate' && definition.preferredBotId) {
@@ -527,6 +543,7 @@ export class FleetController {
   private supportEligible(agent: Agent, requester: Agent, position: Position): boolean {
     const session = agent.session, report = session?.report;
     const config = agent.desiredConfig ?? agent.config;
+    if (!report?.inventory.some(item => item.count > 0 && /_(sword|axe)$/.test(item.name))) return false;
     // A busy helper can have queued rules. Select it for a safe stop first;
     // candidateTasks still requires the latest rules acknowledgement to assign.
     return agent.id !== requester.id && agent.config.enabled && config.enabled && !['removed', 'removing', 'paused'].includes(agent.status) && session?.state === 'ready' && !!report?.ready && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs && !['emergency', 'survival', 'recovering', 'paused', 'stopping'].includes(report.mode) && !this.survivalBlocked(agent) && report.health > this.state.rules.combat.supportHealth && report.food > 6 && report.world === requester.session?.report?.world && report.dimension === requester.session?.report?.dimension && config.allowedActions.includes('fight') && report.capabilities.includes('fight') && !!report.position && distance(report.position, position) <= 32 && (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && !this.state.tasks.some(t => t.attemptId === session.activeAttemptId && typeof t.params.supportRequestId === 'string');
@@ -694,7 +711,9 @@ export class FleetController {
       const returned=home.success && marker?.phase==='complete' && typeof marker.completedAt==='number' && marker.completedAt>=attempt.assignedAt && marker.completedAt<=this.now()+1000 && latest?.kind==='position' && latest.observedAt>=marker.completedAt && distance(latest.data.position,home.data)<=1.5;
       if (!returned) return {complete:false,current:0,target:task.completion.kind==='inventory'?task.completion.minimum:1,reason:'자원을 확보한 뒤 작업 지점의 실제 복귀 관측이 필요합니다.'};
     }
-    return verifyCompletion(task.completion, { observations: this.state.observations, evidence, now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: agent?.session?.report?.world ?? this.state.rules.world, dimension: agent?.session?.report?.dimension ?? this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt });
+    const quarry=task.kind==='build'&&task.source==='user'&&task.params.mode==='material-access'?MaterialAccessPlanSchema.safeParse(task.params.access):undefined;
+    const naturalDirtPositions=quarry?.success&&Number(task.checkpoint.materialAccessCompleted)===quarry.data.edits.length?quarry.data.edits.filter(e=>e.after==='dirt').map(e=>e.position):undefined;
+    return verifyCompletion(task.completion, { observations: this.state.observations, evidence, now: this.now(), maxAgeMs: this.state.rules.observationMaxAgeMs, world: agent?.session?.report?.world ?? this.state.rules.world, dimension: agent?.session?.report?.dimension ?? this.state.rules.dimension, botId: attempt.botId, sessionId: attempt.sessionId, attemptId: attempt.id, notBefore: attempt.assignedAt,naturalDirtPositions });
   }
   private finishResult(agent: Agent, task: Task, attempt: TaskAttempt, result: ResultPayload): void {
     this.observe(agent, result.observations, attempt.id);
@@ -1067,7 +1086,7 @@ export class FleetController {
     this.finishCommands(goal.id, ['goal-cancel']);
   }
 
-  private inventoryProof(goal: Goal): InventoryStock[] { return goal.input.item ? inventoryStocks(this.state, goal.input.item, this.now()) : []; }
+  private inventoryProof(goal: Goal): InventoryStock[] { return goal.input.item ? inventoryStocks(this.state, goal.input.item, this.now()).filter(row => !goal.input.requiredBotId || row.botId === goal.input.requiredBotId) : []; }
   private inventoryStock(goal: Goal): number | undefined { const proof = this.inventoryProof(goal); return proof.length ? proof.reduce((count, row) => count + row.count, 0) : undefined; }
   private inventoryCollectors(goal: Goal): Agent[] {
     const known = new Set(this.inventoryProof(goal).map(p => p.botId));
@@ -1226,6 +1245,7 @@ export class FleetController {
       if (plan.waiting) { goal.state = 'condition-wait'; goal.reason = plan.waiting; return; }
       for (const spec of plan.tasks) {
         if (typeof goal.input.params.supportHelperId === 'string') spec.affinityBotId = goal.input.params.supportHelperId;
+        if (goal.input.requiredBotId) spec.affinityBotId = goal.input.requiredBotId;
         const task: Task = { ...spec, generation: goal.generation, state: 'waiting', retryCount: 0, resumeCount: 0, checkpoint: {}, progress: 0, createdAt: this.now(), updatedAt: this.now() };
         this.preserveBuildMaterials(task);
         this.state.tasks.push(task); goal.taskIds.push(task.id);
@@ -1256,6 +1276,7 @@ export class FleetController {
     const pinned = this.state.tasks.filter(t => t.affinityBotId === agent.id && t.state !== 'completed' && t.state !== 'cancelled' && !idleResourceTaskCanYield(t,agent.session?.report,this.taskHasActor(t)) && !(t.state === 'condition-wait' && !this.taskHasActor(t) && t.waitState?.waitingFor && (isBuildSiteTask(t) || t.kind==='farm' || t.kind === 'build' && t.waitState.waitingFor.causeCode === 'BUILD_MATERIAL')) && t.generation === this.goal(t.goalId).generation && !terminalGoals.has(this.goal(t.goalId).state) && (!t.blockedByGoalId || terminalGoals.has(this.goal(t.blockedByGoalId).state)));
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
+      if (goal.input.requiredBotId && goal.input.requiredBotId !== agent.id) return false;
       if (task.assignmentWait?.botId === agent.id) return false;
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;
       if (task.state === 'condition-wait' && task.waitState?.waitingFor) return false;
@@ -1314,7 +1335,7 @@ export class FleetController {
           for (const stand of [...access.data.edits.map(edit => edit.stand), access.data.exit]) {
             const support = { x: stand.x, y: stand.y - 1, z: stand.z }; positions.set(positionKey(support), support);
           }
-          for (const edit of access.data.edits.filter(edit => edit.after === 'oak_planks')) positions.set(positionKey(edit.position), edit.position);
+          for (const edit of access.data.edits.filter(edit => edit.after !== 'air')) positions.set(positionKey(edit.position), edit.position);
         }
         continue;
       }

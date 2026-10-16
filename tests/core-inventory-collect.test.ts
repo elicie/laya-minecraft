@@ -22,6 +22,19 @@ function fixture(counts: number[] = [0], withWarehouse = false, withExploration 
   return { core, sent, receive, status, report, ready, assignments, result, stock, now: () => now, advance: (ms: number) => now += ms };
 }
 
+test('personal equipment materials use only the named owner inventory even when a shared warehouse exists', () => {
+  const f = fixture([64, 0], true), goal = f.core.createGoal({ kind: 'collect', item, quantity: 4, completionLocation: 'inventory', requiredBotId: 'bot-1' });
+  assert.equal(goal.input.destination, undefined); assert.equal(goal.progress.current, 0);
+  const assignment = f.assignments()[0]!; assert.equal(assignment.botId, 'bot-1'); assert.equal(assignment.payload.task.params.quantity, 4);
+  assert.equal(f.core.getSnapshot().tasks.some(t => t.goalId === goal.id && t.kind === 'store'), false);
+  f.result(assignment, 4);
+  const done = f.core.getSnapshot().goals.find(g => g.id === goal.id)!;
+  assert.equal(done.state, 'completed'); assert.deepEqual(done.completionSnapshot!.inventories.map(row => row.botId), ['bot-1']);
+  const restored = new FleetController({ checkpoint: f.core.checkpoint(), controllerEpoch: 'restored-owner', now: f.now, send: () => {} });
+  assert.equal(restored.getSnapshot().goals.find(g => g.id === goal.id)!.input.requiredBotId, 'bot-1');
+  assert.throws(() => f.core.createGoal({ kind: 'collect', item, completionLocation: 'inventory', destination: warehouse }));
+});
+
 test('without a warehouse, existing 10 logs count toward total 32 and only 22 are assigned', () => {
   const f = fixture([10]), goal = f.core.createGoal({ kind: 'collect', item, quantity: 32 });
   assert.equal(goal.completionLocation, 'inventory'); assert.equal(goal.progress.current, 10); assert.equal(goal.input.destination, undefined);
