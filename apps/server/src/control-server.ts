@@ -24,6 +24,7 @@ export interface FleetControlPort {
   getAgents?(): Agent[];
   getRules?(): Rules;
   getSnapshot(): FleetSnapshot;
+  getDashboardSnapshot?(now?: number): FleetSnapshot;
   checkpoint(): FleetCheckpoint;
   serializeCheckpoint?(): string;
   addAgent(input: BotInput, commandId?: string): Agent;
@@ -88,12 +89,16 @@ export function createControlServer(options: ControlServerOptions) {
     }
   }
   function eventSummary(event: CoreEvent): CoreEvent { const { data: _data, ...summary } = event; return summary; }
+  function readDashboard(now = (options.now ?? Date.now)()): FleetSnapshot {
+    return core.getDashboardSnapshot ? core.getDashboardSnapshot(now) : dashboardSnapshot(core.getSnapshot(), now);
+  }
   function broadcastSnapshot(): void {
     if (!clients.size) return;
-    const snapshot = core.getSnapshot();
+    const now = (options.now ?? Date.now)();
+    const full = [...clients.values()].includes('full') ? core.getSnapshot() : undefined;
     const frames: Partial<Record<'full' | 'dashboard', string>> = {};
     for (const [client, view] of clients) {
-      frames[view] ??= sseFrame('snapshot', view === 'dashboard' ? dashboardSnapshot(snapshot, (options.now ?? Date.now)()) : snapshot);
+      frames[view] ??= sseFrame('snapshot', view === 'dashboard' ? full ? dashboardSnapshot(full, now) : readDashboard(now) : full);
       client.send(frames[view]!, 'snapshot');
     }
   }
@@ -186,13 +191,12 @@ export function createControlServer(options: ControlServerOptions) {
         json(res, 200, { ok: true, controllerEpoch: core.controllerEpoch ?? core.getSnapshot().controllerEpoch }); return;
       }
       if (req.method === 'GET' && path === '/api/v1/snapshot') {
-        const snapshot = core.getSnapshot();
         if (url.searchParams.get('view') === 'dashboard') {
-          const value = JSON.stringify(dashboardSnapshot(snapshot, (options.now ?? Date.now)()));
+          const value = JSON.stringify(readDashboard());
           const compressed = acceptsGzip(req);
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'Accept-Encoding', ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
           res.end(compressed ? gzipSync(value) : value);
-        } else json(res, 200, snapshot);
+        } else json(res, 200, core.getSnapshot());
         return;
       }
       if (req.method === 'GET' && path === '/api/v1/blueprints') { json(res, 200, core.getSnapshot().blueprints); return; }
@@ -210,8 +214,7 @@ export function createControlServer(options: ControlServerOptions) {
         const client = new SseClient(res, { writer, onClose: () => clients.delete(client) });
         clients.set(client, view);
         client.send('retry: 2000\n\n');
-        const snapshot = core.getSnapshot();
-        client.send(sseFrame('snapshot', view === 'dashboard' ? dashboardSnapshot(snapshot, (options.now ?? Date.now)()) : snapshot), 'snapshot');
+        client.send(sseFrame('snapshot', view === 'dashboard' ? readDashboard() : core.getSnapshot()), 'snapshot');
         const lastId = req.headers['last-event-id'];
         if (typeof lastId === 'string') for (const event of store.listEvents(200, lastId)) client.send(sseFrame('event', view === 'dashboard' ? eventSummary(event as unknown as CoreEvent) : event, event.id));
         req.on('close', () => client.close());
