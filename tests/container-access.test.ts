@@ -91,6 +91,11 @@ test('passive warehouse observation opens a visible reachable chest without appr
  assert.equal(o.kind,'container');assert.equal(f.opened,1);assert.equal(f.closed,1);assert.ok(f.bot.entity.position.equals(before));assert.equal(f.transfers,0);
 });
 
+test('an obsolete delivery with missing carried stock waits before moving or opening a warehouse',async()=>{
+ const f=fixture(),task=f.task('store'),s=f.executor.services(new AbortController().signal);task.params.quantity=5;if(task.completion.kind==='transfer')task.completion.quantity=5;s.near=async()=>assert.fail('missing carried inputs must not move the worker away from its work point');
+ await assert.rejects(f.executor.execute(task,s),ConditionWait);assert.deepEqual(s.checkpoint.waitingFor,{kind:'inventory',causeCode:'BUILD_MATERIAL',item:'oak_log',minimum:5,watchPosition:false});assert.equal(f.opened,0);assert.equal(f.transfers,0);assert.equal(f.stock,4);
+});
+
 for(const defect of ['nearby-but-out-of-reach','hidden','airborne','unsupported','wrong-world','missing-chest'] as const)test(`passive warehouse observation refuses ${defect} without moving`,async()=>{
  const f=fixture();Object.assign(f.bot.entity,{position:new Vec3(3089.5,81,3089.5),onGround:true});Object.assign(f.bot,{canSeeBlock:()=>defect!=='hidden'});
  if(defect==='nearby-but-out-of-reach')f.bot.entity.position=new Vec3(3088.5,80,3095.5);

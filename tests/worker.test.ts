@@ -11,7 +11,7 @@ import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait, pause, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean;nightShelterWait?:boolean;restoredSealed?:boolean } = {}) {
+function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean;nightShelterWait?:boolean;nightShelterUnavailable?:boolean;restoredSealed?:boolean } = {}) {
   const emitter = new EventEmitter();
   const messages: WorkerMessage[] = [];
   let executions = 0;
@@ -34,7 +34,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
   }) as unknown as Bot;
   class ControlledExecutor extends MineflayerExecutor {
     override canObserveContainerHere(container:ContainerRef):boolean{return options.warehouseObservation===true&&bot.entity.position.distanceTo(new Vec3(container.position.x,container.position.y,container.position.z))<=4;}
-    override async shelterAtNight(s:ActionServices):Promise<boolean>{if(!options.nightShelterWait)return super.shelterAtNight(s);shelters++;assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});s.checkpoint.nightBasePending=true;s.progress('창고 야간 대피','보존한 식량 탐색을 중단하고 야간을 대피합니다.');await s.pause(120000);return true;}
+    override async shelterAtNight(s:ActionServices):Promise<boolean>{if(options.nightShelterUnavailable){shelters++;return false;}if(!options.nightShelterWait)return super.shelterAtNight(s);shelters++;assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});s.checkpoint.nightBasePending=true;s.progress('창고 야간 대피','보존한 식량 탐색을 중단하고 야간을 대피합니다.');await s.pause(120000);return true;}
     override async observeContainer(container:ContainerRef,s:ActionServices):Promise<ObservationInput>{
       if(!options.warehouseObservation)return super.observeContainer(container,s);
       s.progress('창고 출입','실제 문과 양쪽 발판을 확인하며 출입합니다.');
@@ -70,6 +70,23 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     get executions() { return executions; }, get fights() { return fights; }, get retreats() { return retreats; }, get foodAttempts() { return foodAttempts; } };
 }
 async function settle() { await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); }
+
+test('an unavailable night shelter holds ordinary work without repeated searches and resumes the actual daylight assignment',async()=>{
+ const f=fixture({nightShelterUnavailable:true,unarmed:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});f.emitter.emit('spawn');f.emitter.emit('health');
+ try{
+  const resourceRecovery={sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:60000}};await f.worker.receive({...f.assign('before-night'),payload:{task:{id:'task',goalId:'goal',kind:'collect',params:{item:'sand',quantity:3},dependencies:[],reservationKeys:[],completion:{kind:'inventory',item:'sand',minimum:3}},checkpoint:{step:7,resourceRecovery},rulesVersion:f.launch.rules.version}});assert.equal(f.executions,1);
+  Object.assign(f.bot.time,{isDay:false,timeOfDay:14000});f.worker.pollSafety();await settle();f.worker.pollSafety();await settle();
+  assert.equal(f.shelters,1);assert.equal(f.messages.filter(m=>m.type==='task.interrupted').length,1);const interrupted=f.messages.find(m=>m.type==='task.interrupted')!;assert.deepEqual(interrupted.payload.checkpoint.resourceRecovery,resourceRecovery);
+  for(let i=0;i<3;i++){f.worker.pollSafety();await f.worker.receive(f.assign('blocked-night-'+i));}assert.equal(f.executions,1);assert.equal(f.shelters,1);assert.ok(f.messages.some(m=>m.type==='task.rejected'&&m.payload.blockedBy==='survival'));
+  Object.assign(f.bot.time,{isDay:true,timeOfDay:0});await new Promise(r=>setTimeout(r,1100));f.worker.pollSafety();await settle();await f.worker.receive(f.assign('actual-daylight'));assert.equal(f.executions,2);
+ }finally{await f.worker.shutdown('night wait complete');}
+});
+
+test('holding ordinary night work still yields to urgent basic food recovery',async()=>{
+ const f=fixture({nightShelterUnavailable:true,unarmed:true,foodWait:true});Object.assign(f.bot,{time:{isDay:false,timeOfDay:14000,doDaylightCycle:true}});f.emitter.emit('spawn');f.emitter.emit('health');
+ try{f.worker.pollSafety();await settle();f.worker.pollSafety();await settle();assert.equal(f.shelters,1);f.bot.food=6;f.emitter.emit('health');await new Promise(r=>setTimeout(r,1100));f.worker.pollSafety();await settle();assert.equal(f.foodAttempts,1);assert.equal(f.executions,0);}
+ finally{await f.worker.shutdown('urgent food test complete');}
+});
 
 test('dusk interrupts an already running unarmored food search and shelters with spent budgets intact',async()=>{
  const f=fixture({foodWait:true,unarmed:true,nightShelterWait:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});f.emitter.emit('spawn');f.emitter.emit('health');f.bot.food=17;f.emitter.emit('health');

@@ -385,7 +385,7 @@ export class MinecraftWorker {
     if (!this.launch.config.enabled) return 'paused';
     if (this.active) return 'busy';
     if (this.emergencyActive()) return 'emergency';
-    if (this.survivalUrgent()) return 'survival';
+    if (this.survivalUrgent()||this.nightWorkBlocked()) return 'survival';
     if (this.recoveryPending()) return 'recovery';
     if (message.payload.rulesVersion !== this.launch.rules.version) return 'rules';
   }
@@ -395,7 +395,7 @@ export class MinecraftWorker {
       paused: '봇이 일시정지되어 작업 재개를 기다립니다.',
       busy: '현재 실행 중인 작업의 실제 종료를 기다립니다.',
       emergency: '실제 위협 대응이 끝난 뒤 보존한 작업을 재개합니다.',
-      survival: '체력·허기를 실제로 회복한 뒤 보존한 작업을 재개합니다.',
+      survival: this.nightWorkBlocked()?'사용할 야간 대피처가 없어 실제 낮 또는 장비 상태가 바뀐 뒤 보존한 작업을 재개합니다.':'체력·허기를 실제로 회복한 뒤 보존한 작업을 재개합니다.',
       recovery: '사망 복구와 현재 지면의 실제 안전을 확인한 뒤 작업을 재개합니다.',
       rules: '적용된 규칙 버전을 먼저 확인해야 합니다.',
       state: '일반 작업을 시작할 수 있는 실제 상태 보고를 기다립니다.',
@@ -536,6 +536,10 @@ export class MinecraftWorker {
       this.message('bot.status', this.report());
     });
   }
+  private nightWorkBlocked():boolean {
+    const gear=combatEquipment(this.bot);
+    return this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable===true&&this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot)&&!(gear.weapon&&(gear.shield||gear.armorPoints>=12));
+  }
   pollSafety(): void {
     if (!this.ready || this.stopping) return;
     if (this.recovery && expireDeathRecovery(this.bot, this.recovery, this.launch.rules.combat.retreatHealth, this.now())) {
@@ -622,6 +626,14 @@ export class MinecraftWorker {
     if(actualNight&&this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable!==true&&!(nightGear.weapon&&(nightGear.shield||nightGear.armorPoints>=12))&&['build','collect'].every(action=>this.launch.config.allowedActions.includes(action as ActionKind))){
       this.survivalRecovery??={startedAt:this.now(),targetHealth:20,checkpoint:{}};
       this.startLocal(async s=>{await this.cancelActive('야간 거점 대피를 위해 작업 진행을 보존합니다.','task.interrupted');if(!await this.executor.shelterAtNight(s)){this.foodCheckpoint.nightBurrowPending=false;this.foodCheckpoint.nightShelterUnavailable=true;}},'survival',this.foodCheckpoint);return;
+    }
+    if(this.nightWorkBlocked()&&!urgentSurvival){
+      this.startLocal(async s=>{
+        await this.cancelActive('사용할 야간 대피처가 없어 일반 작업의 진행을 보존합니다.','task.interrupted');
+        while(this.nightWorkBlocked()&&!this.survivalUrgent()){
+          s.check();this.action='안전한 대피처 대기';this.reason='실제로 사용할 대피처를 찾지 못해 일반 원정을 중단하고 낮이나 장비 상태 변화를 기다립니다.';await s.pause(1000);
+        }
+      },'survival',this.foodCheckpoint);return;
     }
     if (this.active && !urgentSurvival) return;
     const needsFood = urgentSurvival || this.bot.food < 18;

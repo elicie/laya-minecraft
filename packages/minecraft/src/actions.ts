@@ -377,6 +377,10 @@ export class MineflayerExecutor {
     this.assertContainer(container); s.check();
     const data = this.bot.registry.itemsByName[itemName];
     if (!data || !Number.isInteger(quantity) || quantity <= 0) throw new ConditionWait('이동할 아이템과 수량을 확인해야 합니다.');
+    if(direction==='store'&&this.count(itemName)<quantity){
+      s.checkpoint.waitingFor={kind:'inventory',causeCode:'BUILD_MATERIAL',item:itemName,minimum:quantity,watchPosition:false};
+      throw new ConditionWait('입고할 실제 소지 수량을 먼저 확보해야 합니다. 창고로 이동하지 않고 물자 변화를 기다립니다.',s.checkpoint);
+    }
     const block = await this.approachContainer(container, s);
     const window = await this.bot.openContainer(block);
     let started = false;
