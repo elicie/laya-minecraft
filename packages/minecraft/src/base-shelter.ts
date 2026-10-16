@@ -20,7 +20,7 @@ export function warehouseInterior(s:ActionServices,p:Position=s.bot.entity.posit
 export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:()=>Promise<void>,mode:'night'|'enter'|'exit'='night'):Promise<boolean>{
   const parsed=BaseShelterSchema.safeParse(s.rules.baseShelter),b=s.bot,pending=mode==='night'&&s.checkpoint.nightBasePending===true;
   if(!parsed.success||!s.rules.warehouse||parsed.data.warehouseId!==s.rules.warehouse.id||parsed.data.world!==s.rules.world||parsed.data.dimension!==s.rules.dimension)return false;
-  const base=parsed.data,night=()=>duskOrNight(b),clear=(p:Position,radius=20)=>!Object.values(b.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(vector(p).offset(.5,0,.5))<radius);
+  const base=parsed.data,night=()=>duskOrNight(b),clear=(p:Position,radius=12)=>!Object.values(b.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(vector(p).offset(.5,0,.5))<radius);
   if(!pending&&(!enabled()||mode==='night'&&(b.time?.doDaylightCycle!==true||!night())||b.entity.position.distanceTo(vector(base.outside))>(mode==='night'?48:128)||!clear(b.entity.position)))return false;
   const min={x:Math.min(...base.blocks.map(q=>q.position.x)),y:Math.min(...base.blocks.map(q=>q.position.y)),z:Math.min(...base.blocks.map(q=>q.position.z))};
   const max={x:Math.max(...base.blocks.map(q=>q.position.x)),y:Math.max(...base.blocks.map(q=>q.position.y)),z:Math.max(...base.blocks.map(q=>q.position.z))};
@@ -37,7 +37,17 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
     return roomStand(base.inside)&&actual(base.door)?.name.endsWith('_door')&&actual(base.door)?.name!=='iron_door';
   };
   const inside=()=>{const p=walkingFeet(b);return p.y===base.inside.y&&p.x>min.x&&p.x<max.x&&p.z>min.z&&p.z<max.z&&roomStand(p);};
-  if(!verified()){if(pending)throw new ConditionWait('등록한 야간 거점의 실제 기초·벽·지붕과 출입구를 다시 확인해야 합니다.',s.checkpoint);return false;}
+  if(!verified()){
+    if(pending){
+      const phase=String((s.checkpoint.nightBase as {phase?:string}|undefined)?.phase??'entering');
+      if(phase==='entering'&&!warehouseInterior(s)&&b.entity.position.distanceTo(vector(base.door))>8){
+        s.checkpoint.nightBaseApproachFailure={reason:'먼 거점의 구조를 현재 위치에서 검증할 수 없습니다.',position:position(b.entity.position),observedAt:Date.now()};
+        s.checkpoint.nightBasePending=false;delete s.checkpoint.nightBase;return false;
+      }
+      throw new ConditionWait('등록한 야간 거점의 실제 기초·벽·지붕과 출입구를 다시 확인해야 합니다.',s.checkpoint);
+    }
+    return false;
+  }
   const stable=async()=>{for(let i=0;i<20&&b.entity.onGround!==true;i++){s.check();await s.pause(50);}if(b.entity.onGround!==true||!observedGroundStand(b,b.entity.position))throw new ConditionWait('거점 출입 전 실제 안정 착지를 확인해야 합니다.',s.checkpoint);};
   const door=async(open:boolean)=>{
     s.check();if(!enabled())throw new ConditionWait('출입문 사용 권한을 다시 확인해야 합니다.',s.checkpoint);
@@ -78,7 +88,15 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
   if(phase==='entering'){
     s.progress('창고 거점 복귀','등록한 창고의 실제 기초·벽·지붕과 안전한 출입 경로를 확인합니다.');
     if(!inside()){
-      await approachOutside();
+      try{await approachOutside();}
+      catch(error){
+        s.check();
+        // No door passage has begun. A failed distant approach must leave
+        // nearby shelter available instead of pinning an exposed worker here.
+        if(!(error instanceof ConditionWait)||inside()||actual(base.door)?.getProperties().open!==false||b.entity.position.distanceTo(vector(base.door))<=4)throw error;
+        s.checkpoint.nightBaseApproachFailure={reason:error.message,position:position(b.entity.position),observedAt:Date.now()};
+        setPhase('done');s.checkpoint.nightBasePending=false;return false;
+      }
       if(!clear(b.entity.position)||!clear(base.inside))throw new ConditionWait('거점 출입 전에 실제 주변 위협 이탈이 필요합니다.',s.checkpoint);
       await withWarehouseDoor(s,async()=>{await door(true);await crossOpenDoor(s,base.door,base.inside,enabled,()=>clear(b.entity.position));await stable();await door(false);});
     }

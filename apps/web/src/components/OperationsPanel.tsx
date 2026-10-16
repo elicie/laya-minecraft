@@ -9,7 +9,7 @@ const value = (n: number | null) =>
 const time = (n: number | null) =>
   n === null
     ? "관측 없음"
-    : new Date(n).toLocaleTimeString("ko-KR", { hour12: false });
+    : new Date(n).toLocaleString("ko-KR", { month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12: false });
 const workflows: Record<string, string> = {
   seed_supply: "씨앗 보급",
   wood_supply: "목재 보급",
@@ -112,7 +112,7 @@ export function OperationsPanel() {
                     {value(data.stock.seeds)} / 목표 {data.stock.seedTarget} ·
                     원목 {value(data.stock.wood)}
                   </p>
-                  <small>직접 상자 관측 {time(data.stock.observedAt)}</small>
+                  <small>마지막 상자 확인 {time(data.stock.observedAt)}</small>
                 </article>
                 <article>
                   <h3>

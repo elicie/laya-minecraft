@@ -11,15 +11,17 @@ import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait, pause, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean } = {}) {
+function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean;nightShelterWait?:boolean;restoredSealed?:boolean } = {}) {
   const emitter = new EventEmitter();
   const messages: WorkerMessage[] = [];
   let executions = 0;
   let fights = 0;
   let retreats = 0;
   let foodAttempts = 0;
+  let shelters = 0;
   let mealAvailable = !!options.meal;
   const launch = WorkerLaunchSchema.parse({ botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch',
+    ...(options.restoredSealed?{restoreRecovery:{deathId:'restored-life',occurredAt:1,world:'127.0.0.1:25566',dimension:'overworld',priorInventory:[],phase:'resolved',safe:false,reason:'saved footing',attemptCount:0,progress:{recoveredCount:0,remainingCount:0},updatedAt:1,checkpoint:{}},restoreSurvivalRecovery:{startedAt:1,targetHealth:20,checkpoint:{nightBurrowPending:true,nightSoilShaft:{outside:{x:0,y:67,z:0},phase:'closed',dug:3,initialDirt:0,exitAttempts:0},resourceRecovery:{$food:{destinationsUsed:5,elapsedMs:60000}}}}}:{}),
     config: { name: 'TestBot', role: 'gatherer', connection: { host: '127.0.0.1', port: 25566 } },
     rules: { world: '127.0.0.1:25566', center: { x: 0, y: 64, z: 0 } } });
   const bot = Object.assign(emitter, {
@@ -31,6 +33,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class ControlledExecutor extends MineflayerExecutor {
+    override async shelterAtNight(s:ActionServices):Promise<boolean>{if(!options.nightShelterWait)return super.shelterAtNight(s);shelters++;assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});s.checkpoint.nightBasePending=true;s.progress('창고 야간 대피','보존한 식량 탐색을 중단하고 야간을 대피합니다.');await s.pause(120000);return true;}
     override async observeContainer(container:ContainerRef,s:ActionServices):Promise<ObservationInput>{
       if(!options.warehouseObservation)return super.observeContainer(container,s);
       s.progress('창고 출입','실제 문과 양쪽 발판을 확인하며 출입합니다.');
@@ -48,6 +51,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     override async eat(): Promise<boolean> { if (!mealAvailable) return false; mealAvailable = false; bot.food = Math.min(20, bot.food + 4); return true; }
     override async ensureFood(s: ActionServices): Promise<void> {
       foodAttempts += 1;
+      if(options.nightShelterWait)s.checkpoint.resourceRecovery={$food:{destinationsUsed:5,elapsedMs:60000}};
       if (options.foodWait) await s.pause(120_000);
       if (options.foodFailure) throw new ActionFailure('섭취 효과를 다시 확인해야 합니다.', 'EAT_UNCERTAIN', false, false);
       throw new ConditionWait('현재 관측한 범위에서 확보 가능한 식량이나 재료를 확인하지 못했습니다.');
@@ -61,9 +65,26 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
   const envelope = (type: string, payload: unknown, extra: object = {}) => ({ protocolVersion: 1, messageId: randomUUID(), botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch', sentAt: Date.now(), type, payload, ...extra });
   const assign = (attemptId: string = randomUUID(), extra: object = {}) => envelope('task.assign', { task, checkpoint: { step: 7 }, rulesVersion: launch.rules.version }, { taskId: 'task', attemptId, ...extra });
   return { worker, bot, emitter, launch, messages, envelope, assign,
+    get shelters(){return shelters;},
     get executions() { return executions; }, get fights() { return fights; }, get retreats() { return retreats; }, get foodAttempts() { return foodAttempts; } };
 }
 async function settle() { await new Promise<void>(resolve => setImmediate(resolve)); await new Promise<void>(resolve => setImmediate(resolve)); }
+
+test('dusk interrupts an already running unarmored food search and shelters with spent budgets intact',async()=>{
+ const f=fixture({foodWait:true,unarmed:true,nightShelterWait:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});f.emitter.emit('spawn');f.emitter.emit('health');f.bot.food=17;f.emitter.emit('health');
+ try{f.worker.pollSafety();await settle();assert.equal(f.foodAttempts,1);f.bot.time.timeOfDay=9000;f.worker.pollSafety();await settle();assert.equal(f.shelters,1);assert.equal(f.foodAttempts,1);f.worker.pollSafety();await settle();assert.equal(f.shelters,1,'the preserved night wait must not start another food or shelter action');}finally{await f.worker.shutdown();}
+});
+
+test('idle stock refresh does not start a distant warehouse journey',async()=>{
+ const f=fixture({warehouseObservation:true});f.launch.rules.warehouse={id:'base',world:f.launch.rules.world,dimension:'overworld',position:{x:100,y:64,z:1}};
+ f.emitter.emit('spawn');f.emitter.emit('health');f.worker.pollSafety();await settle();
+ assert.equal(f.messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container')),false);
+ await f.worker.shutdown('test complete');
+});
+test('a restored sealed shelter resumes its own exit before generic unsafe post-death footing recovery',async()=>{
+ const f=fixture({restoredSealed:true,nightShelterWait:true,unarmed:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});
+ f.emitter.emit('spawn');f.emitter.emit('health');try{f.worker.pollSafety();await settle();assert.equal(f.shelters,1);assert.equal(f.foodAttempts,0);assert.equal(f.executions,0);}finally{await f.worker.shutdown();}
+});
 
 for(const failed of [false,true])test(`background warehouse observation clears the door label and ${failed?'preserves failure':'reports completion'}`,async()=>{
  const f=fixture({warehouseObservation:true,warehouseFailure:failed});f.launch.rules.warehouse={id:'base',world:f.launch.rules.world,dimension:'overworld',position:{x:1,y:64,z:1}};f.emitter.emit('spawn');f.emitter.emit('health');

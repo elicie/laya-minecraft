@@ -6,6 +6,7 @@ import {resourceClearance,safeResourceStand} from './resource-recovery';
 import {position,vector,walkingFeet} from './observations';
 import {walkTripSteps} from './resource-trip';
 import {ConditionWait,type ActionServices} from './services';
+import {restInSoilShaft} from './night-soil-shaft';
 
 const soil=new Set(['dirt','grass_block']);
 const schema=z.object({outside:PositionSchema,direction:PositionSchema,phase:z.enum(['digging','closed','opening','restoring','done'])});
@@ -16,6 +17,7 @@ export function duskOrNight(bot:Pick<ActionServices['bot'],'time'>):boolean{
 /** A four-block recess in known natural soil. All world edits use public APIs. */
 export async function restInNightBurrow(s:ActionServices,protectedPosition:(p:Position)=>boolean,enabled:()=>boolean):Promise<boolean>{
   const b=s.bot,night=()=>duskOrNight(b);
+  if(s.checkpoint.nightSoilShaft&&typeof s.checkpoint.nightSoilShaft==='object'&&!Array.isArray(s.checkpoint.nightSoilShaft)&&s.checkpoint.nightSoilShaft.phase!=='done')return restInSoilShaft(s,protectedPosition,enabled,night);
   const clear=(p:Position,radius=20)=>!Object.values(b.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(vector(p))<radius);
   const fullSoil=(p:Position)=>{const q=b.blockAt(vector(p));return !!q&&soil.has(q.name)&&q.boundingBox==='block'&&q.shapes.some(a=>a[0]===0&&a[1]===0&&a[2]===0&&a[3]===1&&a[4]===1&&a[5]===1);};
   const fullNatural=(p:Position)=>{const q=b.blockAt(vector(p));return !!q&&isBuildSiteGround(q.name)&&!['sand','red_sand','gravel'].includes(q.name)&&q.boundingBox==='block'&&q.shapes.some(a=>a[0]===0&&a[1]===0&&a[2]===0&&a[3]===1&&a[4]===1&&a[5]===1);};
@@ -32,9 +34,10 @@ export async function restInNightBurrow(s:ActionServices,protectedPosition:(p:Po
     delete s.checkpoint.nightBurrow;delete s.checkpoint.nightBurrowInitialDirt;s.checkpoint.nightBurrowPending=false;plan=undefined;
   }
   if(!plan){
-    if(!enabled()||b.time?.doDaylightCycle!==true||!night()||!clear(b.entity.position))return false;
+    if(!enabled()||b.time?.doDaylightCycle!==true||!night())return false;
+    if(!clear(b.entity.position))return restInSoilShaft(s,protectedPosition,enabled,night);
     const origin=walkingFeet(b),region=`${Math.floor(origin.x/16)},${Math.floor(origin.z/16)}`,checked=Array.isArray(s.checkpoint.nightBurrowChecked)?s.checkpoint.nightBurrowChecked.filter((v):v is string=>typeof v==='string'):[];
-    if(checked.includes(region))return false;
+    if(checked.includes(region))return restInSoilShaft(s,protectedPosition,enabled,night);
     s.checkpoint.nightBurrowChecked=[...checked,region].slice(-64);
     const candidates:{outside:Position;direction:Position}[]=[];
     for(let dx=-12;dx<=12;dx++)for(let dz=-12;dz<=12;dz++)for(let dy=-4;dy<=4;dy++){
@@ -53,7 +56,7 @@ export async function restInNightBurrow(s:ActionServices,protectedPosition:(p:Po
       if(vector(b.entity.position).distanceTo(vector(candidate.outside).offset(.5,0,.5))>1.5)continue;
       plan={...candidate,phase:'digging'};s.checkpoint.nightBurrow=plan;s.checkpoint.nightBurrowInitialDirt=b.inventory.items().filter(i=>i.name==='dirt').reduce((n,i)=>n+i.count,0);s.checkpoint.nightBurrowPending=true;break;
     }
-    if(!plan)return false;
+    if(!plan)return restInSoilShaft(s,protectedPosition,enabled,night);
   }
   s.checkpoint.nightBurrowPending=true;const q=shape(plan.outside,plan.direction),setPhase=(phase:typeof plan.phase)=>{plan!.phase=phase;s.checkpoint.nightBurrow=plan!;};
   s.checkpoint.resourcePositions=[position(vector(plan.outside)),...q.cut.map(position),...q.shell.map(position)];

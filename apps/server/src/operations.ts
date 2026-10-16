@@ -134,7 +134,7 @@ export function operationsView(
             o.kind === kind,
         )
         .sort((a, b) => b.observedAt - a.observedAt);
-  const container = latest("container").find(
+  const liveContainer = latest("container").find(
       (o) =>
         o.kind === "container" &&
         rules.warehouse &&
@@ -143,6 +143,16 @@ export function operationsView(
     farm = latest("farm").find(
       (o) => o.kind === "farm" && o.data.id === rules.baseAutonomy?.id,
     );
+  // Retained task results contain real observations even after the rolling
+  // observation window expires or the controller reconnects. Display only;
+  // execution and verification continue to require their own fresh evidence.
+  const historicalContainer = liveContainer ? undefined : snapshot.attempts
+    .flatMap(attempt => (attempt.result?.observations ?? []).flatMap(o =>
+      o.kind === "container" && o.world === rules.world && o.dimension === rules.dimension &&
+      rules.warehouse && sameContainer(o.data.container, rules.warehouse)
+        ? [{...o, controllerEpoch: attempt.controllerEpoch}] : []))
+    .sort((a,b) => b.observedAt-a.observedAt)[0];
+  const container=liveContainer??historicalContainer;
   const stock = container?.kind === "container" ? container : undefined,
     field = farm?.kind === "farm" ? farm : undefined,
     stale = (time: number | undefined) =>
@@ -193,7 +203,7 @@ export function operationsView(
     observedAt: now,
     stock: {
       observedAt: stock?.observedAt ?? null,
-      stale: stale(stock?.observedAt),
+      stale: stale(stock?.observedAt)||stock?.controllerEpoch!==snapshot.controllerEpoch,
       bread: count("bread"),
       wheat: count("wheat"),
       seeds: count("wheat_seeds"),

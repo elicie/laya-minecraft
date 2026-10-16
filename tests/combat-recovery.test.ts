@@ -8,7 +8,8 @@ import minecraftData from 'minecraft-data';
 import { Movements } from 'mineflayer-pathfinder';
 import { WorkerLaunchSchema, WorkerMessageSchema, type TaskSpec, type Position } from '../packages/contracts/src';
 import { assessCombat, combatEquipment, rangedThreat } from '../packages/minecraft/src/combat-policy';
-import { retreatFingerprint, safeCombatRoute, safeCombatStand } from '../packages/minecraft/src/combat-retreat';
+import { recoveryThreatsClear, retreatFingerprint, safeCombatRoute, safeCombatStand } from '../packages/minecraft/src/combat-retreat';
+import {recoverySafe} from '../packages/minecraft/src/death-recovery';
 import { safeResourceRoute, safeResourceStand } from '../packages/minecraft/src/resource-recovery';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
@@ -45,10 +46,19 @@ function fixture(targetName = 'zombie') {
 }
 const assessment = { role: 'builder', health: 20, food: 20, weapon: false, shield: false, enemies: 1, allies: 0, attacked: true, threateningVillage: false, targetName: 'zombie', distance: 2 };
 
+test('recovery admits a distant pillager only behind real cover and immediately revokes it for an exposed or nearby threat',()=>{
+ const f=fixture('pillager');f.target.position=new Vec3(15,64,0);
+ assert.equal(recoverySafe(f.bot,6),false);f.changes.set(new Vec3(7,65,0).toString(),'stone');f.raw.world.raycast=()=>({position:new Vec3(7,65,0)});
+ assert.equal(recoverySafe(f.bot,6),true);f.target.position=new Vec3(10,64,0);assert.equal(recoverySafe(f.bot,6),false);
+ f.target.position=new Vec3(15,64,0);f.changes.set(new Vec3(7,65,0).toString(),'air');assert.equal(recoverySafe(f.bot,6),false,'an unverified raycast hit is not cover');
+ f.changes.set(new Vec3(7,65,0).toString(),'stone');f.target.name='zombie';assert.equal(recoveryThreatsClear(f.bot,f.bot.entity.position),false);
+});
+
 test('ranged combat uses actual worn armor and offhand shield while an unsupported unarmed worker retreats', () => {
   const f = fixture(); f.slots[9] = { name: 'iron_chestplate', count: 1 }; f.slots[10] = { name: 'shield', count: 1 };
   assert.deepEqual(combatEquipment(f.bot), { weapon: false, shield: false, armorPoints: 0 });
   assert.equal(assessCombat(assessment, launch.rules).response, 'retreat');
+  assert.equal(assessCombat({ ...assessment, role: 'guard', allies: 4, attacked: false, threateningVillage: true }, launch.rules).response, 'retreat');
   assert.equal(assessCombat({ ...assessment, targetName: 'skeleton' }, launch.rules).response, 'retreat');
   f.slots[36] = { name: 'iron_sword', count: 1 }; f.slots[45] = { name: 'shield', count: 1 };
   assert.equal(assessCombat({ ...assessment, targetName: 'skeleton', ...combatEquipment(f.bot) }, launch.rules).response, 'attack');
@@ -238,6 +248,13 @@ test('failed retreat preserves bounded probes; clock and own movement do not reo
   const message = { protocolVersion: 1, messageId: 'message', sentAt: Date.now(), type: 'task.result', botId: 'b', sessionId: 's', controllerEpoch: 'e', taskId: 't', attemptId: 'a', payload: { outcome: 'condition-wait', observations: [], evidence: [], checkpoint: f.services.checkpoint } };
   // Checkpoint remains plain JSON, including finite budgets and actual probes.
   assert.equal(WorkerMessageSchema.safeParse(message).success, true);
+});
+test('an actual landing wakes a retreat refused in midair even when its retained probes are distant',()=>{
+ const f=fixture(),checkpoint={retreatRecovery:{anchor:{x:0,y:64,z:0},threatId:'threat-2',threatName:'zombie',threatPosition:{x:2,y:64,z:0},attempts:0,elapsedMs:12,probes:[],failed:[],status:'waiting',reason:'unstable starting column'}};
+ f.raw.entity.position=new Vec3(.5,65,.5);const airborne=retreatFingerprint(f.bot,checkpoint);
+ f.raw.entity.position=new Vec3(.5,64,.5);assert.notEqual(retreatFingerprint(f.bot,checkpoint),airborne);
+ const landed=retreatFingerprint(f.bot,checkpoint);f.raw.entity.position=new Vec3(1.5,64,.5);assert.equal(retreatFingerprint(f.bot,checkpoint),landed);
+ assert.equal(checkpoint.retreatRecovery.attempts,0);assert.equal(checkpoint.retreatRecovery.elapsedMs,12);
 });
 
 test('urgent health changes cancel an in-progress approach before attacking and parent abort remains cancellation', async () => {

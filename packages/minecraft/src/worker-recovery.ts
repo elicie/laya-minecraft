@@ -81,7 +81,7 @@ export function foodRecoveryFingerprint(bot: Bot, checkpoint: JsonObject, retrea
   const displaced=outside?.success&&burrow&&typeof burrow==='object'&&!Array.isArray(burrow)&&burrow.phase==='digging'?bot.entity.position.distanceTo(new Vec3(outside.data.x,outside.data.y,outside.data.z))>6:false;
   return JSON.stringify({ items: [...items].sort(([a], [b]) => a.localeCompare(b)), food: bot.food, criticalHealth: bot.health <= retreatHealth, dimension: bot.game?.dimension, blocks, entities, threatened,
     ...(checkpoint.nightBasePending===true?{baseShelterWindow:duskOrNight(bot),baseDoor:doorFacts}:{}),
-    ...(checkpoint.nightBurrowPending===true?{shelterWindow:duskOrNight(bot),shelterDisplaced:displaced}:{}),
+    ...(checkpoint.nightBurrowPending===true||checkpoint.nightShelterUnavailable===true?{shelterWindow:duskOrNight(bot),shelterDisplaced:displaced}:{}),
     ...(warehouse?.success && warehouseItems?.success ? { warehouse: { container: warehouse.data, items: [...stock].sort(([a], [b]) => a.localeCompare(b)) } } : {}) });
 }
 

@@ -14,7 +14,7 @@ import {blueprint} from '../packages/contracts/src/blueprints';
 import {warehouseShelter} from '../packages/core/src/warehouse-shelter';
 import {restInWarehouse} from '../packages/minecraft/src/base-shelter';
 import {openDoorClearance} from '../packages/minecraft/src/open-door';
-import type {ActionServices} from '../packages/minecraft/src/services';
+import {ConditionWait,type ActionServices} from '../packages/minecraft/src/services';
 
 function fixture(){
  const world='127.0.0.1:25566',blocks=blueprint('warehouse',{x:0,y:64,z:0}),container={id:'verified-base',world,dimension:'overworld',position:{x:1,y:65,z:1}},base=warehouseShelter(container,blocks)!;
@@ -31,8 +31,30 @@ function fixture(){
  };
  return {s,bot,cells,base,key,states,get opened(){return opened;},get toggles(){return toggles;},get waits(){return waits;}};
 }
+test('warehouse approach uses the same twelve-block threat boundary as the worker report',async()=>{
+ const f=fixture();f.bot.time.isDay=true;f.bot.time.timeOfDay=0;f.bot.entities[1]={name:'zombie',position:new Vec3(3.5,64,-14.5)} as any;
+ assert.equal(await restInWarehouse(f.s,()=>true,undefined,'enter'),true);assert.equal(await restInWarehouse(f.s,()=>true,undefined,'exit'),true);assert.equal(f.opened,false);
+ const blocked=fixture();blocked.bot.time.isDay=true;blocked.bot.entities[1]={name:'zombie',position:new Vec3(3.5,64,-11.5)} as any;assert.equal(await restInWarehouse(blocked.s,()=>true,undefined,'enter'),false);assert.equal(blocked.toggles,0);
+});
 test('a registered real building opens and closes its door, waits for daylight and outside threat clearance, and resumes outside',async()=>{
  const f=fixture();assert.equal(await restInWarehouse(f.s,()=>true),true);assert.equal(f.toggles,4);assert.equal(f.opened,false);assert.equal(f.waits,2);assert.ok(f.bot.entity.position.distanceTo(new Vec3(3.5,64,-.5))<.15);assert.equal(f.s.checkpoint.nightBasePending,false);assert.equal((f.s.checkpoint.nightBase as any).phase,'done');
+});
+test('failed distant night approach releases the pending base for a local shelter without spending or resetting resource budgets',async()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(3.5,64,-10.5);f.s.checkpoint.resourceRecovery={sand:{destinationsUsed:5}};
+ f.s.near=async()=>{throw new ConditionWait('no observed route',f.s.checkpoint);};
+ assert.equal(await restInWarehouse(f.s,()=>true),false);assert.equal(f.s.checkpoint.nightBasePending,false);assert.equal(f.toggles,0);
+ assert.deepEqual(f.s.checkpoint.resourceRecovery,{sand:{destinationsUsed:5}});
+ assert.equal((f.s.checkpoint.nightBaseApproachFailure as any).reason,'no observed route');
+});
+test('night approach failure beside a door retains the passage checkpoint',async()=>{
+ const f=fixture();f.s.near=async()=>{throw new ConditionWait('threshold blocked',f.s.checkpoint);};
+ await assert.rejects(restInWarehouse(f.s,()=>true),ConditionWait);assert.equal(f.s.checkpoint.nightBasePending,true);assert.equal(f.toggles,0);
+});
+test('an interrupted approach to a distant unloaded warehouse does not pin a new body outside',async()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(3.5,64,-100.5);f.s.checkpoint.nightBasePending=true;f.cells.set('3,68,2','air');
+ assert.equal(await restInWarehouse(f.s,()=>true),false);assert.equal(f.s.checkpoint.nightBasePending,false);assert.equal(f.toggles,0);
+ const closed=fixture();closed.s.checkpoint.nightBasePending=true;closed.s.checkpoint.nightBase={phase:'closed'};closed.cells.set('3,68,2','air');
+ await assert.rejects(restInWarehouse(closed.s,()=>true),ConditionWait);assert.equal(closed.s.checkpoint.nightBasePending,true);
 });
 for(const defect of ['permission','roof','wrong-world','inside-threat'])test(`warehouse shelter refuses ${defect} without door or world changes`,async()=>{
  const f=fixture();if(defect==='roof')f.cells.set('3,68,2','air');if(defect==='wrong-world')f.s.rules.baseShelter!.world='other';if(defect==='inside-threat')f.bot.entities[5]={name:'zombie',position:new Vec3(3.5,65,2.5)} as any;

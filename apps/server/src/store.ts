@@ -48,10 +48,14 @@ export class ControlStore {
   }
 
   saveCheckpoint(checkpoint: unknown, event?: StoredEvent): void {
+    this.saveSerializedCheckpoint(JSON.stringify(checkpoint), event);
+  }
+
+  saveSerializedCheckpoint(checkpointJson: string, event?: StoredEvent): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('INSERT INTO state (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-        .run('checkpoint', JSON.stringify(checkpoint));
+        .run('checkpoint', checkpointJson);
       if (event) this.appendEvent(event);
       this.db.exec('COMMIT');
     } catch (error) {

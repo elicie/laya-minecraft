@@ -114,3 +114,13 @@ test("training view shows actual optimizer progress separately from deployment a
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("last actual warehouse result remains visible after rolling samples expire or reconnect, without becoming fresh execution evidence",()=>{
+ const core=new FleetController({send(){},controllerEpoch:'current',rules:{world:'village',autonomyEnabled:false,warehouse:{id:'base',world:'village',dimension:'overworld',position:{x:1,y:64,z:1}}}}),s=core.getSnapshot(),model={status:'unconfigured' as const,checkedAt:0};
+ const observation={id:'last-stock',observedAt:99000,world:'village',dimension:'overworld',kind:'container' as const,data:{container:s.rules.warehouse!,items:[{name:'bread',count:3}]}};
+ s.attempts=[{id:'old-attempt',taskId:'old-task',botId:'bot',sessionId:'old-session',controllerEpoch:'previous',reason:'initial',state:'completed',assignedAt:98000,startedAt:98000,finishedAt:99500,result:{outcome:'completed',observations:[observation],evidence:[],checkpoint:{}}}];
+ const before=JSON.stringify(s),v=operationsView(s,model,[],100000);assert.equal(v.stock.bread,3);assert.equal(v.stock.observedAt,99000);assert.equal(v.stock.stale,true,'previous connection must remain marked stale even with a recent timestamp');assert.equal(JSON.stringify(s),before);assert.equal(s.observations.length,0,'history is not injected into fresh verification');
+ s.attempts[0]!.result!.observations.push({...observation,id:'foreign',observedAt:99999,world:'other',data:{...observation.data,items:[{name:'bread',count:99}]}});assert.equal(operationsView(s,model,[],100000).stock.bread,3);
+ s.observations=[{...observation,id:'fresh',controllerEpoch:'current',botId:'bot',sessionId:'current',receivedAt:100000,observedAt:100000,data:{...observation.data,items:[{name:'bread',count:0}]}}];const fresh=operationsView(s,model,[],100000);assert.equal(fresh.stock.bread,0);assert.equal(fresh.stock.stale,false,'a new actual empty chest replaces historical stock');
+ s.rules.warehouse={...s.rules.warehouse!,id:'new-base',position:{x:20,y:64,z:20}};assert.equal(operationsView(s,model,[],100000).stock.bread,null,'history cannot follow a different warehouse');
+});

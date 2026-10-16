@@ -3,7 +3,7 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { ItemStackSchema, PositionSchema, type ItemStack, type JsonObject, type Position, type RecoveryState } from '../../contracts/src';
 import { HOSTILES } from './combat-policy';
-import { safeCombatRoute, safeCombatStand } from './combat-retreat';
+import { recoveryThreatsClear, safeCombatRoute, safeCombatStand } from './combat-retreat';
 import { ConditionWait, type ActionServices } from './services';
 import { leaveRecoveryEdge } from './recovery-safety';
 
@@ -30,7 +30,7 @@ export function playerInventory(bot: Bot): ItemStack[] {
 
 export function recoverySafe(bot: Bot, retreatHealth: number): boolean {
   return bot.health > retreatHealth && bot.food > 6 && !!bot.entity && safeCombatStand(bot, bot.entity.position) &&
-    !Object.values(bot.entities).some(entity => HOSTILES.has(entity.name ?? '') && vector(entity.position).distanceTo(vector(bot.entity.position)) < 20);
+    recoveryThreatsClear(bot,bot.entity.position);
 }
 
 function checkpoint(bot: Bot, state: RecoveryState): RecoveryCheckpoint {
