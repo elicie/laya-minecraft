@@ -565,11 +565,16 @@ export class MinecraftWorker {
       }, 'emergency', this.combatCheckpoint);
       return;
     }
-    const attacked = this.now() - this.lastHitAt < 4000 || !!this.combatWait;
+    const recentHit = this.now() - this.lastHitAt < 4000;
+    const attacked = recentHit || !!this.combatWait;
     const equipment = combatEquipment(this.bot);
     const blastThreat=this.launch.config.enabled?enemies.find(e=>e.name==='creeper'&&e.position.distanceTo(this.bot.entity.position)<12&&visibleThreat(this.bot,e)):undefined;
     const exposed = blastThreat??(!attacked && this.launch.config.enabled ? enemies.find(e => !equipment.shield && equipment.armorPoints < 12 && visibleRangedThreat(this.bot,e) || !equipment.weapon && e.position.distanceTo(this.bot.entity.position)<12 && visibleThreat(this.bot,e)) : undefined);
-    const target = blastThreat??(this.hitSource && enemies.some((e) => e.id === this.hitSource!.id) ? this.hitSource : exposed ?? enemies[0]);
+    // Proactive defense needs actual sight. A mob behind a wall or above a
+    // closed roof must not make a guard abandon its shelter to chase it.
+    // A recent actual hit still permits defensive handling without a ray;
+    // unavailable sight data remains conservative rather than proving cover.
+    const target = blastThreat??(recentHit && this.hitSource && enemies.some((e) => e.id === this.hitSource!.id) ? this.hitSource : exposed ?? enemies.find(e=>visibleThreat(this.bot,e)) ?? (recentHit || typeof this.bot.world?.raycast !== 'function' ? enemies[0] : undefined));
     if (target) {
       const allies = Object.values(this.bot.players).filter((p) => p.entity && p.entity.id !== this.bot.entity.id && p.entity.position.distanceTo(this.bot.entity.position) < 8);
       const center = this.launch.rules.center;

@@ -933,9 +933,38 @@ export class MineflayerExecutor {
     }
     throw new ConditionWait(`${itemName}을 설치할 빈 공간과 지지체가 필요합니다.`);
   }
+  private async resumeSmeltOutput(itemName: string, input: string, minimum: number, s: ActionServices): Promise<void> {
+    const saved = PositionSchema.safeParse(s.checkpoint.furnacePosition);
+    if (saved.success && this.bot.blockAt(vector(saved.data))?.name === 'furnace') this.ownedUtilities.set('furnace', vector(saved.data));
+    const known = this.ownedUtilities.get('furnace'), block = known && this.bot.blockAt(known);
+    if (!block || block.name !== 'furnace') return;
+    await this.returnForUtility(s);
+    await s.near(block.position, 2);
+    const furnace = await this.bot.openFurnace(block);
+    try {
+      const committed = furnace.inputItem();
+      const deadline = Date.now() + (committed?.count ?? 0) * 12000 + 15000;
+      while (this.count(itemName) < minimum) {
+        s.check();
+        const pending = furnace.inputItem(), output = furnace.outputItem();
+        if (pending && pending.name !== input || output && output.name !== itemName) throw new ConditionWait('기존 화로의 다른 제련 작업을 보존하고 완료를 기다립니다.', s.checkpoint);
+        if (output?.name === itemName) { await furnace.takeOutput(); this.recordInventory(s); }
+        if (this.count(itemName) >= minimum || !furnace.inputItem() && !furnace.outputItem()) return;
+        // Already committed input is still real stock. Wait for its output;
+        // never mine a second parcel merely because shelter interrupted us.
+        s.checkpoint.smeltResume = { item: itemName, minimum, furnacePosition: position(block.position), committedInput: pending?.count ?? 0, recovered: this.count(itemName), observedAt: Date.now() };
+        if (Date.now() >= deadline) throw new ConditionWait('기존 화로에 투입한 원재료의 산출물과 실제 연료 상태를 확인해야 합니다.', s.checkpoint);
+        s.progress('제련 재개', `${itemName} ${this.count(itemName)}/${minimum} · 기존 투입분 확인`);
+        await s.pause(250);
+      }
+    } finally { await furnace.close(); }
+  }
+
   private async smelt(itemName: string, minimum: number, s: ActionServices, chain = new Set<string>()): Promise<void> {
     const input = smeltInputs[itemName];
     if (!input) throw new ConditionWait('지원하는 제련 산출물을 선택해 주세요.');
+    if (this.count(itemName) >= minimum) return;
+    await this.resumeSmeltOutput(itemName, input, minimum, s);
     const amount = Math.max(0, minimum - this.count(itemName)); if (!amount) return;
     await this.ensureItem(input, amount, s, chain);
     await this.returnForUtility(s);
