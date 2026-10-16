@@ -13,7 +13,7 @@ import { recoverDeathStep } from '../packages/minecraft/src/death-recovery';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { checkAbort, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movementsFactory?(bot: Bot): Movements; execute?(task: TaskSpec, s: ActionServices): Promise<ResultPayload>; retreat?(entity: Entity, s: ActionServices): Promise<void>; ensureFood?(s: ActionServices): Promise<void> } = {}) {
+function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movementsFactory?(bot: Bot): Movements; execute?(task: TaskSpec, s: ActionServices): Promise<ResultPayload>; retreat?(entity: Entity, s: ActionServices): Promise<void>; ensureFood?(s: ActionServices): Promise<void>; eat?(s: ActionServices): Promise<boolean> } = {}) {
   const emitter = new EventEmitter(), messages: WorkerMessage[] = [], items: ItemStack[] = [], moved: Position[] = [];
   let clock = Date.now(), executions = 0, retreats = 0, fights = 0, collected = 0;
   const cells = new Map<string, { name: string; boundingBox: 'empty' | 'block'; stateId?: number } | null>();
@@ -40,6 +40,7 @@ function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movem
     clearControlStates() {}, deactivateItem() {}, stopDigging() {}, quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class Executor extends MineflayerExecutor {
+    override async eat(s: ActionServices): Promise<boolean> { return options.eat ? options.eat(s) : super.eat(s); }
     override async ensureFood(s: ActionServices): Promise<void> { if (options.ensureFood) return options.ensureFood(s); return super.ensureFood(s); }
     override async near(p: Position, signal: AbortSignal): Promise<void> {
       checkAbort(signal); if (options.moveDelayMs) await new Promise(resolve => setTimeout(resolve, options.moveDelayMs)); checkAbort(signal);
@@ -118,6 +119,32 @@ test('an actually observed phantom is included in danger handling and is never r
     f.worker.pollSafety(); await settle(); assert.equal(f.retreats, 1);
     delete f.bot.entities[4]; f.bot.health = 20; f.worker.pollSafety(); await settle();
     await f.worker.receive(f.assign('phantom-left')); assert.equal(f.executions, 1);
+  } finally { await f.worker.shutdown(); }
+});
+
+test('a vanished enemy cannot make a critical retreat wait starve food recovery or admit ordinary work', async () => {
+  let foodAttempts = 0;
+  const f = fixture({
+    async retreat(_enemy, s) { s.checkpoint.retreatRecovery = { spent: 6 }; throw new ConditionWait('observed routes blocked'); },
+    async ensureFood() { foodAttempts++; f.items.push({ name: 'bread', count: 1 }); },
+    async eat() {
+      const index = f.items.findIndex(item => item.name === 'bread' && item.count > 0);
+      if (index < 0) return false;
+      f.items.splice(index, 1); f.bot.food = 20; return true;
+    },
+  });
+  const enemy = { id: 4, uuid: 'departing-phantom', name: 'phantom', position: new Vec3(2,64,0) } as unknown as Entity;
+  try {
+    f.bot.entities[4] = enemy; f.bot.health = 1; f.bot.food = 17;
+    f.emitter.emit('entityHurt', f.bot.entity, enemy); f.worker.pollSafety(); await settle();
+    assert.equal(f.retreats, 1); assert.equal(foodAttempts, 0, 'an actual enemy still owns the emergency');
+    delete f.bot.entities[4]; f.advance(); f.worker.pollSafety(); await settle();
+    assert.equal(foodAttempts, 1, 'critical food recovery must run before the health-dependent footing gate');
+    assert.equal(f.bot.food, 20); assert.equal(f.bot.health, 1); assert.equal(f.items.length, 0);
+    await f.worker.receive(f.assign('still-injured')); assert.equal(f.executions, 0);
+    f.bot.health = 20; f.emitter.emit('health'); f.worker.pollSafety(); await settle();
+    await f.worker.receive(f.assign('actually-healed')); assert.equal(f.executions, 1);
+    assert.equal(f.retreats, 1, 'feeding never renews the failed combat attempt');
   } finally { await f.worker.shutdown(); }
 });
 
