@@ -29,6 +29,23 @@ function fixture(kind: 'build' | 'collect' | 'craft' = 'build') {
 }
 const materialWait = (details: JsonObject = {}): JsonObject => ({ waitingFor: { kind: 'inventory', causeCode: 'BUILD_MATERIAL', item: 'cobblestone', minimum: 1, resourceNames: ['cobblestone'], ...details } });
 
+test('legacy exhausted resource waits adopt actual-position rechecks without replacing the task or renewing search budgets',()=>{
+ const f=fixture('craft'),first=f.latest(),budget={cobblestone:{origin:{x:0,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted'}};
+ f.wait({...materialWait({causeCode:'RESOURCE_MISSING',watchPosition:false}),resourceRecovery:budget});
+ const messages:CentralMessage[]=[],core=new FleetController({checkpoint:f.core.checkpoint(),controllerEpoch:'direct-recheck',now:f.now,send:(_id,m)=>messages.push(m)});
+ const restored=core.getSnapshot().tasks.find(t=>t.id===first.taskId)!;assert.equal(restored.waitState!.waitingFor!.watchPosition,true);assert.deepEqual(restored.checkpoint.resourceRecovery,budget);
+ core.confirmWorkerStopped('bot','session');core.startSession('bot','new-session');
+ const report=(x:number)=>({ready:true,world,dimension,health:20,food:20,position:{x,y:64,z:0},inventory:[],action:'idle',reason:'actual body',mode:'idle',capabilities:['craft','collect','store','build','explore'],rulesVersion:core.getRules().version});
+ const receive=(type:string,payload:unknown,task?:Extract<CentralMessage,{type:'task.assign'}>)=>core.receive({protocolVersion:1,messageId:randomUUID(),controllerEpoch:core.controllerEpoch,botId:'bot',sessionId:'new-session',sentAt:f.now(),type,payload,...(task?{taskId:task.taskId,attemptId:task.attemptId}:{})});
+ receive('bot.ready',report(0));receive('rules.applied',{version:core.getRules().version});
+ const initial=messages.find((m):m is Extract<CentralMessage,{type:'task.assign'}>=>m.type==='task.assign')!;
+ assert.ok(initial,'a replacement session restores its preserved passive watch once');assert.deepEqual(initial.payload.checkpoint.resourceRecovery,budget);
+ receive('task.result',{outcome:'condition-wait',checkpoint:{...initial.payload.checkpoint,waitingFor:{kind:'inventory',causeCode:'RESOURCE_MISSING',item:'cobblestone',minimum:1,resourceNames:['stone'],watchPosition:true}},observations:[],evidence:[],reason:'still spent'},initial);
+ receive('bot.status',report(0));assert.equal(messages.filter(m=>m.type==='task.assign').length,1,'the same body location does not trigger another check');
+ receive('bot.status',report(9));
+ const next=messages.filter((m):m is Extract<CentralMessage,{type:'task.assign'}>=>m.type==='task.assign').at(-1)!;assert.equal(messages.filter(m=>m.type==='task.assign').length,2);assert.equal(next.taskId,first.taskId);assert.deepEqual(next.payload.checkpoint.resourceRecovery,budget);
+});
+
 test('a ripe-only crop wait ignores intermediate growth and wakes once on observed maturity',()=>{
  const f=fixture('craft'),checkpoint:JsonObject={waitingFor:{kind:'inventory',causeCode:'RESOURCE_MISSING',item:'wheat',minimum:3,resourceNames:['wheat'],resourcePositions:[source],minimumResourceAge:7,watchPosition:false}};
  f.wait(checkpoint,[{position:source,name:'wheat',stateId:120,age:0}]);

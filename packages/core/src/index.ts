@@ -76,6 +76,14 @@ export class FleetController {
     this.state.revision = 0;
     this.state.observations = [];
     this.messageIds = new Set(this.state.processedMessageIds ?? []);
+    if(options.checkpoint)for(const task of this.state.tasks){
+      const wait=task.waitState,condition=wait?.waitingFor;
+      if(condition?.kind!=='inventory'||condition.causeCode!=='RESOURCE_MISSING'||condition.watchPosition===true||task.checkpoint.directHarvestWaitVersion===1)continue;
+      condition.watchPosition=true;
+      wait!.fingerprint=this.buildWaitFingerprint(condition,wait!.botId,wait!.fingerprint);
+      if(task.checkpoint.waitingFor&&typeof task.checkpoint.waitingFor==='object'&&!Array.isArray(task.checkpoint.waitingFor))task.checkpoint.waitingFor.watchPosition=true;
+      task.checkpoint.directHarvestWaitVersion=1;
+    }
     for (const agent of this.state.agents) {
       const report = agent.session?.report;
       if (!agent.survivalRecovery && report?.survivalRecovery) agent.survivalRecovery = clone(report.survivalRecovery);

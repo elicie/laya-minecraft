@@ -439,6 +439,15 @@ export class MineflayerExecutor {
     const protectedPosition=(q:Position)=>this.protectedBuildPosition(q,s),feet=vector(p).floored();
     return safeResourceStand(this.bot,p,protectedPosition)||s.checkpoint.materialExpedition===true&&s.checkpoint.resourceRecoveryScope!=='$food'&&this.bot.health>s.rules.combat.retreatHealth&&this.bot.food>6&&![feet,feet.offset(0,1,0),feet.offset(0,-1,0)].some(protectedPosition)&&observedGroundStand(this.bot,p);
   }
+  /** Existing safe footing and a harvestable block already in reach need no
+   * further route search. This never issues movement or renews its allowance. */
+  private directlyHarvestable(block:Block,s:ActionServices):boolean {
+    const feet=walkingFeet(this.bot),actual=this.bot.entity.position;
+    if(this.bot.entity.onGround!==true||Math.abs(actual.y-feet.y)>.1||Math.abs(actual.x-feet.x-.5)>.15||Math.abs(actual.z-feet.z-.5)>.15||this.bot.health<=s.rules.combat.retreatHealth||this.bot.food<=6)return false;
+    if(vector(actual).offset(0,1.62,0).distanceTo(block.position.offset(.5,.5,.5))>4.5||!this.collectionStand(feet,s)||Object.values(this.bot.entities).some(e=>HOSTILES.has(e.name??'')&&e.position.distanceTo(actual)<12))return false;
+    if(!this.collectible(block,s)||this.currentSupport(block)||typeof this.bot.canSeeBlock!=='function'||!this.bot.canSeeBlock(block)||typeof this.bot.canDigBlock!=='function'||!this.bot.canDigBlock(block))return false;
+    return block.canHarvest(this.bot.heldItem?.type??null)||this.bot.inventory.items().some(i=>block.canHarvest(i.type));
+  }
   private resourceStands(block: Block, s: ActionServices): Position[] {
     if (!block.boundingBox) return [];
     const feet = vector(this.bot.entity.position).floored();
@@ -504,10 +513,11 @@ export class MineflayerExecutor {
         }
       }
       if (this.bot.inventory.emptySlotCount() === 0 && !this.bot.inventory.items().some((i) => i.name === itemName && i.count < i.stackSize)) throw new ConditionWait('인벤토리 공간을 확보해야 합니다.');
-      const eligible = (b: Block) => this.collectMatches(itemName,b.name) && !skipped.has(`${b.position}`) && !recovery.failed(b.position) && recovery.within(b.position) && this.collectible(b,s);
+      const eligible = (b: Block) => this.collectMatches(itemName,b.name) && !skipped.has(`${b.position}`) && this.collectible(b,s) && (this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position));
       const selected = selectedSource ? this.bot.blockAt(vector(selectedSource)) : undefined;
       const block = selectedSource ? selected && eligible(selected) ? selected : null : this.bot.findBlock({ matching: b => this.collectMatches(itemName,b.name), useExtraInfo: eligible, maxDistance:48 });
-      if (!block || !recovery.canApproach()) {
+      const direct=!!block&&this.directlyHarvestable(block,s);
+      if (!block || !recovery.canApproach()&&!direct) {
         if (selectedSource) throw new ConditionWait('선택한 자연 나무의 실제 노출면과 접근을 확인해야 합니다.',s.checkpoint);
         if (await recovery.move()) continue;
         if (recovery.journey?.pending) { await s.pause(100); continue; }
@@ -523,8 +533,9 @@ export class MineflayerExecutor {
       recovery.sample(block.position);
       const stands = this.resourceStands(block, s);
       if (!stands.length) { skipped.add(`${block.position}`); recovery.reject(block.position, block.name, '자원까지 노출된 면과 안전하게 설 수 있는 지상 발판을 확인하지 못했습니다.'); continue; }
-      let stand: Position | undefined, approachReason = '';
+      let stand: Position | undefined=direct?position(walkingFeet(this.bot)):undefined, approachReason = '';
       for (const candidate of stands) {
+        if(stand)break;
         if (!recovery.canApproach()) break;
         try {
           await recovery.approach(vector(candidate).offset(0.5, 0, 0.5), 0);
@@ -534,7 +545,11 @@ export class MineflayerExecutor {
         } catch (error) { s.check(); if (!(error instanceof ConditionWait)) throw error; approachReason = error.message; }
       }
       if (!stand) { skipped.add(`${block.position}`); recovery.reject(block.position, block.name, approachReason); continue; }
-      const approach = async () => recovery.approach(vector(stand!).offset(0.5, 0, 0.5), 0);
+      const approach = async () => {
+        const actual=this.bot.blockAt(block.position);
+        if(actual&&this.directlyHarvestable(actual,s))return;
+        await recovery.approach(vector(stand!).offset(0.5,0,0.5),0);
+      };
       let current = this.bot.blockAt(block.position);
       if (!current || !this.collectMatches(itemName, current.name) || !this.collectible(current, s) || this.currentSupport(current)) { skipped.add(`${block.position}`); continue; }
       if (this.bot.blockAt(current.position.offset(0, 1, 0))?.name === 'lava' || unsafeBlocks.has(this.bot.blockAt(current.position.offset(0, -1, 0))?.name ?? '')) { skipped.add(`${block.position}`); continue; }
@@ -584,8 +599,8 @@ export class MineflayerExecutor {
       // Falling logs can enter the inventory while scouting another stand.
       // Recheck actual stock before choosing another species or search leg.
       if(stocked()){recovery.progress();return;}
-      const block = this.bot.findBlock({ matching:b=>names.includes(b.name),useExtraInfo:b=>!recovery.failed(b.position)&&recovery.within(b.position)&&this.collectible(b,s)&&this.resourceStands(b,s).some(p=>recovery.route(vector(p))),maxDistance:48 });
-      if (block && recovery.canApproach()) {
+      const block = this.bot.findBlock({ matching:b=>names.includes(b.name),useExtraInfo:b=>this.collectible(b,s)&&(this.directlyHarvestable(b,s)||!recovery.failed(b.position)&&recovery.within(b.position)&&this.resourceStands(b,s).some(p=>recovery.route(vector(p)))),maxDistance:48 });
+      if (block && (recovery.canApproach()||this.directlyHarvestable(block,s))) {
         try { await this.collect(block.name,this.count(block.name)+1,s,position(block.position),recovery); continue; }
         catch(error) {s.check();if(!(error instanceof ConditionWait))throw error;recovery.reject(block.position,block.name,error.message);continue;}
       }
