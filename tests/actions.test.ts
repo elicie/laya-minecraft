@@ -99,6 +99,34 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
   return { executor, services, bot, stock, cells, locations, crafted, dug, get queries() { return queries; }, set blockedWood(value: string) { blockedWood = value; }, set failCraft(value: boolean) { failCraft = value; } };
 }
 
+test('an exhausted search can harvest a newly reached visible log without movement or a new search allowance',async()=>{
+ const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
+ const budget={origin:{x:-100,y:64,z:0},visited:[],failed:[],probes:[],sourceSnapshot:[],sourceFingerprint:'',destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted',reason:'spent'};
+ f.services.checkpoint.resourceRecovery={oak_log:budget};f.services.near=async()=>assert.fail('direct harvesting must not issue movement');
+ const dig=f.bot.dig.bind(f.bot);f.bot.dig=async block=>{const saved=(f.services.checkpoint.resourceRecovery as any).oak_log;assert.equal(saved.destinationsUsed,5);assert.equal(saved.approachesUsed,8);assert.equal(saved.elapsedMs,60000);await dig(block);};
+ await f.executor.ensureItem('oak_log',1,f.services);assert.equal(f.stock.get('oak_log'),1);assert.equal(f.dug.length,1);
+});
+
+test('an exhausted shared utility-wood search uses a real adjacent log to craft a missing worktable without another trip',async()=>{
+ const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
+ f.services.checkpoint.materialExpedition=true;f.services.checkpoint.resourceRecovery={$utility_wood:{origin:{x:-100,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted',reason:'spent'}};
+ f.services.near=async()=>assert.fail('held wood and inventory crafting do not need another trip');
+ await f.executor.ensureItem('crafting_table',1,f.services);assert.equal(f.stock.get('crafting_table'),1);assert.deepEqual(f.dug,['oak_log']);
+});
+
+for(const defect of ['airborne','edge','hidden','out-of-reach','threat','protected','unsafe-support'] as const)test(`direct harvesting with a spent search refuses ${defect}`,async()=>{
+ const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
+ if(defect==='airborne')Object.assign(f.bot.entity,{onGround:false});
+ if(defect==='edge')f.bot.entity.position=new Vec3(9.05,64,6.5);
+ if(defect==='hidden')Object.assign(f.bot,{canSeeBlock:()=>false});
+ if(defect==='out-of-reach')f.bot.entity.position=new Vec3(.5,64,.5);
+ if(defect==='threat')(f.bot.entities as any).enemy={name:'zombie',position:new Vec3(8,64,6)};
+ if(defect==='protected')f.services.checkpoint.protectedPositions=f.locations.map(p=>({x:p.x,y:p.y,z:p.z}));
+ if(defect==='unsafe-support')f.cells.set(new Vec3(9,63,6).toString(),'air');
+ f.services.checkpoint.resourceRecovery={oak_log:{origin:{x:-100,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted',reason:'spent'}};
+ await assert.rejects(f.executor.ensureItem('oak_log',1,f.services),ConditionWait);assert.equal(f.dug.length,0);const saved=(f.services.checkpoint.resourceRecovery as any).oak_log;assert.equal(saved.destinationsUsed,5);assert.equal(saved.approachesUsed,8);
+});
+
 test('inventory recipes ignore an observed worktable and mixed held wood funds the whole pickaxe without a species expedition',async()=>{
   const f=woodRecipeFixture([],{birch_planks:4,oak_log:1});f.services.checkpoint.materialExpedition=true;const p=new Vec3(-2,64,0);f.cells.set(p.toString(),'crafting_table');f.locations.push(p);
   await f.executor.ensureItem('wooden_pickaxe',1,f.services);assert.equal(f.stock.get('wooden_pickaxe'),1);assert.equal(f.stock.get('wooden_sword'),1);assert.equal(f.dug.length,0);assert.ok(f.crafted.indexOf('stick')<f.crafted.indexOf('wooden_pickaxe'));

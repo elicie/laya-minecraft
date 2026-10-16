@@ -497,6 +497,6 @@ export class ResourceRecovery {
     for (const p of [...this.state.failed.map(p => p.position), ...this.state.probes.map(p => p.position), ...this.state.sourceSnapshot.filter(source => source.state?.startsWith('age:')).map(p => p.position)]) { positions.delete(keyOf(p)); positions.set(keyOf(p), p); }
     const resourcePositions = [...positions.values()].slice(-64);
     const context = { missingResource: this.item, ...(minimum === undefined ? {} : { minimum }), resourceNames: [...this.names], resourcePositions, failedCause: this.state.reason, resourceRecovery: this.services.checkpoint.resourceRecovery! };
-    return new ConditionWait(reason, { ...context, ...(this.item === '$food' ? {} : { waitingFor: { kind: 'inventory', causeCode: 'RESOURCE_MISSING', item: this.item, minimum: minimum ?? 1, resourceNames: [...this.names], resourcePositions, failedCause: this.state.reason, watchPosition: false } }) });
+    return new ConditionWait(reason, { ...context, ...(this.item === '$food' ? {} : { waitingFor: { kind: 'inventory', causeCode: 'RESOURCE_MISSING', item: this.item, minimum: minimum ?? 1, resourceNames: [...this.names], resourcePositions, failedCause: this.state.reason, watchPosition: true } }) });
   }
 }
