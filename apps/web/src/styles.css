@@ -749,6 +749,9 @@ svg {
   font-size: 11px;
   line-height: 1.7;
 }
+.viewer-surface { position: relative; }
+.viewer-retained { visibility: hidden; pointer-events: none; }
+.viewer-placeholder.viewer-overlay { position: absolute; inset: 0; height: 100%; min-height: 0; max-height: none; aspect-ratio: auto; }
 .viewer {
   width: 100%;
   height: auto;
