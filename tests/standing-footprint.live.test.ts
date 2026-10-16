@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { once } from 'node:events';
+import { Vec3 } from 'vec3';
+import { pathfinder, Movements } from 'mineflayer-pathfinder';
+import { BotInputSchema, RulesSchema } from '../packages/contracts/src';
+import { createCompatibleBot } from '../packages/minecraft/src/compatibility';
+import { MineflayerExecutor } from '../packages/minecraft/src/actions';
+import { leaveRecoveryEdge } from '../packages/minecraft/src/recovery-safety';
+import { recoverySafe } from '../packages/minecraft/src/death-recovery';
+import { centerSupportedCell } from '../packages/minecraft/src/standing-footprint';
+import { beginResourceTrip, resourceTrip, returnFromResourceTrip } from '../packages/minecraft/src/resource-trip';
+if(process.env.MC_HOST!=='127.0.0.1'||process.env.MC_PORT!=='25566')throw new Error('Disposable minecraft-laya-validation:25566 only.');
+const rcon=(command:string)=>execFileSync('docker',['exec','minecraft-laya-validation','rcon-cli',command],{encoding:'utf8'});
+const sleep=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
+test('a real player standing across two cell boundaries settles onto its existing adjacent support without terrain edits',{timeout:45000},async()=>{
+ assert.equal(execFileSync('docker',['inspect','-f','{{(index (index .NetworkSettings.Ports "25565/tcp") 0).HostPort}}','minecraft-laya-validation'],{encoding:'utf8'}).trim(),'25566');
+ rcon('forceload add 8600 8600 8620 8620');rcon('fill 8600 77 8600 8620 85 8620 air');rcon('fill 8600 77 8600 8620 78 8620 dirt');rcon('fill 8600 79 8600 8620 79 8620 grass_block');rcon('fill 8611 80 8611 8613 80 8613 grass_block');
+ const bot=await createCompatibleBot({host:'127.0.0.1',port:25566,version:'1.21.1',username:'LayaFootprint',auth:'offline'});bot.loadPlugin(pathfinder);
+ try{
+  await once(bot,'spawn');rcon('tp LayaFootprint 8611.5 81 8610.7001');rcon('clear LayaFootprint');
+  const ready=Date.now()+10000;while(bot.entity.position.distanceTo(new Vec3(8611.5,81,8610.7001))>.05&&Date.now()<ready)await sleep(50);await sleep(500);
+  assert.ok(Math.abs(bot.entity.position.y-81)<.05);assert.equal(bot.entity.onGround,true);assert.equal(bot.blockAt(bot.entity.position.floored().offset(0,-1,0))?.name,'air');
+  const moves=new Movements(bot);moves.canDig=false;moves.allow1by1towers=false;moves.allowParkour=false;moves.maxDropDown=2;moves.infiniteLiquidDropdownDistance=false;moves.scafoldingBlocks=[];bot.pathfinder.setMovements(moves);
+  const rules=RulesSchema.parse({world:'127.0.0.1:25566',autonomyEnabled:false}),{id:_id,...config}=BotInputSchema.parse({name:'LayaFootprint'}),executor=new MineflayerExecutor(bot,{config,rules,world:rules.world,dimension:()=>'overworld'});
+  assert.equal(recoverySafe(bot,rules.combat.retreatHealth),false);const from=bot.entity.position.clone(),s=executor.services(AbortSignal.timeout(25000));
+  assert.equal(await leaveRecoveryEdge(bot,s),true);assert.equal(recoverySafe(bot,rules.combat.retreatHealth),true);assert.equal((s.checkpoint.recoverySafety as {attempts:number}).attempts,1);assert.equal((s.checkpoint.footprintSettle as {phase:string}).phase,'complete');assert.equal(bot.inventory.items().length,0);
+  assert.match(rcon('execute if block 8611 80 8610 air'),/Test passed/);assert.match(rcon('execute if block 8611 80 8611 grass_block'),/Test passed/);
+  console.log('Actual supported footprint settlement verified',JSON.stringify({from,actual:bot.entity.position,itemsGiven:false,botTerrainEdits:false}));
+  rcon('tp LayaFootprint 8611.5 81 8610.7001');const materialUntil=Date.now()+5000;while(bot.entity.position.distanceTo(new Vec3(8611.5,81,8610.7001))>.05&&Date.now()<materialUntil)await sleep(50);await sleep(300);
+  await beginResourceTrip(s,'cobblestone',8);assert.equal(resourceTrip(s.checkpoint)?.phase,'outbound');assert.equal(s.checkpoint.resourceFootprintAdjustments,1);assert.ok(bot.entity.position.distanceTo(new Vec3(8611.5,81,8611.5))<.1);await returnFromResourceTrip(s);assert.equal(resourceTrip(s.checkpoint)?.phase,'complete');
+  rcon('setblock 8616 80 8617 stone');rcon('tp LayaFootprint 8616.5 80 8616.7001');
+  const cornerUntil=Date.now()+5000;while(bot.entity.position.distanceTo(new Vec3(8616.5,80,8616.7001))>.05&&Date.now()<cornerUntil)await sleep(50);await sleep(300);
+  assert.equal(await centerSupportedCell(bot,s),true);assert.ok(bot.entity.position.distanceTo(new Vec3(8616.5,80,8616.5))<.15);assert.equal((s.checkpoint.footprintCenter as {phase:string}).phase,'complete');
+  assert.match(rcon('execute if block 8616 80 8617 stone'),/Test passed/);assert.match(rcon('execute if block 8616 79 8616 grass_block'),/Test passed/);
+  console.log('Actual supported corner alignment verified',JSON.stringify({actual:bot.entity.position,itemsGiven:false,botTerrainEdits:false}));
+  await beginResourceTrip(s,'cobblestone',8);await s.near({x:8615.5,y:80,z:8617.5},0);assert.ok(bot.entity.position.distanceTo(new Vec3(8615.5,80,8617.5))<1);await returnFromResourceTrip(s);assert.ok(bot.entity.position.distanceTo(new Vec3(8616.5,80,8616.5))<1);assert.match(rcon('execute if block 8616 80 8617 stone'),/Test passed/);
+  console.log('Actual material corner departure and return verified',JSON.stringify({actual:bot.entity.position,itemsGiven:false,botTerrainEdits:false}));
+  rcon('setblock 8615 80 8616 stone');await sleep(150);await beginResourceTrip(s,'cobblestone',8);await s.near({x:8615.5,y:80,z:8617.5},0);assert.ok(bot.entity.position.distanceTo(new Vec3(8615.5,80,8617.5))<1);await returnFromResourceTrip(s);assert.ok(bot.entity.position.distanceTo(new Vec3(8616.5,80,8616.5))<1);assert.match(rcon('execute if block 8615 80 8616 stone'),/Test passed/);assert.match(rcon('execute if block 8616 80 8617 stone'),/Test passed/);
+  console.log('Actual blocked diagonal corner detour verified',JSON.stringify({actual:bot.entity.position,itemsGiven:false,botTerrainEdits:false}));
+ }finally{bot.quit('standing footprint validation finished');await sleep(250);rcon('forceload remove 8600 8600 8620 8620');}
+});

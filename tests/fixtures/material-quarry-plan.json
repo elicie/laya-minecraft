@@ -1,0 +1,163 @@
+{
+  "edits": [
+    {
+      "stand": {
+        "x": 37,
+        "y": 66,
+        "z": 4
+      },
+      "position": {
+        "x": 36,
+        "y": 66,
+        "z": 4
+      },
+      "before": "grass_block",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 66,
+        "z": 4
+      },
+      "position": {
+        "x": 36,
+        "y": 65,
+        "z": 4
+      },
+      "before": "dirt",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 36,
+        "y": 65,
+        "z": 4
+      },
+      "position": {
+        "x": 36,
+        "y": 63,
+        "z": 5
+      },
+      "before": "sand",
+      "after": "oak_planks"
+    },
+    {
+      "stand": {
+        "x": 36,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 37,
+        "y": 65,
+        "z": 5
+      },
+      "before": "grass_block",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 38,
+        "y": 65,
+        "z": 5
+      },
+      "before": "grass_block",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 38,
+        "y": 64,
+        "z": 5
+      },
+      "before": "sand",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 38,
+        "y": 65,
+        "z": 6
+      },
+      "before": "grass_block",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 38,
+        "y": 64,
+        "z": 6
+      },
+      "before": "sand",
+      "after": "air"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 5
+      },
+      "position": {
+        "x": 37,
+        "y": 63,
+        "z": 6
+      },
+      "before": "sand",
+      "after": "oak_planks"
+    },
+    {
+      "stand": {
+        "x": 37,
+        "y": 64,
+        "z": 6
+      },
+      "position": {
+        "x": 38,
+        "y": 63,
+        "z": 7
+      },
+      "before": "sand",
+      "after": "oak_planks"
+    },
+    {
+      "stand": {
+        "x": 38,
+        "y": 64,
+        "z": 7
+      },
+      "position": {
+        "x": 38,
+        "y": 63,
+        "z": 8
+      },
+      "before": "sand",
+      "after": "oak_planks"
+    }
+  ],
+  "exit": {
+    "x": 37,
+    "y": 66,
+    "z": 4
+  }
+}

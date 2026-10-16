@@ -1,0 +1,8015 @@
+{
+  "schemaVersion": 1,
+  "minecraftVersion": "1.21.1",
+  "source": "prismarine-viewer/public/textures/1.21.1",
+  "sourcePackageVersion": "1.33.0",
+  "tileSize": 32,
+  "width": 1024,
+  "height": 1184,
+  "fallback": {
+    "x": 0,
+    "y": 0,
+    "kind": "fallback",
+    "label": "Unknown item"
+  },
+  "items": {
+    "acacia_boat": {
+      "x": 32,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Boat"
+    },
+    "acacia_button": {
+      "x": 64,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Button"
+    },
+    "acacia_chest_boat": {
+      "x": 96,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Boat with Chest"
+    },
+    "acacia_door": {
+      "x": 128,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Door"
+    },
+    "acacia_fence": {
+      "x": 160,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Fence"
+    },
+    "acacia_fence_gate": {
+      "x": 192,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Fence Gate"
+    },
+    "acacia_hanging_sign": {
+      "x": 224,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Hanging Sign"
+    },
+    "acacia_leaves": {
+      "x": 256,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Leaves"
+    },
+    "acacia_log": {
+      "x": 288,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Log"
+    },
+    "acacia_planks": {
+      "x": 320,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Planks"
+    },
+    "acacia_pressure_plate": {
+      "x": 352,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Pressure Plate"
+    },
+    "acacia_sapling": {
+      "x": 384,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Sapling"
+    },
+    "acacia_sign": {
+      "x": 416,
+      "y": 0,
+      "kind": "item",
+      "label": "Acacia Sign"
+    },
+    "acacia_slab": {
+      "x": 448,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Slab"
+    },
+    "acacia_stairs": {
+      "x": 480,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Stairs"
+    },
+    "acacia_trapdoor": {
+      "x": 512,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Trapdoor"
+    },
+    "acacia_wood": {
+      "x": 544,
+      "y": 0,
+      "kind": "block",
+      "label": "Acacia Wood"
+    },
+    "activator_rail": {
+      "x": 576,
+      "y": 0,
+      "kind": "block",
+      "label": "Activator Rail"
+    },
+    "air": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Air"
+    },
+    "allay_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Allay Spawn Egg"
+    },
+    "allium": {
+      "x": 640,
+      "y": 0,
+      "kind": "item",
+      "label": "Allium"
+    },
+    "amethyst_block": {
+      "x": 672,
+      "y": 0,
+      "kind": "block",
+      "label": "Block of Amethyst"
+    },
+    "amethyst_cluster": {
+      "x": 704,
+      "y": 0,
+      "kind": "item",
+      "label": "Amethyst Cluster"
+    },
+    "amethyst_shard": {
+      "x": 736,
+      "y": 0,
+      "kind": "item",
+      "label": "Amethyst Shard"
+    },
+    "ancient_debris": {
+      "x": 768,
+      "y": 0,
+      "kind": "block",
+      "label": "Ancient Debris"
+    },
+    "andesite": {
+      "x": 800,
+      "y": 0,
+      "kind": "block",
+      "label": "Andesite"
+    },
+    "andesite_slab": {
+      "x": 832,
+      "y": 0,
+      "kind": "block",
+      "label": "Andesite Slab"
+    },
+    "andesite_stairs": {
+      "x": 864,
+      "y": 0,
+      "kind": "block",
+      "label": "Andesite Stairs"
+    },
+    "andesite_wall": {
+      "x": 896,
+      "y": 0,
+      "kind": "block",
+      "label": "Andesite Wall"
+    },
+    "angler_pottery_sherd": {
+      "x": 928,
+      "y": 0,
+      "kind": "item",
+      "label": "Angler Pottery Sherd"
+    },
+    "anvil": {
+      "x": 960,
+      "y": 0,
+      "kind": "block",
+      "label": "Anvil"
+    },
+    "apple": {
+      "x": 992,
+      "y": 0,
+      "kind": "item",
+      "label": "Apple"
+    },
+    "archer_pottery_sherd": {
+      "x": 0,
+      "y": 32,
+      "kind": "item",
+      "label": "Archer Pottery Sherd"
+    },
+    "armadillo_scute": {
+      "x": 32,
+      "y": 32,
+      "kind": "item",
+      "label": "Armadillo Scute"
+    },
+    "armadillo_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Armadillo Spawn Egg"
+    },
+    "armor_stand": {
+      "x": 64,
+      "y": 32,
+      "kind": "item",
+      "label": "Armor Stand"
+    },
+    "arms_up_pottery_sherd": {
+      "x": 96,
+      "y": 32,
+      "kind": "item",
+      "label": "Arms Up Pottery Sherd"
+    },
+    "arrow": {
+      "x": 128,
+      "y": 32,
+      "kind": "item",
+      "label": "Arrow"
+    },
+    "axolotl_bucket": {
+      "x": 160,
+      "y": 32,
+      "kind": "item",
+      "label": "Bucket of Axolotl"
+    },
+    "axolotl_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Axolotl Spawn Egg"
+    },
+    "azalea": {
+      "x": 192,
+      "y": 32,
+      "kind": "block",
+      "label": "Azalea"
+    },
+    "azalea_leaves": {
+      "x": 224,
+      "y": 32,
+      "kind": "block",
+      "label": "Azalea Leaves"
+    },
+    "azure_bluet": {
+      "x": 256,
+      "y": 32,
+      "kind": "item",
+      "label": "Azure Bluet"
+    },
+    "baked_potato": {
+      "x": 288,
+      "y": 32,
+      "kind": "item",
+      "label": "Baked Potato"
+    },
+    "bamboo": {
+      "x": 320,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo"
+    },
+    "bamboo_block": {
+      "x": 352,
+      "y": 32,
+      "kind": "block",
+      "label": "Block of Bamboo"
+    },
+    "bamboo_button": {
+      "x": 384,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Button"
+    },
+    "bamboo_chest_raft": {
+      "x": 416,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo Raft with Chest"
+    },
+    "bamboo_door": {
+      "x": 448,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo Door"
+    },
+    "bamboo_fence": {
+      "x": 480,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Fence"
+    },
+    "bamboo_fence_gate": {
+      "x": 512,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Fence Gate"
+    },
+    "bamboo_hanging_sign": {
+      "x": 544,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo Hanging Sign"
+    },
+    "bamboo_mosaic": {
+      "x": 576,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Mosaic"
+    },
+    "bamboo_mosaic_slab": {
+      "x": 608,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Mosaic Slab"
+    },
+    "bamboo_mosaic_stairs": {
+      "x": 640,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Mosaic Stairs"
+    },
+    "bamboo_planks": {
+      "x": 672,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Planks"
+    },
+    "bamboo_pressure_plate": {
+      "x": 704,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Pressure Plate"
+    },
+    "bamboo_raft": {
+      "x": 736,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo Raft"
+    },
+    "bamboo_sign": {
+      "x": 768,
+      "y": 32,
+      "kind": "item",
+      "label": "Bamboo Sign"
+    },
+    "bamboo_slab": {
+      "x": 800,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Slab"
+    },
+    "bamboo_stairs": {
+      "x": 832,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Stairs"
+    },
+    "bamboo_trapdoor": {
+      "x": 864,
+      "y": 32,
+      "kind": "block",
+      "label": "Bamboo Trapdoor"
+    },
+    "barrel": {
+      "x": 896,
+      "y": 32,
+      "kind": "block",
+      "label": "Barrel"
+    },
+    "barrier": {
+      "x": 928,
+      "y": 32,
+      "kind": "item",
+      "label": "Barrier"
+    },
+    "basalt": {
+      "x": 960,
+      "y": 32,
+      "kind": "block",
+      "label": "Basalt"
+    },
+    "bat_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Bat Spawn Egg"
+    },
+    "beacon": {
+      "x": 992,
+      "y": 32,
+      "kind": "block",
+      "label": "Beacon"
+    },
+    "bedrock": {
+      "x": 0,
+      "y": 64,
+      "kind": "block",
+      "label": "Bedrock"
+    },
+    "bee_nest": {
+      "x": 32,
+      "y": 64,
+      "kind": "block",
+      "label": "Bee Nest"
+    },
+    "bee_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Bee Spawn Egg"
+    },
+    "beef": {
+      "x": 64,
+      "y": 64,
+      "kind": "item",
+      "label": "Raw Beef"
+    },
+    "beehive": {
+      "x": 96,
+      "y": 64,
+      "kind": "block",
+      "label": "Beehive"
+    },
+    "beetroot": {
+      "x": 128,
+      "y": 64,
+      "kind": "item",
+      "label": "Beetroot"
+    },
+    "beetroot_seeds": {
+      "x": 160,
+      "y": 64,
+      "kind": "item",
+      "label": "Beetroot Seeds"
+    },
+    "beetroot_soup": {
+      "x": 192,
+      "y": 64,
+      "kind": "item",
+      "label": "Beetroot Soup"
+    },
+    "bell": {
+      "x": 224,
+      "y": 64,
+      "kind": "item",
+      "label": "Bell"
+    },
+    "big_dripleaf": {
+      "x": 256,
+      "y": 64,
+      "kind": "block",
+      "label": "Big Dripleaf"
+    },
+    "birch_boat": {
+      "x": 288,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Boat"
+    },
+    "birch_button": {
+      "x": 320,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Button"
+    },
+    "birch_chest_boat": {
+      "x": 352,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Boat with Chest"
+    },
+    "birch_door": {
+      "x": 384,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Door"
+    },
+    "birch_fence": {
+      "x": 416,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Fence"
+    },
+    "birch_fence_gate": {
+      "x": 448,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Fence Gate"
+    },
+    "birch_hanging_sign": {
+      "x": 480,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Hanging Sign"
+    },
+    "birch_leaves": {
+      "x": 512,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Leaves"
+    },
+    "birch_log": {
+      "x": 544,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Log"
+    },
+    "birch_planks": {
+      "x": 576,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Planks"
+    },
+    "birch_pressure_plate": {
+      "x": 608,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Pressure Plate"
+    },
+    "birch_sapling": {
+      "x": 640,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Sapling"
+    },
+    "birch_sign": {
+      "x": 672,
+      "y": 64,
+      "kind": "item",
+      "label": "Birch Sign"
+    },
+    "birch_slab": {
+      "x": 704,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Slab"
+    },
+    "birch_stairs": {
+      "x": 736,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Stairs"
+    },
+    "birch_trapdoor": {
+      "x": 768,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Trapdoor"
+    },
+    "birch_wood": {
+      "x": 800,
+      "y": 64,
+      "kind": "block",
+      "label": "Birch Wood"
+    },
+    "black_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Black Banner"
+    },
+    "black_bed": {
+      "x": 832,
+      "y": 64,
+      "kind": "block",
+      "label": "Black Bed"
+    },
+    "black_candle": {
+      "x": 864,
+      "y": 64,
+      "kind": "item",
+      "label": "Black Candle"
+    },
+    "black_carpet": {
+      "x": 896,
+      "y": 64,
+      "kind": "block",
+      "label": "Black Carpet"
+    },
+    "black_concrete": {
+      "x": 928,
+      "y": 64,
+      "kind": "block",
+      "label": "Black Concrete"
+    },
+    "black_concrete_powder": {
+      "x": 960,
+      "y": 64,
+      "kind": "block",
+      "label": "Black Concrete Powder"
+    },
+    "black_dye": {
+      "x": 992,
+      "y": 64,
+      "kind": "item",
+      "label": "Black Dye"
+    },
+    "black_glazed_terracotta": {
+      "x": 0,
+      "y": 96,
+      "kind": "block",
+      "label": "Black Glazed Terracotta"
+    },
+    "black_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Black Shulker Box"
+    },
+    "black_stained_glass": {
+      "x": 32,
+      "y": 96,
+      "kind": "block",
+      "label": "Black Stained Glass"
+    },
+    "black_stained_glass_pane": {
+      "x": 64,
+      "y": 96,
+      "kind": "block",
+      "label": "Black Stained Glass Pane"
+    },
+    "black_terracotta": {
+      "x": 96,
+      "y": 96,
+      "kind": "block",
+      "label": "Black Terracotta"
+    },
+    "black_wool": {
+      "x": 128,
+      "y": 96,
+      "kind": "block",
+      "label": "Black Wool"
+    },
+    "blackstone": {
+      "x": 160,
+      "y": 96,
+      "kind": "block",
+      "label": "Blackstone"
+    },
+    "blackstone_slab": {
+      "x": 192,
+      "y": 96,
+      "kind": "block",
+      "label": "Blackstone Slab"
+    },
+    "blackstone_stairs": {
+      "x": 224,
+      "y": 96,
+      "kind": "block",
+      "label": "Blackstone Stairs"
+    },
+    "blackstone_wall": {
+      "x": 256,
+      "y": 96,
+      "kind": "block",
+      "label": "Blackstone Wall"
+    },
+    "blade_pottery_sherd": {
+      "x": 288,
+      "y": 96,
+      "kind": "item",
+      "label": "Blade Pottery Sherd"
+    },
+    "blast_furnace": {
+      "x": 320,
+      "y": 96,
+      "kind": "block",
+      "label": "Blast Furnace"
+    },
+    "blaze_powder": {
+      "x": 352,
+      "y": 96,
+      "kind": "item",
+      "label": "Blaze Powder"
+    },
+    "blaze_rod": {
+      "x": 384,
+      "y": 96,
+      "kind": "item",
+      "label": "Blaze Rod"
+    },
+    "blaze_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Blaze Spawn Egg"
+    },
+    "blue_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Blue Banner"
+    },
+    "blue_bed": {
+      "x": 416,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Bed"
+    },
+    "blue_candle": {
+      "x": 448,
+      "y": 96,
+      "kind": "item",
+      "label": "Blue Candle"
+    },
+    "blue_carpet": {
+      "x": 480,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Carpet"
+    },
+    "blue_concrete": {
+      "x": 512,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Concrete"
+    },
+    "blue_concrete_powder": {
+      "x": 544,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Concrete Powder"
+    },
+    "blue_dye": {
+      "x": 576,
+      "y": 96,
+      "kind": "item",
+      "label": "Blue Dye"
+    },
+    "blue_glazed_terracotta": {
+      "x": 608,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Glazed Terracotta"
+    },
+    "blue_ice": {
+      "x": 640,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Ice"
+    },
+    "blue_orchid": {
+      "x": 672,
+      "y": 96,
+      "kind": "item",
+      "label": "Blue Orchid"
+    },
+    "blue_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Blue Shulker Box"
+    },
+    "blue_stained_glass": {
+      "x": 704,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Stained Glass"
+    },
+    "blue_stained_glass_pane": {
+      "x": 736,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Stained Glass Pane"
+    },
+    "blue_terracotta": {
+      "x": 768,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Terracotta"
+    },
+    "blue_wool": {
+      "x": 800,
+      "y": 96,
+      "kind": "block",
+      "label": "Blue Wool"
+    },
+    "bogged_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Bogged Spawn Egg"
+    },
+    "bolt_armor_trim_smithing_template": {
+      "x": 832,
+      "y": 96,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "bone": {
+      "x": 864,
+      "y": 96,
+      "kind": "item",
+      "label": "Bone"
+    },
+    "bone_block": {
+      "x": 896,
+      "y": 96,
+      "kind": "block",
+      "label": "Bone Block"
+    },
+    "bone_meal": {
+      "x": 928,
+      "y": 96,
+      "kind": "item",
+      "label": "Bone Meal"
+    },
+    "book": {
+      "x": 960,
+      "y": 96,
+      "kind": "item",
+      "label": "Book"
+    },
+    "bookshelf": {
+      "x": 992,
+      "y": 96,
+      "kind": "block",
+      "label": "Bookshelf"
+    },
+    "bow": {
+      "x": 0,
+      "y": 128,
+      "kind": "item",
+      "label": "Bow"
+    },
+    "bowl": {
+      "x": 32,
+      "y": 128,
+      "kind": "item",
+      "label": "Bowl"
+    },
+    "brain_coral": {
+      "x": 64,
+      "y": 128,
+      "kind": "item",
+      "label": "Brain Coral"
+    },
+    "brain_coral_block": {
+      "x": 96,
+      "y": 128,
+      "kind": "block",
+      "label": "Brain Coral Block"
+    },
+    "brain_coral_fan": {
+      "x": 128,
+      "y": 128,
+      "kind": "block",
+      "label": "Brain Coral Fan"
+    },
+    "bread": {
+      "x": 160,
+      "y": 128,
+      "kind": "item",
+      "label": "Bread"
+    },
+    "breeze_rod": {
+      "x": 192,
+      "y": 128,
+      "kind": "item",
+      "label": "Breeze Rod"
+    },
+    "breeze_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Breeze Spawn Egg"
+    },
+    "brewer_pottery_sherd": {
+      "x": 224,
+      "y": 128,
+      "kind": "item",
+      "label": "Brewer Pottery Sherd"
+    },
+    "brewing_stand": {
+      "x": 256,
+      "y": 128,
+      "kind": "item",
+      "label": "Brewing Stand"
+    },
+    "brick": {
+      "x": 288,
+      "y": 128,
+      "kind": "item",
+      "label": "Brick"
+    },
+    "brick_slab": {
+      "x": 320,
+      "y": 128,
+      "kind": "block",
+      "label": "Brick Slab"
+    },
+    "brick_stairs": {
+      "x": 352,
+      "y": 128,
+      "kind": "block",
+      "label": "Brick Stairs"
+    },
+    "brick_wall": {
+      "x": 384,
+      "y": 128,
+      "kind": "block",
+      "label": "Brick Wall"
+    },
+    "bricks": {
+      "x": 416,
+      "y": 128,
+      "kind": "block",
+      "label": "Bricks"
+    },
+    "brown_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Brown Banner"
+    },
+    "brown_bed": {
+      "x": 448,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Bed"
+    },
+    "brown_candle": {
+      "x": 480,
+      "y": 128,
+      "kind": "item",
+      "label": "Brown Candle"
+    },
+    "brown_carpet": {
+      "x": 512,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Carpet"
+    },
+    "brown_concrete": {
+      "x": 544,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Concrete"
+    },
+    "brown_concrete_powder": {
+      "x": 576,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Concrete Powder"
+    },
+    "brown_dye": {
+      "x": 608,
+      "y": 128,
+      "kind": "item",
+      "label": "Brown Dye"
+    },
+    "brown_glazed_terracotta": {
+      "x": 640,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Glazed Terracotta"
+    },
+    "brown_mushroom": {
+      "x": 672,
+      "y": 128,
+      "kind": "item",
+      "label": "Brown Mushroom"
+    },
+    "brown_mushroom_block": {
+      "x": 704,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Mushroom Block"
+    },
+    "brown_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Brown Shulker Box"
+    },
+    "brown_stained_glass": {
+      "x": 736,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Stained Glass"
+    },
+    "brown_stained_glass_pane": {
+      "x": 768,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Stained Glass Pane"
+    },
+    "brown_terracotta": {
+      "x": 800,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Terracotta"
+    },
+    "brown_wool": {
+      "x": 832,
+      "y": 128,
+      "kind": "block",
+      "label": "Brown Wool"
+    },
+    "brush": {
+      "x": 864,
+      "y": 128,
+      "kind": "item",
+      "label": "Brush"
+    },
+    "bubble_coral": {
+      "x": 896,
+      "y": 128,
+      "kind": "item",
+      "label": "Bubble Coral"
+    },
+    "bubble_coral_block": {
+      "x": 928,
+      "y": 128,
+      "kind": "block",
+      "label": "Bubble Coral Block"
+    },
+    "bubble_coral_fan": {
+      "x": 960,
+      "y": 128,
+      "kind": "block",
+      "label": "Bubble Coral Fan"
+    },
+    "bucket": {
+      "x": 992,
+      "y": 128,
+      "kind": "item",
+      "label": "Bucket"
+    },
+    "budding_amethyst": {
+      "x": 0,
+      "y": 160,
+      "kind": "block",
+      "label": "Budding Amethyst"
+    },
+    "bundle": {
+      "x": 32,
+      "y": 160,
+      "kind": "item",
+      "label": "Bundle"
+    },
+    "burn_pottery_sherd": {
+      "x": 64,
+      "y": 160,
+      "kind": "item",
+      "label": "Burn Pottery Sherd"
+    },
+    "cactus": {
+      "x": 96,
+      "y": 160,
+      "kind": "block",
+      "label": "Cactus"
+    },
+    "cake": {
+      "x": 128,
+      "y": 160,
+      "kind": "item",
+      "label": "Cake"
+    },
+    "calcite": {
+      "x": 160,
+      "y": 160,
+      "kind": "block",
+      "label": "Calcite"
+    },
+    "calibrated_sculk_sensor": {
+      "x": 192,
+      "y": 160,
+      "kind": "block",
+      "label": "Calibrated Sculk Sensor"
+    },
+    "camel_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Camel Spawn Egg"
+    },
+    "campfire": {
+      "x": 224,
+      "y": 160,
+      "kind": "item",
+      "label": "Campfire"
+    },
+    "candle": {
+      "x": 256,
+      "y": 160,
+      "kind": "item",
+      "label": "Candle"
+    },
+    "carrot": {
+      "x": 288,
+      "y": 160,
+      "kind": "item",
+      "label": "Carrot"
+    },
+    "carrot_on_a_stick": {
+      "x": 320,
+      "y": 160,
+      "kind": "item",
+      "label": "Carrot on a Stick"
+    },
+    "cartography_table": {
+      "x": 352,
+      "y": 160,
+      "kind": "block",
+      "label": "Cartography Table"
+    },
+    "carved_pumpkin": {
+      "x": 384,
+      "y": 160,
+      "kind": "block",
+      "label": "Carved Pumpkin"
+    },
+    "cat_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Cat Spawn Egg"
+    },
+    "cauldron": {
+      "x": 416,
+      "y": 160,
+      "kind": "item",
+      "label": "Cauldron"
+    },
+    "cave_spider_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Cave Spider Spawn Egg"
+    },
+    "chain": {
+      "x": 448,
+      "y": 160,
+      "kind": "item",
+      "label": "Chain"
+    },
+    "chain_command_block": {
+      "x": 480,
+      "y": 160,
+      "kind": "block",
+      "label": "Chain Command Block"
+    },
+    "chainmail_boots": {
+      "x": 512,
+      "y": 160,
+      "kind": "item",
+      "label": "Chainmail Boots"
+    },
+    "chainmail_chestplate": {
+      "x": 544,
+      "y": 160,
+      "kind": "item",
+      "label": "Chainmail Chestplate"
+    },
+    "chainmail_helmet": {
+      "x": 576,
+      "y": 160,
+      "kind": "item",
+      "label": "Chainmail Helmet"
+    },
+    "chainmail_leggings": {
+      "x": 608,
+      "y": 160,
+      "kind": "item",
+      "label": "Chainmail Leggings"
+    },
+    "charcoal": {
+      "x": 640,
+      "y": 160,
+      "kind": "item",
+      "label": "Charcoal"
+    },
+    "cherry_boat": {
+      "x": 672,
+      "y": 160,
+      "kind": "item",
+      "label": "Cherry Boat"
+    },
+    "cherry_button": {
+      "x": 704,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Button"
+    },
+    "cherry_chest_boat": {
+      "x": 736,
+      "y": 160,
+      "kind": "item",
+      "label": "Cherry Boat with Chest"
+    },
+    "cherry_door": {
+      "x": 768,
+      "y": 160,
+      "kind": "item",
+      "label": "Cherry Door"
+    },
+    "cherry_fence": {
+      "x": 800,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Fence"
+    },
+    "cherry_fence_gate": {
+      "x": 832,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Fence Gate"
+    },
+    "cherry_hanging_sign": {
+      "x": 864,
+      "y": 160,
+      "kind": "item",
+      "label": "Cherry Hanging Sign"
+    },
+    "cherry_leaves": {
+      "x": 896,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Leaves"
+    },
+    "cherry_log": {
+      "x": 928,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Log"
+    },
+    "cherry_planks": {
+      "x": 960,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Planks"
+    },
+    "cherry_pressure_plate": {
+      "x": 992,
+      "y": 160,
+      "kind": "block",
+      "label": "Cherry Pressure Plate"
+    },
+    "cherry_sapling": {
+      "x": 0,
+      "y": 192,
+      "kind": "item",
+      "label": "Cherry Sapling"
+    },
+    "cherry_sign": {
+      "x": 32,
+      "y": 192,
+      "kind": "item",
+      "label": "Cherry Sign"
+    },
+    "cherry_slab": {
+      "x": 64,
+      "y": 192,
+      "kind": "block",
+      "label": "Cherry Slab"
+    },
+    "cherry_stairs": {
+      "x": 96,
+      "y": 192,
+      "kind": "block",
+      "label": "Cherry Stairs"
+    },
+    "cherry_trapdoor": {
+      "x": 128,
+      "y": 192,
+      "kind": "block",
+      "label": "Cherry Trapdoor"
+    },
+    "cherry_wood": {
+      "x": 160,
+      "y": 192,
+      "kind": "block",
+      "label": "Cherry Wood"
+    },
+    "chest": {
+      "x": 192,
+      "y": 192,
+      "kind": "block",
+      "label": "Chest"
+    },
+    "chest_minecart": {
+      "x": 224,
+      "y": 192,
+      "kind": "item",
+      "label": "Minecart with Chest"
+    },
+    "chicken": {
+      "x": 256,
+      "y": 192,
+      "kind": "item",
+      "label": "Raw Chicken"
+    },
+    "chicken_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Chicken Spawn Egg"
+    },
+    "chipped_anvil": {
+      "x": 288,
+      "y": 192,
+      "kind": "block",
+      "label": "Chipped Anvil"
+    },
+    "chiseled_bookshelf": {
+      "x": 320,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Bookshelf"
+    },
+    "chiseled_copper": {
+      "x": 352,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Copper"
+    },
+    "chiseled_deepslate": {
+      "x": 384,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Deepslate"
+    },
+    "chiseled_nether_bricks": {
+      "x": 416,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Nether Bricks"
+    },
+    "chiseled_polished_blackstone": {
+      "x": 448,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Polished Blackstone"
+    },
+    "chiseled_quartz_block": {
+      "x": 480,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Quartz Block"
+    },
+    "chiseled_red_sandstone": {
+      "x": 512,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Red Sandstone"
+    },
+    "chiseled_sandstone": {
+      "x": 544,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Sandstone"
+    },
+    "chiseled_stone_bricks": {
+      "x": 576,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Stone Bricks"
+    },
+    "chiseled_tuff": {
+      "x": 608,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Tuff"
+    },
+    "chiseled_tuff_bricks": {
+      "x": 640,
+      "y": 192,
+      "kind": "block",
+      "label": "Chiseled Tuff Bricks"
+    },
+    "chorus_flower": {
+      "x": 672,
+      "y": 192,
+      "kind": "block",
+      "label": "Chorus Flower"
+    },
+    "chorus_fruit": {
+      "x": 704,
+      "y": 192,
+      "kind": "item",
+      "label": "Chorus Fruit"
+    },
+    "chorus_plant": {
+      "x": 736,
+      "y": 192,
+      "kind": "block",
+      "label": "Chorus Plant"
+    },
+    "clay": {
+      "x": 768,
+      "y": 192,
+      "kind": "block",
+      "label": "Clay"
+    },
+    "clay_ball": {
+      "x": 800,
+      "y": 192,
+      "kind": "item",
+      "label": "Clay Ball"
+    },
+    "clock": {
+      "x": 832,
+      "y": 192,
+      "kind": "item",
+      "label": "Clock"
+    },
+    "coal": {
+      "x": 864,
+      "y": 192,
+      "kind": "item",
+      "label": "Coal"
+    },
+    "coal_block": {
+      "x": 896,
+      "y": 192,
+      "kind": "block",
+      "label": "Block of Coal"
+    },
+    "coal_ore": {
+      "x": 928,
+      "y": 192,
+      "kind": "block",
+      "label": "Coal Ore"
+    },
+    "coarse_dirt": {
+      "x": 960,
+      "y": 192,
+      "kind": "block",
+      "label": "Coarse Dirt"
+    },
+    "coast_armor_trim_smithing_template": {
+      "x": 992,
+      "y": 192,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "cobbled_deepslate": {
+      "x": 0,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobbled Deepslate"
+    },
+    "cobbled_deepslate_slab": {
+      "x": 32,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobbled Deepslate Slab"
+    },
+    "cobbled_deepslate_stairs": {
+      "x": 64,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobbled Deepslate Stairs"
+    },
+    "cobbled_deepslate_wall": {
+      "x": 96,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobbled Deepslate Wall"
+    },
+    "cobblestone": {
+      "x": 128,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobblestone"
+    },
+    "cobblestone_slab": {
+      "x": 160,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobblestone Slab"
+    },
+    "cobblestone_stairs": {
+      "x": 192,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobblestone Stairs"
+    },
+    "cobblestone_wall": {
+      "x": 224,
+      "y": 224,
+      "kind": "block",
+      "label": "Cobblestone Wall"
+    },
+    "cobweb": {
+      "x": 256,
+      "y": 224,
+      "kind": "item",
+      "label": "Cobweb"
+    },
+    "cocoa_beans": {
+      "x": 288,
+      "y": 224,
+      "kind": "item",
+      "label": "Cocoa Beans"
+    },
+    "cod": {
+      "x": 320,
+      "y": 224,
+      "kind": "item",
+      "label": "Raw Cod"
+    },
+    "cod_bucket": {
+      "x": 352,
+      "y": 224,
+      "kind": "item",
+      "label": "Bucket of Cod"
+    },
+    "cod_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Cod Spawn Egg"
+    },
+    "command_block": {
+      "x": 384,
+      "y": 224,
+      "kind": "block",
+      "label": "Command Block"
+    },
+    "command_block_minecart": {
+      "x": 416,
+      "y": 224,
+      "kind": "item",
+      "label": "Minecart with Command Block"
+    },
+    "comparator": {
+      "x": 448,
+      "y": 224,
+      "kind": "item",
+      "label": "Redstone Comparator"
+    },
+    "compass": {
+      "x": 480,
+      "y": 224,
+      "kind": "item",
+      "label": "Compass"
+    },
+    "composter": {
+      "x": 512,
+      "y": 224,
+      "kind": "block",
+      "label": "Composter"
+    },
+    "conduit": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Conduit"
+    },
+    "cooked_beef": {
+      "x": 544,
+      "y": 224,
+      "kind": "item",
+      "label": "Steak"
+    },
+    "cooked_chicken": {
+      "x": 576,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Chicken"
+    },
+    "cooked_cod": {
+      "x": 608,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Cod"
+    },
+    "cooked_mutton": {
+      "x": 640,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Mutton"
+    },
+    "cooked_porkchop": {
+      "x": 672,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Porkchop"
+    },
+    "cooked_rabbit": {
+      "x": 704,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Rabbit"
+    },
+    "cooked_salmon": {
+      "x": 736,
+      "y": 224,
+      "kind": "item",
+      "label": "Cooked Salmon"
+    },
+    "cookie": {
+      "x": 768,
+      "y": 224,
+      "kind": "item",
+      "label": "Cookie"
+    },
+    "copper_block": {
+      "x": 800,
+      "y": 224,
+      "kind": "block",
+      "label": "Block of Copper"
+    },
+    "copper_bulb": {
+      "x": 832,
+      "y": 224,
+      "kind": "block",
+      "label": "Copper Bulb"
+    },
+    "copper_door": {
+      "x": 864,
+      "y": 224,
+      "kind": "item",
+      "label": "Copper Door"
+    },
+    "copper_grate": {
+      "x": 896,
+      "y": 224,
+      "kind": "block",
+      "label": "Copper Grate"
+    },
+    "copper_ingot": {
+      "x": 928,
+      "y": 224,
+      "kind": "item",
+      "label": "Copper Ingot"
+    },
+    "copper_ore": {
+      "x": 960,
+      "y": 224,
+      "kind": "block",
+      "label": "Copper Ore"
+    },
+    "copper_trapdoor": {
+      "x": 992,
+      "y": 224,
+      "kind": "block",
+      "label": "Copper Trapdoor"
+    },
+    "cornflower": {
+      "x": 0,
+      "y": 256,
+      "kind": "item",
+      "label": "Cornflower"
+    },
+    "cow_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Cow Spawn Egg"
+    },
+    "cracked_deepslate_bricks": {
+      "x": 32,
+      "y": 256,
+      "kind": "block",
+      "label": "Cracked Deepslate Bricks"
+    },
+    "cracked_deepslate_tiles": {
+      "x": 64,
+      "y": 256,
+      "kind": "block",
+      "label": "Cracked Deepslate Tiles"
+    },
+    "cracked_nether_bricks": {
+      "x": 96,
+      "y": 256,
+      "kind": "block",
+      "label": "Cracked Nether Bricks"
+    },
+    "cracked_polished_blackstone_bricks": {
+      "x": 128,
+      "y": 256,
+      "kind": "block",
+      "label": "Cracked Polished Blackstone Bricks"
+    },
+    "cracked_stone_bricks": {
+      "x": 160,
+      "y": 256,
+      "kind": "block",
+      "label": "Cracked Stone Bricks"
+    },
+    "crafter": {
+      "x": 192,
+      "y": 256,
+      "kind": "block",
+      "label": "Crafter"
+    },
+    "crafting_table": {
+      "x": 224,
+      "y": 256,
+      "kind": "block",
+      "label": "Crafting Table"
+    },
+    "creeper_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "creeper_head": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Creeper Head"
+    },
+    "creeper_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Creeper Spawn Egg"
+    },
+    "crimson_button": {
+      "x": 288,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Button"
+    },
+    "crimson_door": {
+      "x": 320,
+      "y": 256,
+      "kind": "item",
+      "label": "Crimson Door"
+    },
+    "crimson_fence": {
+      "x": 352,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Fence"
+    },
+    "crimson_fence_gate": {
+      "x": 384,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Fence Gate"
+    },
+    "crimson_fungus": {
+      "x": 416,
+      "y": 256,
+      "kind": "item",
+      "label": "Crimson Fungus"
+    },
+    "crimson_hanging_sign": {
+      "x": 448,
+      "y": 256,
+      "kind": "item",
+      "label": "Crimson Hanging Sign"
+    },
+    "crimson_hyphae": {
+      "x": 480,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Hyphae"
+    },
+    "crimson_nylium": {
+      "x": 512,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Nylium"
+    },
+    "crimson_planks": {
+      "x": 544,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Planks"
+    },
+    "crimson_pressure_plate": {
+      "x": 576,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Pressure Plate"
+    },
+    "crimson_roots": {
+      "x": 608,
+      "y": 256,
+      "kind": "item",
+      "label": "Crimson Roots"
+    },
+    "crimson_sign": {
+      "x": 640,
+      "y": 256,
+      "kind": "item",
+      "label": "Crimson Sign"
+    },
+    "crimson_slab": {
+      "x": 672,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Slab"
+    },
+    "crimson_stairs": {
+      "x": 704,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Stairs"
+    },
+    "crimson_stem": {
+      "x": 736,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Stem"
+    },
+    "crimson_trapdoor": {
+      "x": 768,
+      "y": 256,
+      "kind": "block",
+      "label": "Crimson Trapdoor"
+    },
+    "crossbow": {
+      "x": 800,
+      "y": 256,
+      "kind": "item",
+      "label": "Crossbow"
+    },
+    "crying_obsidian": {
+      "x": 832,
+      "y": 256,
+      "kind": "block",
+      "label": "Crying Obsidian"
+    },
+    "cut_copper": {
+      "x": 864,
+      "y": 256,
+      "kind": "block",
+      "label": "Cut Copper"
+    },
+    "cut_copper_slab": {
+      "x": 896,
+      "y": 256,
+      "kind": "block",
+      "label": "Cut Copper Slab"
+    },
+    "cut_copper_stairs": {
+      "x": 928,
+      "y": 256,
+      "kind": "block",
+      "label": "Cut Copper Stairs"
+    },
+    "cut_red_sandstone": {
+      "x": 960,
+      "y": 256,
+      "kind": "block",
+      "label": "Cut Red Sandstone"
+    },
+    "cut_red_sandstone_slab": {
+      "x": 992,
+      "y": 256,
+      "kind": "block",
+      "label": "Cut Red Sandstone Slab"
+    },
+    "cut_sandstone": {
+      "x": 0,
+      "y": 288,
+      "kind": "block",
+      "label": "Cut Sandstone"
+    },
+    "cut_sandstone_slab": {
+      "x": 32,
+      "y": 288,
+      "kind": "block",
+      "label": "Cut Sandstone Slab"
+    },
+    "cyan_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Cyan Banner"
+    },
+    "cyan_bed": {
+      "x": 64,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Bed"
+    },
+    "cyan_candle": {
+      "x": 96,
+      "y": 288,
+      "kind": "item",
+      "label": "Cyan Candle"
+    },
+    "cyan_carpet": {
+      "x": 128,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Carpet"
+    },
+    "cyan_concrete": {
+      "x": 160,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Concrete"
+    },
+    "cyan_concrete_powder": {
+      "x": 192,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Concrete Powder"
+    },
+    "cyan_dye": {
+      "x": 224,
+      "y": 288,
+      "kind": "item",
+      "label": "Cyan Dye"
+    },
+    "cyan_glazed_terracotta": {
+      "x": 256,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Glazed Terracotta"
+    },
+    "cyan_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Cyan Shulker Box"
+    },
+    "cyan_stained_glass": {
+      "x": 288,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Stained Glass"
+    },
+    "cyan_stained_glass_pane": {
+      "x": 320,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Stained Glass Pane"
+    },
+    "cyan_terracotta": {
+      "x": 352,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Terracotta"
+    },
+    "cyan_wool": {
+      "x": 384,
+      "y": 288,
+      "kind": "block",
+      "label": "Cyan Wool"
+    },
+    "damaged_anvil": {
+      "x": 416,
+      "y": 288,
+      "kind": "block",
+      "label": "Damaged Anvil"
+    },
+    "dandelion": {
+      "x": 448,
+      "y": 288,
+      "kind": "item",
+      "label": "Dandelion"
+    },
+    "danger_pottery_sherd": {
+      "x": 480,
+      "y": 288,
+      "kind": "item",
+      "label": "Danger Pottery Sherd"
+    },
+    "dark_oak_boat": {
+      "x": 512,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Boat"
+    },
+    "dark_oak_button": {
+      "x": 544,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Button"
+    },
+    "dark_oak_chest_boat": {
+      "x": 576,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Boat with Chest"
+    },
+    "dark_oak_door": {
+      "x": 608,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Door"
+    },
+    "dark_oak_fence": {
+      "x": 640,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Fence"
+    },
+    "dark_oak_fence_gate": {
+      "x": 672,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Fence Gate"
+    },
+    "dark_oak_hanging_sign": {
+      "x": 704,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Hanging Sign"
+    },
+    "dark_oak_leaves": {
+      "x": 736,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Leaves"
+    },
+    "dark_oak_log": {
+      "x": 768,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Log"
+    },
+    "dark_oak_planks": {
+      "x": 800,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Planks"
+    },
+    "dark_oak_pressure_plate": {
+      "x": 832,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Pressure Plate"
+    },
+    "dark_oak_sapling": {
+      "x": 864,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Sapling"
+    },
+    "dark_oak_sign": {
+      "x": 896,
+      "y": 288,
+      "kind": "item",
+      "label": "Dark Oak Sign"
+    },
+    "dark_oak_slab": {
+      "x": 928,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Slab"
+    },
+    "dark_oak_stairs": {
+      "x": 960,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Stairs"
+    },
+    "dark_oak_trapdoor": {
+      "x": 992,
+      "y": 288,
+      "kind": "block",
+      "label": "Dark Oak Trapdoor"
+    },
+    "dark_oak_wood": {
+      "x": 0,
+      "y": 320,
+      "kind": "block",
+      "label": "Dark Oak Wood"
+    },
+    "dark_prismarine": {
+      "x": 32,
+      "y": 320,
+      "kind": "block",
+      "label": "Dark Prismarine"
+    },
+    "dark_prismarine_slab": {
+      "x": 64,
+      "y": 320,
+      "kind": "block",
+      "label": "Dark Prismarine Slab"
+    },
+    "dark_prismarine_stairs": {
+      "x": 96,
+      "y": 320,
+      "kind": "block",
+      "label": "Dark Prismarine Stairs"
+    },
+    "daylight_detector": {
+      "x": 128,
+      "y": 320,
+      "kind": "block",
+      "label": "Daylight Detector"
+    },
+    "dead_brain_coral": {
+      "x": 160,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Brain Coral"
+    },
+    "dead_brain_coral_block": {
+      "x": 192,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Brain Coral Block"
+    },
+    "dead_brain_coral_fan": {
+      "x": 224,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Brain Coral Fan"
+    },
+    "dead_bubble_coral": {
+      "x": 256,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Bubble Coral"
+    },
+    "dead_bubble_coral_block": {
+      "x": 288,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Bubble Coral Block"
+    },
+    "dead_bubble_coral_fan": {
+      "x": 320,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Bubble Coral Fan"
+    },
+    "dead_bush": {
+      "x": 352,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Bush"
+    },
+    "dead_fire_coral": {
+      "x": 384,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Fire Coral"
+    },
+    "dead_fire_coral_block": {
+      "x": 416,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Fire Coral Block"
+    },
+    "dead_fire_coral_fan": {
+      "x": 448,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Fire Coral Fan"
+    },
+    "dead_horn_coral": {
+      "x": 480,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Horn Coral"
+    },
+    "dead_horn_coral_block": {
+      "x": 512,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Horn Coral Block"
+    },
+    "dead_horn_coral_fan": {
+      "x": 544,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Horn Coral Fan"
+    },
+    "dead_tube_coral": {
+      "x": 576,
+      "y": 320,
+      "kind": "item",
+      "label": "Dead Tube Coral"
+    },
+    "dead_tube_coral_block": {
+      "x": 608,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Tube Coral Block"
+    },
+    "dead_tube_coral_fan": {
+      "x": 640,
+      "y": 320,
+      "kind": "block",
+      "label": "Dead Tube Coral Fan"
+    },
+    "debug_stick": {
+      "x": 672,
+      "y": 320,
+      "kind": "item",
+      "label": "Debug Stick"
+    },
+    "decorated_pot": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Decorated Pot"
+    },
+    "deepslate": {
+      "x": 704,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate"
+    },
+    "deepslate_brick_slab": {
+      "x": 736,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Brick Slab"
+    },
+    "deepslate_brick_stairs": {
+      "x": 768,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Brick Stairs"
+    },
+    "deepslate_brick_wall": {
+      "x": 800,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Brick Wall"
+    },
+    "deepslate_bricks": {
+      "x": 832,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Bricks"
+    },
+    "deepslate_coal_ore": {
+      "x": 864,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Coal Ore"
+    },
+    "deepslate_copper_ore": {
+      "x": 896,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Copper Ore"
+    },
+    "deepslate_diamond_ore": {
+      "x": 928,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Diamond Ore"
+    },
+    "deepslate_emerald_ore": {
+      "x": 960,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Emerald Ore"
+    },
+    "deepslate_gold_ore": {
+      "x": 992,
+      "y": 320,
+      "kind": "block",
+      "label": "Deepslate Gold Ore"
+    },
+    "deepslate_iron_ore": {
+      "x": 0,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Iron Ore"
+    },
+    "deepslate_lapis_ore": {
+      "x": 32,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Lapis Lazuli Ore"
+    },
+    "deepslate_redstone_ore": {
+      "x": 64,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Redstone Ore"
+    },
+    "deepslate_tile_slab": {
+      "x": 96,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Tile Slab"
+    },
+    "deepslate_tile_stairs": {
+      "x": 128,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Tile Stairs"
+    },
+    "deepslate_tile_wall": {
+      "x": 160,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Tile Wall"
+    },
+    "deepslate_tiles": {
+      "x": 192,
+      "y": 352,
+      "kind": "block",
+      "label": "Deepslate Tiles"
+    },
+    "detector_rail": {
+      "x": 224,
+      "y": 352,
+      "kind": "block",
+      "label": "Detector Rail"
+    },
+    "diamond": {
+      "x": 256,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond"
+    },
+    "diamond_axe": {
+      "x": 288,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Axe"
+    },
+    "diamond_block": {
+      "x": 320,
+      "y": 352,
+      "kind": "block",
+      "label": "Block of Diamond"
+    },
+    "diamond_boots": {
+      "x": 352,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Boots"
+    },
+    "diamond_chestplate": {
+      "x": 384,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Chestplate"
+    },
+    "diamond_helmet": {
+      "x": 416,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Helmet"
+    },
+    "diamond_hoe": {
+      "x": 448,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Hoe"
+    },
+    "diamond_horse_armor": {
+      "x": 480,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Horse Armor"
+    },
+    "diamond_leggings": {
+      "x": 512,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Leggings"
+    },
+    "diamond_ore": {
+      "x": 544,
+      "y": 352,
+      "kind": "block",
+      "label": "Diamond Ore"
+    },
+    "diamond_pickaxe": {
+      "x": 576,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Pickaxe"
+    },
+    "diamond_shovel": {
+      "x": 608,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Shovel"
+    },
+    "diamond_sword": {
+      "x": 640,
+      "y": 352,
+      "kind": "item",
+      "label": "Diamond Sword"
+    },
+    "diorite": {
+      "x": 672,
+      "y": 352,
+      "kind": "block",
+      "label": "Diorite"
+    },
+    "diorite_slab": {
+      "x": 704,
+      "y": 352,
+      "kind": "block",
+      "label": "Diorite Slab"
+    },
+    "diorite_stairs": {
+      "x": 736,
+      "y": 352,
+      "kind": "block",
+      "label": "Diorite Stairs"
+    },
+    "diorite_wall": {
+      "x": 768,
+      "y": 352,
+      "kind": "block",
+      "label": "Diorite Wall"
+    },
+    "dirt": {
+      "x": 800,
+      "y": 352,
+      "kind": "block",
+      "label": "Dirt"
+    },
+    "dirt_path": {
+      "x": 832,
+      "y": 352,
+      "kind": "block",
+      "label": "Dirt Path"
+    },
+    "disc_fragment_5": {
+      "x": 864,
+      "y": 352,
+      "kind": "item",
+      "label": "Disc Fragment"
+    },
+    "dispenser": {
+      "x": 896,
+      "y": 352,
+      "kind": "block",
+      "label": "Dispenser"
+    },
+    "dolphin_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Dolphin Spawn Egg"
+    },
+    "donkey_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Donkey Spawn Egg"
+    },
+    "dragon_breath": {
+      "x": 928,
+      "y": 352,
+      "kind": "item",
+      "label": "Dragon's Breath"
+    },
+    "dragon_egg": {
+      "x": 960,
+      "y": 352,
+      "kind": "block",
+      "label": "Dragon Egg"
+    },
+    "dragon_head": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Dragon Head"
+    },
+    "dried_kelp": {
+      "x": 992,
+      "y": 352,
+      "kind": "item",
+      "label": "Dried Kelp"
+    },
+    "dried_kelp_block": {
+      "x": 0,
+      "y": 384,
+      "kind": "block",
+      "label": "Dried Kelp Block"
+    },
+    "dripstone_block": {
+      "x": 32,
+      "y": 384,
+      "kind": "block",
+      "label": "Dripstone Block"
+    },
+    "dropper": {
+      "x": 896,
+      "y": 352,
+      "kind": "block",
+      "label": "Dropper"
+    },
+    "drowned_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Drowned Spawn Egg"
+    },
+    "dune_armor_trim_smithing_template": {
+      "x": 64,
+      "y": 384,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "echo_shard": {
+      "x": 96,
+      "y": 384,
+      "kind": "item",
+      "label": "Echo Shard"
+    },
+    "egg": {
+      "x": 128,
+      "y": 384,
+      "kind": "item",
+      "label": "Egg"
+    },
+    "elder_guardian_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Elder Guardian Spawn Egg"
+    },
+    "elytra": {
+      "x": 160,
+      "y": 384,
+      "kind": "item",
+      "label": "Elytra"
+    },
+    "emerald": {
+      "x": 192,
+      "y": 384,
+      "kind": "item",
+      "label": "Emerald"
+    },
+    "emerald_block": {
+      "x": 224,
+      "y": 384,
+      "kind": "block",
+      "label": "Block of Emerald"
+    },
+    "emerald_ore": {
+      "x": 256,
+      "y": 384,
+      "kind": "block",
+      "label": "Emerald Ore"
+    },
+    "enchanted_book": {
+      "x": 288,
+      "y": 384,
+      "kind": "item",
+      "label": "Enchanted Book"
+    },
+    "enchanted_golden_apple": {
+      "x": 320,
+      "y": 384,
+      "kind": "item",
+      "label": "Enchanted Golden Apple"
+    },
+    "enchanting_table": {
+      "x": 352,
+      "y": 384,
+      "kind": "block",
+      "label": "Enchanting Table"
+    },
+    "end_crystal": {
+      "x": 384,
+      "y": 384,
+      "kind": "item",
+      "label": "End Crystal"
+    },
+    "end_portal_frame": {
+      "x": 416,
+      "y": 384,
+      "kind": "block",
+      "label": "End Portal Frame"
+    },
+    "end_rod": {
+      "x": 448,
+      "y": 384,
+      "kind": "block",
+      "label": "End Rod"
+    },
+    "end_stone": {
+      "x": 480,
+      "y": 384,
+      "kind": "block",
+      "label": "End Stone"
+    },
+    "end_stone_brick_slab": {
+      "x": 512,
+      "y": 384,
+      "kind": "block",
+      "label": "End Stone Brick Slab"
+    },
+    "end_stone_brick_stairs": {
+      "x": 544,
+      "y": 384,
+      "kind": "block",
+      "label": "End Stone Brick Stairs"
+    },
+    "end_stone_brick_wall": {
+      "x": 576,
+      "y": 384,
+      "kind": "block",
+      "label": "End Stone Brick Wall"
+    },
+    "end_stone_bricks": {
+      "x": 608,
+      "y": 384,
+      "kind": "block",
+      "label": "End Stone Bricks"
+    },
+    "ender_chest": {
+      "x": 640,
+      "y": 384,
+      "kind": "block",
+      "label": "Ender Chest"
+    },
+    "ender_dragon_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Ender Dragon Spawn Egg"
+    },
+    "ender_eye": {
+      "x": 672,
+      "y": 384,
+      "kind": "item",
+      "label": "Eye of Ender"
+    },
+    "ender_pearl": {
+      "x": 704,
+      "y": 384,
+      "kind": "item",
+      "label": "Ender Pearl"
+    },
+    "enderman_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Enderman Spawn Egg"
+    },
+    "endermite_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Endermite Spawn Egg"
+    },
+    "evoker_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Evoker Spawn Egg"
+    },
+    "experience_bottle": {
+      "x": 736,
+      "y": 384,
+      "kind": "item",
+      "label": "Bottle o' Enchanting"
+    },
+    "explorer_pottery_sherd": {
+      "x": 768,
+      "y": 384,
+      "kind": "item",
+      "label": "Explorer Pottery Sherd"
+    },
+    "exposed_chiseled_copper": {
+      "x": 800,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Chiseled Copper"
+    },
+    "exposed_copper": {
+      "x": 832,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Copper"
+    },
+    "exposed_copper_bulb": {
+      "x": 864,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Copper Bulb"
+    },
+    "exposed_copper_door": {
+      "x": 896,
+      "y": 384,
+      "kind": "item",
+      "label": "Exposed Copper Door"
+    },
+    "exposed_copper_grate": {
+      "x": 928,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Copper Grate"
+    },
+    "exposed_copper_trapdoor": {
+      "x": 960,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Copper Trapdoor"
+    },
+    "exposed_cut_copper": {
+      "x": 992,
+      "y": 384,
+      "kind": "block",
+      "label": "Exposed Cut Copper"
+    },
+    "exposed_cut_copper_slab": {
+      "x": 0,
+      "y": 416,
+      "kind": "block",
+      "label": "Exposed Cut Copper Slab"
+    },
+    "exposed_cut_copper_stairs": {
+      "x": 32,
+      "y": 416,
+      "kind": "block",
+      "label": "Exposed Cut Copper Stairs"
+    },
+    "eye_armor_trim_smithing_template": {
+      "x": 64,
+      "y": 416,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "farmland": {
+      "x": 96,
+      "y": 416,
+      "kind": "block",
+      "label": "Farmland"
+    },
+    "feather": {
+      "x": 128,
+      "y": 416,
+      "kind": "item",
+      "label": "Feather"
+    },
+    "fermented_spider_eye": {
+      "x": 160,
+      "y": 416,
+      "kind": "item",
+      "label": "Fermented Spider Eye"
+    },
+    "fern": {
+      "x": 192,
+      "y": 416,
+      "kind": "block",
+      "label": "Fern"
+    },
+    "filled_map": {
+      "x": 224,
+      "y": 416,
+      "kind": "item",
+      "label": "Map"
+    },
+    "fire_charge": {
+      "x": 256,
+      "y": 416,
+      "kind": "item",
+      "label": "Fire Charge"
+    },
+    "fire_coral": {
+      "x": 288,
+      "y": 416,
+      "kind": "item",
+      "label": "Fire Coral"
+    },
+    "fire_coral_block": {
+      "x": 320,
+      "y": 416,
+      "kind": "block",
+      "label": "Fire Coral Block"
+    },
+    "fire_coral_fan": {
+      "x": 352,
+      "y": 416,
+      "kind": "block",
+      "label": "Fire Coral Fan"
+    },
+    "firework_rocket": {
+      "x": 384,
+      "y": 416,
+      "kind": "item",
+      "label": "Firework Rocket"
+    },
+    "firework_star": {
+      "x": 416,
+      "y": 416,
+      "kind": "item",
+      "label": "Firework Star"
+    },
+    "fishing_rod": {
+      "x": 448,
+      "y": 416,
+      "kind": "item",
+      "label": "Fishing Rod"
+    },
+    "fletching_table": {
+      "x": 480,
+      "y": 416,
+      "kind": "block",
+      "label": "Fletching Table"
+    },
+    "flint": {
+      "x": 512,
+      "y": 416,
+      "kind": "item",
+      "label": "Flint"
+    },
+    "flint_and_steel": {
+      "x": 544,
+      "y": 416,
+      "kind": "item",
+      "label": "Flint and Steel"
+    },
+    "flow_armor_trim_smithing_template": {
+      "x": 576,
+      "y": 416,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "flow_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "flow_pottery_sherd": {
+      "x": 608,
+      "y": 416,
+      "kind": "item",
+      "label": "Flow Pottery Sherd"
+    },
+    "flower_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "flower_pot": {
+      "x": 640,
+      "y": 416,
+      "kind": "item",
+      "label": "Flower Pot"
+    },
+    "flowering_azalea": {
+      "x": 672,
+      "y": 416,
+      "kind": "block",
+      "label": "Flowering Azalea"
+    },
+    "flowering_azalea_leaves": {
+      "x": 704,
+      "y": 416,
+      "kind": "block",
+      "label": "Flowering Azalea Leaves"
+    },
+    "fox_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Fox Spawn Egg"
+    },
+    "friend_pottery_sherd": {
+      "x": 736,
+      "y": 416,
+      "kind": "item",
+      "label": "Friend Pottery Sherd"
+    },
+    "frog_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Frog Spawn Egg"
+    },
+    "frogspawn": {
+      "x": 768,
+      "y": 416,
+      "kind": "block",
+      "label": "Frogspawn"
+    },
+    "furnace": {
+      "x": 896,
+      "y": 352,
+      "kind": "block",
+      "label": "Furnace"
+    },
+    "furnace_minecart": {
+      "x": 800,
+      "y": 416,
+      "kind": "item",
+      "label": "Minecart with Furnace"
+    },
+    "ghast_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Ghast Spawn Egg"
+    },
+    "ghast_tear": {
+      "x": 832,
+      "y": 416,
+      "kind": "item",
+      "label": "Ghast Tear"
+    },
+    "gilded_blackstone": {
+      "x": 864,
+      "y": 416,
+      "kind": "block",
+      "label": "Gilded Blackstone"
+    },
+    "glass": {
+      "x": 896,
+      "y": 416,
+      "kind": "block",
+      "label": "Glass"
+    },
+    "glass_bottle": {
+      "x": 928,
+      "y": 416,
+      "kind": "item",
+      "label": "Glass Bottle"
+    },
+    "glass_pane": {
+      "x": 960,
+      "y": 416,
+      "kind": "block",
+      "label": "Glass Pane"
+    },
+    "glistering_melon_slice": {
+      "x": 992,
+      "y": 416,
+      "kind": "item",
+      "label": "Glistering Melon Slice"
+    },
+    "globe_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "glow_berries": {
+      "x": 0,
+      "y": 448,
+      "kind": "item",
+      "label": "Glow Berries"
+    },
+    "glow_ink_sac": {
+      "x": 32,
+      "y": 448,
+      "kind": "item",
+      "label": "Glow Ink Sac"
+    },
+    "glow_item_frame": {
+      "x": 64,
+      "y": 448,
+      "kind": "item",
+      "label": "Glow Item Frame"
+    },
+    "glow_lichen": {
+      "x": 96,
+      "y": 448,
+      "kind": "block",
+      "label": "Glow Lichen"
+    },
+    "glow_squid_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Glow Squid Spawn Egg"
+    },
+    "glowstone": {
+      "x": 128,
+      "y": 448,
+      "kind": "block",
+      "label": "Glowstone"
+    },
+    "glowstone_dust": {
+      "x": 160,
+      "y": 448,
+      "kind": "item",
+      "label": "Glowstone Dust"
+    },
+    "goat_horn": {
+      "x": 192,
+      "y": 448,
+      "kind": "item",
+      "label": "Goat Horn"
+    },
+    "goat_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Goat Spawn Egg"
+    },
+    "gold_block": {
+      "x": 224,
+      "y": 448,
+      "kind": "block",
+      "label": "Block of Gold"
+    },
+    "gold_ingot": {
+      "x": 256,
+      "y": 448,
+      "kind": "item",
+      "label": "Gold Ingot"
+    },
+    "gold_nugget": {
+      "x": 288,
+      "y": 448,
+      "kind": "item",
+      "label": "Gold Nugget"
+    },
+    "gold_ore": {
+      "x": 320,
+      "y": 448,
+      "kind": "block",
+      "label": "Gold Ore"
+    },
+    "golden_apple": {
+      "x": 320,
+      "y": 384,
+      "kind": "item",
+      "label": "Golden Apple"
+    },
+    "golden_axe": {
+      "x": 352,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Axe"
+    },
+    "golden_boots": {
+      "x": 384,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Boots"
+    },
+    "golden_carrot": {
+      "x": 416,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Carrot"
+    },
+    "golden_chestplate": {
+      "x": 448,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Chestplate"
+    },
+    "golden_helmet": {
+      "x": 480,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Helmet"
+    },
+    "golden_hoe": {
+      "x": 512,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Hoe"
+    },
+    "golden_horse_armor": {
+      "x": 544,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Horse Armor"
+    },
+    "golden_leggings": {
+      "x": 576,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Leggings"
+    },
+    "golden_pickaxe": {
+      "x": 608,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Pickaxe"
+    },
+    "golden_shovel": {
+      "x": 640,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Shovel"
+    },
+    "golden_sword": {
+      "x": 672,
+      "y": 448,
+      "kind": "item",
+      "label": "Golden Sword"
+    },
+    "granite": {
+      "x": 704,
+      "y": 448,
+      "kind": "block",
+      "label": "Granite"
+    },
+    "granite_slab": {
+      "x": 736,
+      "y": 448,
+      "kind": "block",
+      "label": "Granite Slab"
+    },
+    "granite_stairs": {
+      "x": 768,
+      "y": 448,
+      "kind": "block",
+      "label": "Granite Stairs"
+    },
+    "granite_wall": {
+      "x": 800,
+      "y": 448,
+      "kind": "block",
+      "label": "Granite Wall"
+    },
+    "grass_block": {
+      "x": 832,
+      "y": 448,
+      "kind": "block",
+      "label": "Grass Block"
+    },
+    "gravel": {
+      "x": 864,
+      "y": 448,
+      "kind": "block",
+      "label": "Gravel"
+    },
+    "gray_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Gray Banner"
+    },
+    "gray_bed": {
+      "x": 896,
+      "y": 448,
+      "kind": "block",
+      "label": "Gray Bed"
+    },
+    "gray_candle": {
+      "x": 928,
+      "y": 448,
+      "kind": "item",
+      "label": "Gray Candle"
+    },
+    "gray_carpet": {
+      "x": 960,
+      "y": 448,
+      "kind": "block",
+      "label": "Gray Carpet"
+    },
+    "gray_concrete": {
+      "x": 992,
+      "y": 448,
+      "kind": "block",
+      "label": "Gray Concrete"
+    },
+    "gray_concrete_powder": {
+      "x": 0,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Concrete Powder"
+    },
+    "gray_dye": {
+      "x": 32,
+      "y": 480,
+      "kind": "item",
+      "label": "Gray Dye"
+    },
+    "gray_glazed_terracotta": {
+      "x": 64,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Glazed Terracotta"
+    },
+    "gray_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Gray Shulker Box"
+    },
+    "gray_stained_glass": {
+      "x": 96,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Stained Glass"
+    },
+    "gray_stained_glass_pane": {
+      "x": 128,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Stained Glass Pane"
+    },
+    "gray_terracotta": {
+      "x": 160,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Terracotta"
+    },
+    "gray_wool": {
+      "x": 192,
+      "y": 480,
+      "kind": "block",
+      "label": "Gray Wool"
+    },
+    "green_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Green Banner"
+    },
+    "green_bed": {
+      "x": 224,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Bed"
+    },
+    "green_candle": {
+      "x": 256,
+      "y": 480,
+      "kind": "item",
+      "label": "Green Candle"
+    },
+    "green_carpet": {
+      "x": 288,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Carpet"
+    },
+    "green_concrete": {
+      "x": 320,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Concrete"
+    },
+    "green_concrete_powder": {
+      "x": 352,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Concrete Powder"
+    },
+    "green_dye": {
+      "x": 384,
+      "y": 480,
+      "kind": "item",
+      "label": "Green Dye"
+    },
+    "green_glazed_terracotta": {
+      "x": 416,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Glazed Terracotta"
+    },
+    "green_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Green Shulker Box"
+    },
+    "green_stained_glass": {
+      "x": 448,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Stained Glass"
+    },
+    "green_stained_glass_pane": {
+      "x": 480,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Stained Glass Pane"
+    },
+    "green_terracotta": {
+      "x": 512,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Terracotta"
+    },
+    "green_wool": {
+      "x": 544,
+      "y": 480,
+      "kind": "block",
+      "label": "Green Wool"
+    },
+    "grindstone": {
+      "x": 576,
+      "y": 480,
+      "kind": "block",
+      "label": "Grindstone"
+    },
+    "guardian_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Guardian Spawn Egg"
+    },
+    "gunpowder": {
+      "x": 608,
+      "y": 480,
+      "kind": "item",
+      "label": "Gunpowder"
+    },
+    "guster_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "guster_pottery_sherd": {
+      "x": 640,
+      "y": 480,
+      "kind": "item",
+      "label": "Guster Pottery Sherd"
+    },
+    "hanging_roots": {
+      "x": 672,
+      "y": 480,
+      "kind": "item",
+      "label": "Hanging Roots"
+    },
+    "hay_block": {
+      "x": 704,
+      "y": 480,
+      "kind": "block",
+      "label": "Hay Bale"
+    },
+    "heart_of_the_sea": {
+      "x": 736,
+      "y": 480,
+      "kind": "item",
+      "label": "Heart of the Sea"
+    },
+    "heart_pottery_sherd": {
+      "x": 768,
+      "y": 480,
+      "kind": "item",
+      "label": "Heart Pottery Sherd"
+    },
+    "heartbreak_pottery_sherd": {
+      "x": 800,
+      "y": 480,
+      "kind": "item",
+      "label": "Heartbreak Pottery Sherd"
+    },
+    "heavy_core": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Heavy Core"
+    },
+    "heavy_weighted_pressure_plate": {
+      "x": 832,
+      "y": 480,
+      "kind": "block",
+      "label": "Heavy Weighted Pressure Plate"
+    },
+    "hoglin_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Hoglin Spawn Egg"
+    },
+    "honey_block": {
+      "x": 864,
+      "y": 480,
+      "kind": "block",
+      "label": "Honey Block"
+    },
+    "honey_bottle": {
+      "x": 896,
+      "y": 480,
+      "kind": "item",
+      "label": "Honey Bottle"
+    },
+    "honeycomb": {
+      "x": 928,
+      "y": 480,
+      "kind": "item",
+      "label": "Honeycomb"
+    },
+    "honeycomb_block": {
+      "x": 960,
+      "y": 480,
+      "kind": "block",
+      "label": "Honeycomb Block"
+    },
+    "hopper": {
+      "x": 992,
+      "y": 480,
+      "kind": "item",
+      "label": "Hopper"
+    },
+    "hopper_minecart": {
+      "x": 0,
+      "y": 512,
+      "kind": "item",
+      "label": "Minecart with Hopper"
+    },
+    "horn_coral": {
+      "x": 32,
+      "y": 512,
+      "kind": "item",
+      "label": "Horn Coral"
+    },
+    "horn_coral_block": {
+      "x": 64,
+      "y": 512,
+      "kind": "block",
+      "label": "Horn Coral Block"
+    },
+    "horn_coral_fan": {
+      "x": 96,
+      "y": 512,
+      "kind": "block",
+      "label": "Horn Coral Fan"
+    },
+    "horse_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Horse Spawn Egg"
+    },
+    "host_armor_trim_smithing_template": {
+      "x": 128,
+      "y": 512,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "howl_pottery_sherd": {
+      "x": 160,
+      "y": 512,
+      "kind": "item",
+      "label": "Howl Pottery Sherd"
+    },
+    "husk_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Husk Spawn Egg"
+    },
+    "ice": {
+      "x": 192,
+      "y": 512,
+      "kind": "block",
+      "label": "Ice"
+    },
+    "infested_chiseled_stone_bricks": {
+      "x": 576,
+      "y": 192,
+      "kind": "block",
+      "label": "Infested Chiseled Stone Bricks"
+    },
+    "infested_cobblestone": {
+      "x": 128,
+      "y": 224,
+      "kind": "block",
+      "label": "Infested Cobblestone"
+    },
+    "infested_cracked_stone_bricks": {
+      "x": 160,
+      "y": 256,
+      "kind": "block",
+      "label": "Infested Cracked Stone Bricks"
+    },
+    "infested_deepslate": {
+      "x": 704,
+      "y": 320,
+      "kind": "block",
+      "label": "Infested Deepslate"
+    },
+    "infested_mossy_stone_bricks": {
+      "x": 224,
+      "y": 512,
+      "kind": "block",
+      "label": "Infested Mossy Stone Bricks"
+    },
+    "infested_stone": {
+      "x": 256,
+      "y": 512,
+      "kind": "block",
+      "label": "Infested Stone"
+    },
+    "infested_stone_bricks": {
+      "x": 288,
+      "y": 512,
+      "kind": "block",
+      "label": "Infested Stone Bricks"
+    },
+    "ink_sac": {
+      "x": 320,
+      "y": 512,
+      "kind": "item",
+      "label": "Ink Sac"
+    },
+    "iron_axe": {
+      "x": 352,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Axe"
+    },
+    "iron_bars": {
+      "x": 384,
+      "y": 512,
+      "kind": "block",
+      "label": "Iron Bars"
+    },
+    "iron_block": {
+      "x": 416,
+      "y": 512,
+      "kind": "block",
+      "label": "Block of Iron"
+    },
+    "iron_boots": {
+      "x": 448,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Boots"
+    },
+    "iron_chestplate": {
+      "x": 480,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Chestplate"
+    },
+    "iron_door": {
+      "x": 512,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Door"
+    },
+    "iron_golem_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Iron Golem Spawn Egg"
+    },
+    "iron_helmet": {
+      "x": 544,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Helmet"
+    },
+    "iron_hoe": {
+      "x": 576,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Hoe"
+    },
+    "iron_horse_armor": {
+      "x": 608,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Horse Armor"
+    },
+    "iron_ingot": {
+      "x": 640,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Ingot"
+    },
+    "iron_leggings": {
+      "x": 672,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Leggings"
+    },
+    "iron_nugget": {
+      "x": 704,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Nugget"
+    },
+    "iron_ore": {
+      "x": 736,
+      "y": 512,
+      "kind": "block",
+      "label": "Iron Ore"
+    },
+    "iron_pickaxe": {
+      "x": 768,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Pickaxe"
+    },
+    "iron_shovel": {
+      "x": 800,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Shovel"
+    },
+    "iron_sword": {
+      "x": 832,
+      "y": 512,
+      "kind": "item",
+      "label": "Iron Sword"
+    },
+    "iron_trapdoor": {
+      "x": 864,
+      "y": 512,
+      "kind": "block",
+      "label": "Iron Trapdoor"
+    },
+    "item_frame": {
+      "x": 896,
+      "y": 512,
+      "kind": "item",
+      "label": "Item Frame"
+    },
+    "jack_o_lantern": {
+      "x": 384,
+      "y": 160,
+      "kind": "block",
+      "label": "Jack o'Lantern"
+    },
+    "jigsaw": {
+      "x": 928,
+      "y": 512,
+      "kind": "block",
+      "label": "Jigsaw Block"
+    },
+    "jukebox": {
+      "x": 960,
+      "y": 512,
+      "kind": "block",
+      "label": "Jukebox"
+    },
+    "jungle_boat": {
+      "x": 992,
+      "y": 512,
+      "kind": "item",
+      "label": "Jungle Boat"
+    },
+    "jungle_button": {
+      "x": 0,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Button"
+    },
+    "jungle_chest_boat": {
+      "x": 32,
+      "y": 544,
+      "kind": "item",
+      "label": "Jungle Boat with Chest"
+    },
+    "jungle_door": {
+      "x": 64,
+      "y": 544,
+      "kind": "item",
+      "label": "Jungle Door"
+    },
+    "jungle_fence": {
+      "x": 96,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Fence"
+    },
+    "jungle_fence_gate": {
+      "x": 128,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Fence Gate"
+    },
+    "jungle_hanging_sign": {
+      "x": 160,
+      "y": 544,
+      "kind": "item",
+      "label": "Jungle Hanging Sign"
+    },
+    "jungle_leaves": {
+      "x": 192,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Leaves"
+    },
+    "jungle_log": {
+      "x": 224,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Log"
+    },
+    "jungle_planks": {
+      "x": 256,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Planks"
+    },
+    "jungle_pressure_plate": {
+      "x": 288,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Pressure Plate"
+    },
+    "jungle_sapling": {
+      "x": 320,
+      "y": 544,
+      "kind": "item",
+      "label": "Jungle Sapling"
+    },
+    "jungle_sign": {
+      "x": 352,
+      "y": 544,
+      "kind": "item",
+      "label": "Jungle Sign"
+    },
+    "jungle_slab": {
+      "x": 384,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Slab"
+    },
+    "jungle_stairs": {
+      "x": 416,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Stairs"
+    },
+    "jungle_trapdoor": {
+      "x": 448,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Trapdoor"
+    },
+    "jungle_wood": {
+      "x": 480,
+      "y": 544,
+      "kind": "block",
+      "label": "Jungle Wood"
+    },
+    "kelp": {
+      "x": 512,
+      "y": 544,
+      "kind": "item",
+      "label": "Kelp"
+    },
+    "knowledge_book": {
+      "x": 544,
+      "y": 544,
+      "kind": "item",
+      "label": "Knowledge Book"
+    },
+    "ladder": {
+      "x": 576,
+      "y": 544,
+      "kind": "block",
+      "label": "Ladder"
+    },
+    "lantern": {
+      "x": 608,
+      "y": 544,
+      "kind": "item",
+      "label": "Lantern"
+    },
+    "lapis_block": {
+      "x": 640,
+      "y": 544,
+      "kind": "block",
+      "label": "Block of Lapis Lazuli"
+    },
+    "lapis_lazuli": {
+      "x": 672,
+      "y": 544,
+      "kind": "item",
+      "label": "Lapis Lazuli"
+    },
+    "lapis_ore": {
+      "x": 704,
+      "y": 544,
+      "kind": "block",
+      "label": "Lapis Lazuli Ore"
+    },
+    "large_amethyst_bud": {
+      "x": 736,
+      "y": 544,
+      "kind": "item",
+      "label": "Large Amethyst Bud"
+    },
+    "large_fern": {
+      "x": 768,
+      "y": 544,
+      "kind": "block",
+      "label": "Large Fern"
+    },
+    "lava_bucket": {
+      "x": 800,
+      "y": 544,
+      "kind": "item",
+      "label": "Lava Bucket"
+    },
+    "lead": {
+      "x": 832,
+      "y": 544,
+      "kind": "item",
+      "label": "Lead"
+    },
+    "leather": {
+      "x": 864,
+      "y": 544,
+      "kind": "item",
+      "label": "Leather"
+    },
+    "leather_boots": {
+      "x": 896,
+      "y": 544,
+      "kind": "item",
+      "label": "Leather Boots"
+    },
+    "leather_chestplate": {
+      "x": 928,
+      "y": 544,
+      "kind": "item",
+      "label": "Leather Tunic"
+    },
+    "leather_helmet": {
+      "x": 960,
+      "y": 544,
+      "kind": "item",
+      "label": "Leather Cap"
+    },
+    "leather_horse_armor": {
+      "x": 992,
+      "y": 544,
+      "kind": "item",
+      "label": "Leather Horse Armor"
+    },
+    "leather_leggings": {
+      "x": 0,
+      "y": 576,
+      "kind": "item",
+      "label": "Leather Pants"
+    },
+    "lectern": {
+      "x": 32,
+      "y": 576,
+      "kind": "block",
+      "label": "Lectern"
+    },
+    "lever": {
+      "x": 64,
+      "y": 576,
+      "kind": "block",
+      "label": "Lever"
+    },
+    "light": {
+      "x": 96,
+      "y": 576,
+      "kind": "item",
+      "label": "Light"
+    },
+    "light_blue_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Light Blue Banner"
+    },
+    "light_blue_bed": {
+      "x": 128,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Bed"
+    },
+    "light_blue_candle": {
+      "x": 160,
+      "y": 576,
+      "kind": "item",
+      "label": "Light Blue Candle"
+    },
+    "light_blue_carpet": {
+      "x": 192,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Carpet"
+    },
+    "light_blue_concrete": {
+      "x": 224,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Concrete"
+    },
+    "light_blue_concrete_powder": {
+      "x": 256,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Concrete Powder"
+    },
+    "light_blue_dye": {
+      "x": 288,
+      "y": 576,
+      "kind": "item",
+      "label": "Light Blue Dye"
+    },
+    "light_blue_glazed_terracotta": {
+      "x": 320,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Glazed Terracotta"
+    },
+    "light_blue_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Light Blue Shulker Box"
+    },
+    "light_blue_stained_glass": {
+      "x": 352,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Stained Glass"
+    },
+    "light_blue_stained_glass_pane": {
+      "x": 384,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Stained Glass Pane"
+    },
+    "light_blue_terracotta": {
+      "x": 416,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Terracotta"
+    },
+    "light_blue_wool": {
+      "x": 448,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Blue Wool"
+    },
+    "light_gray_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Light Gray Banner"
+    },
+    "light_gray_bed": {
+      "x": 480,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Bed"
+    },
+    "light_gray_candle": {
+      "x": 512,
+      "y": 576,
+      "kind": "item",
+      "label": "Light Gray Candle"
+    },
+    "light_gray_carpet": {
+      "x": 544,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Carpet"
+    },
+    "light_gray_concrete": {
+      "x": 576,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Concrete"
+    },
+    "light_gray_concrete_powder": {
+      "x": 608,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Concrete Powder"
+    },
+    "light_gray_dye": {
+      "x": 640,
+      "y": 576,
+      "kind": "item",
+      "label": "Light Gray Dye"
+    },
+    "light_gray_glazed_terracotta": {
+      "x": 672,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Glazed Terracotta"
+    },
+    "light_gray_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Light Gray Shulker Box"
+    },
+    "light_gray_stained_glass": {
+      "x": 704,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Stained Glass"
+    },
+    "light_gray_stained_glass_pane": {
+      "x": 736,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Stained Glass Pane"
+    },
+    "light_gray_terracotta": {
+      "x": 768,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Terracotta"
+    },
+    "light_gray_wool": {
+      "x": 800,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Gray Wool"
+    },
+    "light_weighted_pressure_plate": {
+      "x": 832,
+      "y": 576,
+      "kind": "block",
+      "label": "Light Weighted Pressure Plate"
+    },
+    "lightning_rod": {
+      "x": 864,
+      "y": 576,
+      "kind": "block",
+      "label": "Lightning Rod"
+    },
+    "lilac": {
+      "x": 896,
+      "y": 576,
+      "kind": "item",
+      "label": "Lilac"
+    },
+    "lily_of_the_valley": {
+      "x": 928,
+      "y": 576,
+      "kind": "item",
+      "label": "Lily of the Valley"
+    },
+    "lily_pad": {
+      "x": 960,
+      "y": 576,
+      "kind": "block",
+      "label": "Lily Pad"
+    },
+    "lime_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Lime Banner"
+    },
+    "lime_bed": {
+      "x": 992,
+      "y": 576,
+      "kind": "block",
+      "label": "Lime Bed"
+    },
+    "lime_candle": {
+      "x": 0,
+      "y": 608,
+      "kind": "item",
+      "label": "Lime Candle"
+    },
+    "lime_carpet": {
+      "x": 32,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Carpet"
+    },
+    "lime_concrete": {
+      "x": 64,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Concrete"
+    },
+    "lime_concrete_powder": {
+      "x": 96,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Concrete Powder"
+    },
+    "lime_dye": {
+      "x": 128,
+      "y": 608,
+      "kind": "item",
+      "label": "Lime Dye"
+    },
+    "lime_glazed_terracotta": {
+      "x": 160,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Glazed Terracotta"
+    },
+    "lime_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Lime Shulker Box"
+    },
+    "lime_stained_glass": {
+      "x": 192,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Stained Glass"
+    },
+    "lime_stained_glass_pane": {
+      "x": 224,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Stained Glass Pane"
+    },
+    "lime_terracotta": {
+      "x": 256,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Terracotta"
+    },
+    "lime_wool": {
+      "x": 288,
+      "y": 608,
+      "kind": "block",
+      "label": "Lime Wool"
+    },
+    "lingering_potion": {
+      "x": 320,
+      "y": 608,
+      "kind": "item",
+      "label": "Lingering Potion"
+    },
+    "llama_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Llama Spawn Egg"
+    },
+    "lodestone": {
+      "x": 352,
+      "y": 608,
+      "kind": "block",
+      "label": "Lodestone"
+    },
+    "loom": {
+      "x": 384,
+      "y": 608,
+      "kind": "block",
+      "label": "Loom"
+    },
+    "mace": {
+      "x": 416,
+      "y": 608,
+      "kind": "item",
+      "label": "Mace"
+    },
+    "magenta_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Magenta Banner"
+    },
+    "magenta_bed": {
+      "x": 448,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Bed"
+    },
+    "magenta_candle": {
+      "x": 480,
+      "y": 608,
+      "kind": "item",
+      "label": "Magenta Candle"
+    },
+    "magenta_carpet": {
+      "x": 512,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Carpet"
+    },
+    "magenta_concrete": {
+      "x": 544,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Concrete"
+    },
+    "magenta_concrete_powder": {
+      "x": 576,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Concrete Powder"
+    },
+    "magenta_dye": {
+      "x": 608,
+      "y": 608,
+      "kind": "item",
+      "label": "Magenta Dye"
+    },
+    "magenta_glazed_terracotta": {
+      "x": 640,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Glazed Terracotta"
+    },
+    "magenta_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Magenta Shulker Box"
+    },
+    "magenta_stained_glass": {
+      "x": 672,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Stained Glass"
+    },
+    "magenta_stained_glass_pane": {
+      "x": 704,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Stained Glass Pane"
+    },
+    "magenta_terracotta": {
+      "x": 736,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Terracotta"
+    },
+    "magenta_wool": {
+      "x": 768,
+      "y": 608,
+      "kind": "block",
+      "label": "Magenta Wool"
+    },
+    "magma_block": {
+      "x": 800,
+      "y": 608,
+      "kind": "block",
+      "label": "Magma Block"
+    },
+    "magma_cream": {
+      "x": 832,
+      "y": 608,
+      "kind": "item",
+      "label": "Magma Cream"
+    },
+    "magma_cube_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Magma Cube Spawn Egg"
+    },
+    "mangrove_boat": {
+      "x": 864,
+      "y": 608,
+      "kind": "item",
+      "label": "Mangrove Boat"
+    },
+    "mangrove_button": {
+      "x": 896,
+      "y": 608,
+      "kind": "block",
+      "label": "Mangrove Button"
+    },
+    "mangrove_chest_boat": {
+      "x": 928,
+      "y": 608,
+      "kind": "item",
+      "label": "Mangrove Boat with Chest"
+    },
+    "mangrove_door": {
+      "x": 960,
+      "y": 608,
+      "kind": "item",
+      "label": "Mangrove Door"
+    },
+    "mangrove_fence": {
+      "x": 992,
+      "y": 608,
+      "kind": "block",
+      "label": "Mangrove Fence"
+    },
+    "mangrove_fence_gate": {
+      "x": 0,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Fence Gate"
+    },
+    "mangrove_hanging_sign": {
+      "x": 32,
+      "y": 640,
+      "kind": "item",
+      "label": "Mangrove Hanging Sign"
+    },
+    "mangrove_leaves": {
+      "x": 64,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Leaves"
+    },
+    "mangrove_log": {
+      "x": 96,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Log"
+    },
+    "mangrove_planks": {
+      "x": 128,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Planks"
+    },
+    "mangrove_pressure_plate": {
+      "x": 160,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Pressure Plate"
+    },
+    "mangrove_propagule": {
+      "x": 192,
+      "y": 640,
+      "kind": "item",
+      "label": "Mangrove Propagule"
+    },
+    "mangrove_roots": {
+      "x": 224,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Roots"
+    },
+    "mangrove_sign": {
+      "x": 256,
+      "y": 640,
+      "kind": "item",
+      "label": "Mangrove Sign"
+    },
+    "mangrove_slab": {
+      "x": 288,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Slab"
+    },
+    "mangrove_stairs": {
+      "x": 320,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Stairs"
+    },
+    "mangrove_trapdoor": {
+      "x": 352,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Trapdoor"
+    },
+    "mangrove_wood": {
+      "x": 384,
+      "y": 640,
+      "kind": "block",
+      "label": "Mangrove Wood"
+    },
+    "map": {
+      "x": 224,
+      "y": 416,
+      "kind": "item",
+      "label": "Empty Map"
+    },
+    "medium_amethyst_bud": {
+      "x": 416,
+      "y": 640,
+      "kind": "item",
+      "label": "Medium Amethyst Bud"
+    },
+    "melon": {
+      "x": 448,
+      "y": 640,
+      "kind": "block",
+      "label": "Melon"
+    },
+    "melon_seeds": {
+      "x": 480,
+      "y": 640,
+      "kind": "item",
+      "label": "Melon Seeds"
+    },
+    "melon_slice": {
+      "x": 512,
+      "y": 640,
+      "kind": "item",
+      "label": "Melon Slice"
+    },
+    "milk_bucket": {
+      "x": 544,
+      "y": 640,
+      "kind": "item",
+      "label": "Milk Bucket"
+    },
+    "minecart": {
+      "x": 576,
+      "y": 640,
+      "kind": "item",
+      "label": "Minecart"
+    },
+    "miner_pottery_sherd": {
+      "x": 608,
+      "y": 640,
+      "kind": "item",
+      "label": "Miner Pottery Sherd"
+    },
+    "mojang_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "mooshroom_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Mooshroom Spawn Egg"
+    },
+    "moss_block": {
+      "x": 640,
+      "y": 640,
+      "kind": "block",
+      "label": "Moss Block"
+    },
+    "moss_carpet": {
+      "x": 672,
+      "y": 640,
+      "kind": "block",
+      "label": "Moss Carpet"
+    },
+    "mossy_cobblestone": {
+      "x": 704,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Cobblestone"
+    },
+    "mossy_cobblestone_slab": {
+      "x": 736,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Cobblestone Slab"
+    },
+    "mossy_cobblestone_stairs": {
+      "x": 768,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Cobblestone Stairs"
+    },
+    "mossy_cobblestone_wall": {
+      "x": 800,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Cobblestone Wall"
+    },
+    "mossy_stone_brick_slab": {
+      "x": 832,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Stone Brick Slab"
+    },
+    "mossy_stone_brick_stairs": {
+      "x": 864,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Stone Brick Stairs"
+    },
+    "mossy_stone_brick_wall": {
+      "x": 896,
+      "y": 640,
+      "kind": "block",
+      "label": "Mossy Stone Brick Wall"
+    },
+    "mossy_stone_bricks": {
+      "x": 224,
+      "y": 512,
+      "kind": "block",
+      "label": "Mossy Stone Bricks"
+    },
+    "mourner_pottery_sherd": {
+      "x": 928,
+      "y": 640,
+      "kind": "item",
+      "label": "Mourner Pottery Sherd"
+    },
+    "mud": {
+      "x": 960,
+      "y": 640,
+      "kind": "block",
+      "label": "Mud"
+    },
+    "mud_brick_slab": {
+      "x": 992,
+      "y": 640,
+      "kind": "block",
+      "label": "Mud Brick Slab"
+    },
+    "mud_brick_stairs": {
+      "x": 0,
+      "y": 672,
+      "kind": "block",
+      "label": "Mud Brick Stairs"
+    },
+    "mud_brick_wall": {
+      "x": 32,
+      "y": 672,
+      "kind": "block",
+      "label": "Mud Brick Wall"
+    },
+    "mud_bricks": {
+      "x": 64,
+      "y": 672,
+      "kind": "block",
+      "label": "Mud Bricks"
+    },
+    "muddy_mangrove_roots": {
+      "x": 96,
+      "y": 672,
+      "kind": "block",
+      "label": "Muddy Mangrove Roots"
+    },
+    "mule_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Mule Spawn Egg"
+    },
+    "mushroom_stem": {
+      "x": 128,
+      "y": 672,
+      "kind": "block",
+      "label": "Mushroom Stem"
+    },
+    "mushroom_stew": {
+      "x": 160,
+      "y": 672,
+      "kind": "item",
+      "label": "Mushroom Stew"
+    },
+    "music_disc_11": {
+      "x": 192,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_13": {
+      "x": 224,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_5": {
+      "x": 256,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_blocks": {
+      "x": 288,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_cat": {
+      "x": 320,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_chirp": {
+      "x": 352,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_creator": {
+      "x": 384,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_creator_music_box": {
+      "x": 416,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_far": {
+      "x": 448,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_mall": {
+      "x": 480,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_mellohi": {
+      "x": 512,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_otherside": {
+      "x": 544,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_pigstep": {
+      "x": 576,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_precipice": {
+      "x": 608,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_relic": {
+      "x": 640,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_stal": {
+      "x": 672,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_strad": {
+      "x": 704,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_wait": {
+      "x": 736,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "music_disc_ward": {
+      "x": 768,
+      "y": 672,
+      "kind": "item",
+      "label": "Music Disc"
+    },
+    "mutton": {
+      "x": 800,
+      "y": 672,
+      "kind": "item",
+      "label": "Raw Mutton"
+    },
+    "mycelium": {
+      "x": 832,
+      "y": 672,
+      "kind": "block",
+      "label": "Mycelium"
+    },
+    "name_tag": {
+      "x": 864,
+      "y": 672,
+      "kind": "item",
+      "label": "Name Tag"
+    },
+    "nautilus_shell": {
+      "x": 896,
+      "y": 672,
+      "kind": "item",
+      "label": "Nautilus Shell"
+    },
+    "nether_brick": {
+      "x": 928,
+      "y": 672,
+      "kind": "item",
+      "label": "Nether Brick"
+    },
+    "nether_brick_fence": {
+      "x": 960,
+      "y": 672,
+      "kind": "block",
+      "label": "Nether Brick Fence"
+    },
+    "nether_brick_slab": {
+      "x": 992,
+      "y": 672,
+      "kind": "block",
+      "label": "Nether Brick Slab"
+    },
+    "nether_brick_stairs": {
+      "x": 0,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Brick Stairs"
+    },
+    "nether_brick_wall": {
+      "x": 32,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Brick Wall"
+    },
+    "nether_bricks": {
+      "x": 64,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Bricks"
+    },
+    "nether_gold_ore": {
+      "x": 96,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Gold Ore"
+    },
+    "nether_quartz_ore": {
+      "x": 128,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Quartz Ore"
+    },
+    "nether_sprouts": {
+      "x": 160,
+      "y": 704,
+      "kind": "item",
+      "label": "Nether Sprouts"
+    },
+    "nether_star": {
+      "x": 192,
+      "y": 704,
+      "kind": "item",
+      "label": "Nether Star"
+    },
+    "nether_wart": {
+      "x": 224,
+      "y": 704,
+      "kind": "item",
+      "label": "Nether Wart"
+    },
+    "nether_wart_block": {
+      "x": 256,
+      "y": 704,
+      "kind": "block",
+      "label": "Nether Wart Block"
+    },
+    "netherite_axe": {
+      "x": 288,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Axe"
+    },
+    "netherite_block": {
+      "x": 320,
+      "y": 704,
+      "kind": "block",
+      "label": "Block of Netherite"
+    },
+    "netherite_boots": {
+      "x": 352,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Boots"
+    },
+    "netherite_chestplate": {
+      "x": 384,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Chestplate"
+    },
+    "netherite_helmet": {
+      "x": 416,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Helmet"
+    },
+    "netherite_hoe": {
+      "x": 448,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Hoe"
+    },
+    "netherite_ingot": {
+      "x": 480,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Ingot"
+    },
+    "netherite_leggings": {
+      "x": 512,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Leggings"
+    },
+    "netherite_pickaxe": {
+      "x": 544,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Pickaxe"
+    },
+    "netherite_scrap": {
+      "x": 576,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Scrap"
+    },
+    "netherite_shovel": {
+      "x": 608,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Shovel"
+    },
+    "netherite_sword": {
+      "x": 640,
+      "y": 704,
+      "kind": "item",
+      "label": "Netherite Sword"
+    },
+    "netherite_upgrade_smithing_template": {
+      "x": 672,
+      "y": 704,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "netherrack": {
+      "x": 704,
+      "y": 704,
+      "kind": "block",
+      "label": "Netherrack"
+    },
+    "note_block": {
+      "x": 736,
+      "y": 704,
+      "kind": "block",
+      "label": "Note Block"
+    },
+    "oak_boat": {
+      "x": 768,
+      "y": 704,
+      "kind": "item",
+      "label": "Oak Boat"
+    },
+    "oak_button": {
+      "x": 800,
+      "y": 704,
+      "kind": "block",
+      "label": "Oak Button"
+    },
+    "oak_chest_boat": {
+      "x": 832,
+      "y": 704,
+      "kind": "item",
+      "label": "Oak Boat with Chest"
+    },
+    "oak_door": {
+      "x": 864,
+      "y": 704,
+      "kind": "item",
+      "label": "Oak Door"
+    },
+    "oak_fence": {
+      "x": 896,
+      "y": 704,
+      "kind": "block",
+      "label": "Oak Fence"
+    },
+    "oak_fence_gate": {
+      "x": 928,
+      "y": 704,
+      "kind": "block",
+      "label": "Oak Fence Gate"
+    },
+    "oak_hanging_sign": {
+      "x": 960,
+      "y": 704,
+      "kind": "item",
+      "label": "Oak Hanging Sign"
+    },
+    "oak_leaves": {
+      "x": 992,
+      "y": 704,
+      "kind": "block",
+      "label": "Oak Leaves"
+    },
+    "oak_log": {
+      "x": 0,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Log"
+    },
+    "oak_planks": {
+      "x": 32,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Planks"
+    },
+    "oak_pressure_plate": {
+      "x": 64,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Pressure Plate"
+    },
+    "oak_sapling": {
+      "x": 96,
+      "y": 736,
+      "kind": "item",
+      "label": "Oak Sapling"
+    },
+    "oak_sign": {
+      "x": 128,
+      "y": 736,
+      "kind": "item",
+      "label": "Oak Sign"
+    },
+    "oak_slab": {
+      "x": 160,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Slab"
+    },
+    "oak_stairs": {
+      "x": 192,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Stairs"
+    },
+    "oak_trapdoor": {
+      "x": 224,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Trapdoor"
+    },
+    "oak_wood": {
+      "x": 256,
+      "y": 736,
+      "kind": "block",
+      "label": "Oak Wood"
+    },
+    "observer": {
+      "x": 288,
+      "y": 736,
+      "kind": "block",
+      "label": "Observer"
+    },
+    "obsidian": {
+      "x": 320,
+      "y": 736,
+      "kind": "block",
+      "label": "Obsidian"
+    },
+    "ocelot_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Ocelot Spawn Egg"
+    },
+    "ochre_froglight": {
+      "x": 352,
+      "y": 736,
+      "kind": "block",
+      "label": "Ochre Froglight"
+    },
+    "ominous_bottle": {
+      "x": 384,
+      "y": 736,
+      "kind": "item",
+      "label": "Ominous Bottle"
+    },
+    "ominous_trial_key": {
+      "x": 416,
+      "y": 736,
+      "kind": "item",
+      "label": "Ominous Trial Key"
+    },
+    "orange_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Orange Banner"
+    },
+    "orange_bed": {
+      "x": 448,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Bed"
+    },
+    "orange_candle": {
+      "x": 480,
+      "y": 736,
+      "kind": "item",
+      "label": "Orange Candle"
+    },
+    "orange_carpet": {
+      "x": 512,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Carpet"
+    },
+    "orange_concrete": {
+      "x": 544,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Concrete"
+    },
+    "orange_concrete_powder": {
+      "x": 576,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Concrete Powder"
+    },
+    "orange_dye": {
+      "x": 608,
+      "y": 736,
+      "kind": "item",
+      "label": "Orange Dye"
+    },
+    "orange_glazed_terracotta": {
+      "x": 640,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Glazed Terracotta"
+    },
+    "orange_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Orange Shulker Box"
+    },
+    "orange_stained_glass": {
+      "x": 672,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Stained Glass"
+    },
+    "orange_stained_glass_pane": {
+      "x": 704,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Stained Glass Pane"
+    },
+    "orange_terracotta": {
+      "x": 736,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Terracotta"
+    },
+    "orange_tulip": {
+      "x": 768,
+      "y": 736,
+      "kind": "item",
+      "label": "Orange Tulip"
+    },
+    "orange_wool": {
+      "x": 800,
+      "y": 736,
+      "kind": "block",
+      "label": "Orange Wool"
+    },
+    "oxeye_daisy": {
+      "x": 832,
+      "y": 736,
+      "kind": "item",
+      "label": "Oxeye Daisy"
+    },
+    "oxidized_chiseled_copper": {
+      "x": 864,
+      "y": 736,
+      "kind": "block",
+      "label": "Oxidized Chiseled Copper"
+    },
+    "oxidized_copper": {
+      "x": 896,
+      "y": 736,
+      "kind": "block",
+      "label": "Oxidized Copper"
+    },
+    "oxidized_copper_bulb": {
+      "x": 928,
+      "y": 736,
+      "kind": "block",
+      "label": "Oxidized Copper Bulb"
+    },
+    "oxidized_copper_door": {
+      "x": 960,
+      "y": 736,
+      "kind": "item",
+      "label": "Oxidized Copper Door"
+    },
+    "oxidized_copper_grate": {
+      "x": 992,
+      "y": 736,
+      "kind": "block",
+      "label": "Oxidized Copper Grate"
+    },
+    "oxidized_copper_trapdoor": {
+      "x": 0,
+      "y": 768,
+      "kind": "block",
+      "label": "Oxidized Copper Trapdoor"
+    },
+    "oxidized_cut_copper": {
+      "x": 32,
+      "y": 768,
+      "kind": "block",
+      "label": "Oxidized Cut Copper"
+    },
+    "oxidized_cut_copper_slab": {
+      "x": 64,
+      "y": 768,
+      "kind": "block",
+      "label": "Oxidized Cut Copper Slab"
+    },
+    "oxidized_cut_copper_stairs": {
+      "x": 96,
+      "y": 768,
+      "kind": "block",
+      "label": "Oxidized Cut Copper Stairs"
+    },
+    "packed_ice": {
+      "x": 128,
+      "y": 768,
+      "kind": "block",
+      "label": "Packed Ice"
+    },
+    "packed_mud": {
+      "x": 160,
+      "y": 768,
+      "kind": "block",
+      "label": "Packed Mud"
+    },
+    "painting": {
+      "x": 192,
+      "y": 768,
+      "kind": "item",
+      "label": "Painting"
+    },
+    "panda_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Panda Spawn Egg"
+    },
+    "paper": {
+      "x": 224,
+      "y": 768,
+      "kind": "item",
+      "label": "Paper"
+    },
+    "parrot_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Parrot Spawn Egg"
+    },
+    "pearlescent_froglight": {
+      "x": 256,
+      "y": 768,
+      "kind": "block",
+      "label": "Pearlescent Froglight"
+    },
+    "peony": {
+      "x": 288,
+      "y": 768,
+      "kind": "item",
+      "label": "Peony"
+    },
+    "petrified_oak_slab": {
+      "x": 160,
+      "y": 736,
+      "kind": "block",
+      "label": "Petrified Oak Slab"
+    },
+    "phantom_membrane": {
+      "x": 320,
+      "y": 768,
+      "kind": "item",
+      "label": "Phantom Membrane"
+    },
+    "phantom_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Phantom Spawn Egg"
+    },
+    "pig_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Pig Spawn Egg"
+    },
+    "piglin_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "piglin_brute_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Piglin Brute Spawn Egg"
+    },
+    "piglin_head": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Piglin Head"
+    },
+    "piglin_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Piglin Spawn Egg"
+    },
+    "pillager_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Pillager Spawn Egg"
+    },
+    "pink_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Pink Banner"
+    },
+    "pink_bed": {
+      "x": 352,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Bed"
+    },
+    "pink_candle": {
+      "x": 384,
+      "y": 768,
+      "kind": "item",
+      "label": "Pink Candle"
+    },
+    "pink_carpet": {
+      "x": 416,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Carpet"
+    },
+    "pink_concrete": {
+      "x": 448,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Concrete"
+    },
+    "pink_concrete_powder": {
+      "x": 480,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Concrete Powder"
+    },
+    "pink_dye": {
+      "x": 512,
+      "y": 768,
+      "kind": "item",
+      "label": "Pink Dye"
+    },
+    "pink_glazed_terracotta": {
+      "x": 544,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Glazed Terracotta"
+    },
+    "pink_petals": {
+      "x": 576,
+      "y": 768,
+      "kind": "item",
+      "label": "Pink Petals"
+    },
+    "pink_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Pink Shulker Box"
+    },
+    "pink_stained_glass": {
+      "x": 608,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Stained Glass"
+    },
+    "pink_stained_glass_pane": {
+      "x": 640,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Stained Glass Pane"
+    },
+    "pink_terracotta": {
+      "x": 672,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Terracotta"
+    },
+    "pink_tulip": {
+      "x": 704,
+      "y": 768,
+      "kind": "item",
+      "label": "Pink Tulip"
+    },
+    "pink_wool": {
+      "x": 736,
+      "y": 768,
+      "kind": "block",
+      "label": "Pink Wool"
+    },
+    "piston": {
+      "x": 768,
+      "y": 768,
+      "kind": "block",
+      "label": "Piston"
+    },
+    "pitcher_plant": {
+      "x": 800,
+      "y": 768,
+      "kind": "item",
+      "label": "Pitcher Plant"
+    },
+    "pitcher_pod": {
+      "x": 832,
+      "y": 768,
+      "kind": "item",
+      "label": "Pitcher Pod"
+    },
+    "player_head": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Player Head"
+    },
+    "plenty_pottery_sherd": {
+      "x": 864,
+      "y": 768,
+      "kind": "item",
+      "label": "Plenty Pottery Sherd"
+    },
+    "podzol": {
+      "x": 896,
+      "y": 768,
+      "kind": "block",
+      "label": "Podzol"
+    },
+    "pointed_dripstone": {
+      "x": 928,
+      "y": 768,
+      "kind": "item",
+      "label": "Pointed Dripstone"
+    },
+    "poisonous_potato": {
+      "x": 960,
+      "y": 768,
+      "kind": "item",
+      "label": "Poisonous Potato"
+    },
+    "polar_bear_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Polar Bear Spawn Egg"
+    },
+    "polished_andesite": {
+      "x": 992,
+      "y": 768,
+      "kind": "block",
+      "label": "Polished Andesite"
+    },
+    "polished_andesite_slab": {
+      "x": 0,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Andesite Slab"
+    },
+    "polished_andesite_stairs": {
+      "x": 32,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Andesite Stairs"
+    },
+    "polished_basalt": {
+      "x": 64,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Basalt"
+    },
+    "polished_blackstone": {
+      "x": 96,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone"
+    },
+    "polished_blackstone_brick_slab": {
+      "x": 128,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Brick Slab"
+    },
+    "polished_blackstone_brick_stairs": {
+      "x": 160,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Brick Stairs"
+    },
+    "polished_blackstone_brick_wall": {
+      "x": 192,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Brick Wall"
+    },
+    "polished_blackstone_bricks": {
+      "x": 224,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Bricks"
+    },
+    "polished_blackstone_button": {
+      "x": 256,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Button"
+    },
+    "polished_blackstone_pressure_plate": {
+      "x": 288,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Pressure Plate"
+    },
+    "polished_blackstone_slab": {
+      "x": 320,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Slab"
+    },
+    "polished_blackstone_stairs": {
+      "x": 352,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Stairs"
+    },
+    "polished_blackstone_wall": {
+      "x": 384,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Blackstone Wall"
+    },
+    "polished_deepslate": {
+      "x": 416,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Deepslate"
+    },
+    "polished_deepslate_slab": {
+      "x": 448,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Deepslate Slab"
+    },
+    "polished_deepslate_stairs": {
+      "x": 480,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Deepslate Stairs"
+    },
+    "polished_deepslate_wall": {
+      "x": 512,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Deepslate Wall"
+    },
+    "polished_diorite": {
+      "x": 544,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Diorite"
+    },
+    "polished_diorite_slab": {
+      "x": 576,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Diorite Slab"
+    },
+    "polished_diorite_stairs": {
+      "x": 608,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Diorite Stairs"
+    },
+    "polished_granite": {
+      "x": 640,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Granite"
+    },
+    "polished_granite_slab": {
+      "x": 672,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Granite Slab"
+    },
+    "polished_granite_stairs": {
+      "x": 704,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Granite Stairs"
+    },
+    "polished_tuff": {
+      "x": 736,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Tuff"
+    },
+    "polished_tuff_slab": {
+      "x": 768,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Tuff Slab"
+    },
+    "polished_tuff_stairs": {
+      "x": 800,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Tuff Stairs"
+    },
+    "polished_tuff_wall": {
+      "x": 832,
+      "y": 800,
+      "kind": "block",
+      "label": "Polished Tuff Wall"
+    },
+    "popped_chorus_fruit": {
+      "x": 864,
+      "y": 800,
+      "kind": "item",
+      "label": "Popped Chorus Fruit"
+    },
+    "poppy": {
+      "x": 896,
+      "y": 800,
+      "kind": "item",
+      "label": "Poppy"
+    },
+    "porkchop": {
+      "x": 928,
+      "y": 800,
+      "kind": "item",
+      "label": "Raw Porkchop"
+    },
+    "potato": {
+      "x": 960,
+      "y": 800,
+      "kind": "item",
+      "label": "Potato"
+    },
+    "potion": {
+      "x": 928,
+      "y": 416,
+      "kind": "item",
+      "label": "Potion"
+    },
+    "powder_snow_bucket": {
+      "x": 992,
+      "y": 800,
+      "kind": "item",
+      "label": "Powder Snow Bucket"
+    },
+    "powered_rail": {
+      "x": 0,
+      "y": 832,
+      "kind": "block",
+      "label": "Powered Rail"
+    },
+    "prismarine": {
+      "x": 32,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine"
+    },
+    "prismarine_brick_slab": {
+      "x": 64,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Brick Slab"
+    },
+    "prismarine_brick_stairs": {
+      "x": 96,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Brick Stairs"
+    },
+    "prismarine_bricks": {
+      "x": 128,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Bricks"
+    },
+    "prismarine_crystals": {
+      "x": 160,
+      "y": 832,
+      "kind": "item",
+      "label": "Prismarine Crystals"
+    },
+    "prismarine_shard": {
+      "x": 192,
+      "y": 832,
+      "kind": "item",
+      "label": "Prismarine Shard"
+    },
+    "prismarine_slab": {
+      "x": 224,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Slab"
+    },
+    "prismarine_stairs": {
+      "x": 256,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Stairs"
+    },
+    "prismarine_wall": {
+      "x": 288,
+      "y": 832,
+      "kind": "block",
+      "label": "Prismarine Wall"
+    },
+    "prize_pottery_sherd": {
+      "x": 320,
+      "y": 832,
+      "kind": "item",
+      "label": "Prize Pottery Sherd"
+    },
+    "pufferfish": {
+      "x": 352,
+      "y": 832,
+      "kind": "item",
+      "label": "Pufferfish"
+    },
+    "pufferfish_bucket": {
+      "x": 384,
+      "y": 832,
+      "kind": "item",
+      "label": "Bucket of Pufferfish"
+    },
+    "pufferfish_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Pufferfish Spawn Egg"
+    },
+    "pumpkin": {
+      "x": 384,
+      "y": 160,
+      "kind": "block",
+      "label": "Pumpkin"
+    },
+    "pumpkin_pie": {
+      "x": 416,
+      "y": 832,
+      "kind": "item",
+      "label": "Pumpkin Pie"
+    },
+    "pumpkin_seeds": {
+      "x": 448,
+      "y": 832,
+      "kind": "item",
+      "label": "Pumpkin Seeds"
+    },
+    "purple_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Purple Banner"
+    },
+    "purple_bed": {
+      "x": 480,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Bed"
+    },
+    "purple_candle": {
+      "x": 512,
+      "y": 832,
+      "kind": "item",
+      "label": "Purple Candle"
+    },
+    "purple_carpet": {
+      "x": 544,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Carpet"
+    },
+    "purple_concrete": {
+      "x": 576,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Concrete"
+    },
+    "purple_concrete_powder": {
+      "x": 608,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Concrete Powder"
+    },
+    "purple_dye": {
+      "x": 640,
+      "y": 832,
+      "kind": "item",
+      "label": "Purple Dye"
+    },
+    "purple_glazed_terracotta": {
+      "x": 672,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Glazed Terracotta"
+    },
+    "purple_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Purple Shulker Box"
+    },
+    "purple_stained_glass": {
+      "x": 704,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Stained Glass"
+    },
+    "purple_stained_glass_pane": {
+      "x": 736,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Stained Glass Pane"
+    },
+    "purple_terracotta": {
+      "x": 768,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Terracotta"
+    },
+    "purple_wool": {
+      "x": 800,
+      "y": 832,
+      "kind": "block",
+      "label": "Purple Wool"
+    },
+    "purpur_block": {
+      "x": 832,
+      "y": 832,
+      "kind": "block",
+      "label": "Purpur Block"
+    },
+    "purpur_pillar": {
+      "x": 864,
+      "y": 832,
+      "kind": "block",
+      "label": "Purpur Pillar"
+    },
+    "purpur_slab": {
+      "x": 896,
+      "y": 832,
+      "kind": "block",
+      "label": "Purpur Slab"
+    },
+    "purpur_stairs": {
+      "x": 928,
+      "y": 832,
+      "kind": "block",
+      "label": "Purpur Stairs"
+    },
+    "quartz": {
+      "x": 960,
+      "y": 832,
+      "kind": "item",
+      "label": "Nether Quartz"
+    },
+    "quartz_block": {
+      "x": 992,
+      "y": 832,
+      "kind": "block",
+      "label": "Block of Quartz"
+    },
+    "quartz_bricks": {
+      "x": 0,
+      "y": 864,
+      "kind": "block",
+      "label": "Quartz Bricks"
+    },
+    "quartz_pillar": {
+      "x": 32,
+      "y": 864,
+      "kind": "block",
+      "label": "Quartz Pillar"
+    },
+    "quartz_slab": {
+      "x": 64,
+      "y": 864,
+      "kind": "block",
+      "label": "Quartz Slab"
+    },
+    "quartz_stairs": {
+      "x": 96,
+      "y": 864,
+      "kind": "block",
+      "label": "Quartz Stairs"
+    },
+    "rabbit": {
+      "x": 128,
+      "y": 864,
+      "kind": "item",
+      "label": "Raw Rabbit"
+    },
+    "rabbit_foot": {
+      "x": 160,
+      "y": 864,
+      "kind": "item",
+      "label": "Rabbit's Foot"
+    },
+    "rabbit_hide": {
+      "x": 192,
+      "y": 864,
+      "kind": "item",
+      "label": "Rabbit Hide"
+    },
+    "rabbit_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Rabbit Spawn Egg"
+    },
+    "rabbit_stew": {
+      "x": 224,
+      "y": 864,
+      "kind": "item",
+      "label": "Rabbit Stew"
+    },
+    "rail": {
+      "x": 256,
+      "y": 864,
+      "kind": "block",
+      "label": "Rail"
+    },
+    "raiser_armor_trim_smithing_template": {
+      "x": 288,
+      "y": 864,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "ravager_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Ravager Spawn Egg"
+    },
+    "raw_copper": {
+      "x": 320,
+      "y": 864,
+      "kind": "item",
+      "label": "Raw Copper"
+    },
+    "raw_copper_block": {
+      "x": 352,
+      "y": 864,
+      "kind": "block",
+      "label": "Block of Raw Copper"
+    },
+    "raw_gold": {
+      "x": 384,
+      "y": 864,
+      "kind": "item",
+      "label": "Raw Gold"
+    },
+    "raw_gold_block": {
+      "x": 416,
+      "y": 864,
+      "kind": "block",
+      "label": "Block of Raw Gold"
+    },
+    "raw_iron": {
+      "x": 448,
+      "y": 864,
+      "kind": "item",
+      "label": "Raw Iron"
+    },
+    "raw_iron_block": {
+      "x": 480,
+      "y": 864,
+      "kind": "block",
+      "label": "Block of Raw Iron"
+    },
+    "recovery_compass": {
+      "x": 512,
+      "y": 864,
+      "kind": "item",
+      "label": "Recovery Compass"
+    },
+    "red_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Red Banner"
+    },
+    "red_bed": {
+      "x": 544,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Bed"
+    },
+    "red_candle": {
+      "x": 576,
+      "y": 864,
+      "kind": "item",
+      "label": "Red Candle"
+    },
+    "red_carpet": {
+      "x": 608,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Carpet"
+    },
+    "red_concrete": {
+      "x": 640,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Concrete"
+    },
+    "red_concrete_powder": {
+      "x": 672,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Concrete Powder"
+    },
+    "red_dye": {
+      "x": 704,
+      "y": 864,
+      "kind": "item",
+      "label": "Red Dye"
+    },
+    "red_glazed_terracotta": {
+      "x": 736,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Glazed Terracotta"
+    },
+    "red_mushroom": {
+      "x": 768,
+      "y": 864,
+      "kind": "item",
+      "label": "Red Mushroom"
+    },
+    "red_mushroom_block": {
+      "x": 800,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Mushroom Block"
+    },
+    "red_nether_brick_slab": {
+      "x": 832,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Nether Brick Slab"
+    },
+    "red_nether_brick_stairs": {
+      "x": 864,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Nether Brick Stairs"
+    },
+    "red_nether_brick_wall": {
+      "x": 896,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Nether Brick Wall"
+    },
+    "red_nether_bricks": {
+      "x": 928,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Nether Bricks"
+    },
+    "red_sand": {
+      "x": 960,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Sand"
+    },
+    "red_sandstone": {
+      "x": 992,
+      "y": 864,
+      "kind": "block",
+      "label": "Red Sandstone"
+    },
+    "red_sandstone_slab": {
+      "x": 0,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Sandstone Slab"
+    },
+    "red_sandstone_stairs": {
+      "x": 32,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Sandstone Stairs"
+    },
+    "red_sandstone_wall": {
+      "x": 64,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Sandstone Wall"
+    },
+    "red_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Red Shulker Box"
+    },
+    "red_stained_glass": {
+      "x": 96,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Stained Glass"
+    },
+    "red_stained_glass_pane": {
+      "x": 128,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Stained Glass Pane"
+    },
+    "red_terracotta": {
+      "x": 160,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Terracotta"
+    },
+    "red_tulip": {
+      "x": 192,
+      "y": 896,
+      "kind": "item",
+      "label": "Red Tulip"
+    },
+    "red_wool": {
+      "x": 224,
+      "y": 896,
+      "kind": "block",
+      "label": "Red Wool"
+    },
+    "redstone": {
+      "x": 256,
+      "y": 896,
+      "kind": "item",
+      "label": "Redstone Dust"
+    },
+    "redstone_block": {
+      "x": 288,
+      "y": 896,
+      "kind": "block",
+      "label": "Block of Redstone"
+    },
+    "redstone_lamp": {
+      "x": 320,
+      "y": 896,
+      "kind": "block",
+      "label": "Redstone Lamp"
+    },
+    "redstone_ore": {
+      "x": 352,
+      "y": 896,
+      "kind": "block",
+      "label": "Redstone Ore"
+    },
+    "redstone_torch": {
+      "x": 384,
+      "y": 896,
+      "kind": "block",
+      "label": "Redstone Torch"
+    },
+    "reinforced_deepslate": {
+      "x": 416,
+      "y": 896,
+      "kind": "block",
+      "label": "Reinforced Deepslate"
+    },
+    "repeater": {
+      "x": 448,
+      "y": 896,
+      "kind": "item",
+      "label": "Redstone Repeater"
+    },
+    "repeating_command_block": {
+      "x": 480,
+      "y": 896,
+      "kind": "block",
+      "label": "Repeating Command Block"
+    },
+    "respawn_anchor": {
+      "x": 512,
+      "y": 896,
+      "kind": "block",
+      "label": "Respawn Anchor"
+    },
+    "rib_armor_trim_smithing_template": {
+      "x": 544,
+      "y": 896,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "rooted_dirt": {
+      "x": 576,
+      "y": 896,
+      "kind": "block",
+      "label": "Rooted Dirt"
+    },
+    "rose_bush": {
+      "x": 608,
+      "y": 896,
+      "kind": "item",
+      "label": "Rose Bush"
+    },
+    "rotten_flesh": {
+      "x": 640,
+      "y": 896,
+      "kind": "item",
+      "label": "Rotten Flesh"
+    },
+    "saddle": {
+      "x": 672,
+      "y": 896,
+      "kind": "item",
+      "label": "Saddle"
+    },
+    "salmon": {
+      "x": 704,
+      "y": 896,
+      "kind": "item",
+      "label": "Raw Salmon"
+    },
+    "salmon_bucket": {
+      "x": 736,
+      "y": 896,
+      "kind": "item",
+      "label": "Bucket of Salmon"
+    },
+    "salmon_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Salmon Spawn Egg"
+    },
+    "sand": {
+      "x": 768,
+      "y": 896,
+      "kind": "block",
+      "label": "Sand"
+    },
+    "sandstone": {
+      "x": 800,
+      "y": 896,
+      "kind": "block",
+      "label": "Sandstone"
+    },
+    "sandstone_slab": {
+      "x": 832,
+      "y": 896,
+      "kind": "block",
+      "label": "Sandstone Slab"
+    },
+    "sandstone_stairs": {
+      "x": 864,
+      "y": 896,
+      "kind": "block",
+      "label": "Sandstone Stairs"
+    },
+    "sandstone_wall": {
+      "x": 896,
+      "y": 896,
+      "kind": "block",
+      "label": "Sandstone Wall"
+    },
+    "scaffolding": {
+      "x": 928,
+      "y": 896,
+      "kind": "block",
+      "label": "Scaffolding"
+    },
+    "scrape_pottery_sherd": {
+      "x": 960,
+      "y": 896,
+      "kind": "item",
+      "label": "Scrape Pottery Sherd"
+    },
+    "sculk": {
+      "x": 992,
+      "y": 896,
+      "kind": "block",
+      "label": "Sculk"
+    },
+    "sculk_catalyst": {
+      "x": 0,
+      "y": 928,
+      "kind": "block",
+      "label": "Sculk Catalyst"
+    },
+    "sculk_sensor": {
+      "x": 32,
+      "y": 928,
+      "kind": "block",
+      "label": "Sculk Sensor"
+    },
+    "sculk_shrieker": {
+      "x": 64,
+      "y": 928,
+      "kind": "block",
+      "label": "Sculk Shrieker"
+    },
+    "sculk_vein": {
+      "x": 96,
+      "y": 928,
+      "kind": "block",
+      "label": "Sculk Vein"
+    },
+    "sea_lantern": {
+      "x": 128,
+      "y": 928,
+      "kind": "block",
+      "label": "Sea Lantern"
+    },
+    "sea_pickle": {
+      "x": 160,
+      "y": 928,
+      "kind": "item",
+      "label": "Sea Pickle"
+    },
+    "seagrass": {
+      "x": 192,
+      "y": 928,
+      "kind": "item",
+      "label": "Seagrass"
+    },
+    "sentry_armor_trim_smithing_template": {
+      "x": 224,
+      "y": 928,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "shaper_armor_trim_smithing_template": {
+      "x": 256,
+      "y": 928,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "sheaf_pottery_sherd": {
+      "x": 288,
+      "y": 928,
+      "kind": "item",
+      "label": "Sheaf Pottery Sherd"
+    },
+    "shears": {
+      "x": 320,
+      "y": 928,
+      "kind": "item",
+      "label": "Shears"
+    },
+    "sheep_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Sheep Spawn Egg"
+    },
+    "shelter_pottery_sherd": {
+      "x": 352,
+      "y": 928,
+      "kind": "item",
+      "label": "Shelter Pottery Sherd"
+    },
+    "shield": {
+      "x": 384,
+      "y": 928,
+      "kind": "item",
+      "label": "Shield"
+    },
+    "short_grass": {
+      "x": 416,
+      "y": 928,
+      "kind": "block",
+      "label": "Short Grass"
+    },
+    "shroomlight": {
+      "x": 448,
+      "y": 928,
+      "kind": "block",
+      "label": "Shroomlight"
+    },
+    "shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Shulker Box"
+    },
+    "shulker_shell": {
+      "x": 480,
+      "y": 928,
+      "kind": "item",
+      "label": "Shulker Shell"
+    },
+    "shulker_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Shulker Spawn Egg"
+    },
+    "silence_armor_trim_smithing_template": {
+      "x": 512,
+      "y": 928,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "silverfish_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Silverfish Spawn Egg"
+    },
+    "skeleton_horse_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Skeleton Horse Spawn Egg"
+    },
+    "skeleton_skull": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Skeleton Skull"
+    },
+    "skeleton_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Skeleton Spawn Egg"
+    },
+    "skull_banner_pattern": {
+      "x": 256,
+      "y": 256,
+      "kind": "item",
+      "label": "Banner Pattern"
+    },
+    "skull_pottery_sherd": {
+      "x": 544,
+      "y": 928,
+      "kind": "item",
+      "label": "Skull Pottery Sherd"
+    },
+    "slime_ball": {
+      "x": 576,
+      "y": 928,
+      "kind": "item",
+      "label": "Slimeball"
+    },
+    "slime_block": {
+      "x": 608,
+      "y": 928,
+      "kind": "block",
+      "label": "Slime Block"
+    },
+    "slime_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Slime Spawn Egg"
+    },
+    "small_amethyst_bud": {
+      "x": 640,
+      "y": 928,
+      "kind": "item",
+      "label": "Small Amethyst Bud"
+    },
+    "small_dripleaf": {
+      "x": 672,
+      "y": 928,
+      "kind": "block",
+      "label": "Small Dripleaf"
+    },
+    "smithing_table": {
+      "x": 704,
+      "y": 928,
+      "kind": "block",
+      "label": "Smithing Table"
+    },
+    "smoker": {
+      "x": 736,
+      "y": 928,
+      "kind": "block",
+      "label": "Smoker"
+    },
+    "smooth_basalt": {
+      "x": 768,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Basalt"
+    },
+    "smooth_quartz": {
+      "x": 800,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Quartz Block"
+    },
+    "smooth_quartz_slab": {
+      "x": 832,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Quartz Slab"
+    },
+    "smooth_quartz_stairs": {
+      "x": 864,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Quartz Stairs"
+    },
+    "smooth_red_sandstone": {
+      "x": 896,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Red Sandstone"
+    },
+    "smooth_red_sandstone_slab": {
+      "x": 928,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Red Sandstone Slab"
+    },
+    "smooth_red_sandstone_stairs": {
+      "x": 960,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Red Sandstone Stairs"
+    },
+    "smooth_sandstone": {
+      "x": 992,
+      "y": 928,
+      "kind": "block",
+      "label": "Smooth Sandstone"
+    },
+    "smooth_sandstone_slab": {
+      "x": 0,
+      "y": 960,
+      "kind": "block",
+      "label": "Smooth Sandstone Slab"
+    },
+    "smooth_sandstone_stairs": {
+      "x": 32,
+      "y": 960,
+      "kind": "block",
+      "label": "Smooth Sandstone Stairs"
+    },
+    "smooth_stone": {
+      "x": 64,
+      "y": 960,
+      "kind": "block",
+      "label": "Smooth Stone"
+    },
+    "smooth_stone_slab": {
+      "x": 96,
+      "y": 960,
+      "kind": "block",
+      "label": "Smooth Stone Slab"
+    },
+    "sniffer_egg": {
+      "x": 128,
+      "y": 960,
+      "kind": "item",
+      "label": "Sniffer Egg"
+    },
+    "sniffer_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Sniffer Spawn Egg"
+    },
+    "snort_pottery_sherd": {
+      "x": 160,
+      "y": 960,
+      "kind": "item",
+      "label": "Snort Pottery Sherd"
+    },
+    "snout_armor_trim_smithing_template": {
+      "x": 192,
+      "y": 960,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "snow": {
+      "x": 224,
+      "y": 960,
+      "kind": "block",
+      "label": "Snow"
+    },
+    "snow_block": {
+      "x": 256,
+      "y": 960,
+      "kind": "block",
+      "label": "Snow Block"
+    },
+    "snow_golem_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Snow Golem Spawn Egg"
+    },
+    "snowball": {
+      "x": 288,
+      "y": 960,
+      "kind": "item",
+      "label": "Snowball"
+    },
+    "soul_campfire": {
+      "x": 320,
+      "y": 960,
+      "kind": "item",
+      "label": "Soul Campfire"
+    },
+    "soul_lantern": {
+      "x": 352,
+      "y": 960,
+      "kind": "item",
+      "label": "Soul Lantern"
+    },
+    "soul_sand": {
+      "x": 384,
+      "y": 960,
+      "kind": "block",
+      "label": "Soul Sand"
+    },
+    "soul_soil": {
+      "x": 416,
+      "y": 960,
+      "kind": "block",
+      "label": "Soul Soil"
+    },
+    "soul_torch": {
+      "x": 448,
+      "y": 960,
+      "kind": "block",
+      "label": "Soul Torch"
+    },
+    "spawner": {
+      "x": 480,
+      "y": 960,
+      "kind": "block",
+      "label": "Monster Spawner"
+    },
+    "spectral_arrow": {
+      "x": 512,
+      "y": 960,
+      "kind": "item",
+      "label": "Spectral Arrow"
+    },
+    "spider_eye": {
+      "x": 544,
+      "y": 960,
+      "kind": "item",
+      "label": "Spider Eye"
+    },
+    "spider_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Spider Spawn Egg"
+    },
+    "spire_armor_trim_smithing_template": {
+      "x": 576,
+      "y": 960,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "splash_potion": {
+      "x": 608,
+      "y": 960,
+      "kind": "item",
+      "label": "Splash Potion"
+    },
+    "sponge": {
+      "x": 640,
+      "y": 960,
+      "kind": "block",
+      "label": "Sponge"
+    },
+    "spore_blossom": {
+      "x": 672,
+      "y": 960,
+      "kind": "block",
+      "label": "Spore Blossom"
+    },
+    "spruce_boat": {
+      "x": 704,
+      "y": 960,
+      "kind": "item",
+      "label": "Spruce Boat"
+    },
+    "spruce_button": {
+      "x": 736,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Button"
+    },
+    "spruce_chest_boat": {
+      "x": 768,
+      "y": 960,
+      "kind": "item",
+      "label": "Spruce Boat with Chest"
+    },
+    "spruce_door": {
+      "x": 800,
+      "y": 960,
+      "kind": "item",
+      "label": "Spruce Door"
+    },
+    "spruce_fence": {
+      "x": 832,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Fence"
+    },
+    "spruce_fence_gate": {
+      "x": 864,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Fence Gate"
+    },
+    "spruce_hanging_sign": {
+      "x": 896,
+      "y": 960,
+      "kind": "item",
+      "label": "Spruce Hanging Sign"
+    },
+    "spruce_leaves": {
+      "x": 928,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Leaves"
+    },
+    "spruce_log": {
+      "x": 960,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Log"
+    },
+    "spruce_planks": {
+      "x": 992,
+      "y": 960,
+      "kind": "block",
+      "label": "Spruce Planks"
+    },
+    "spruce_pressure_plate": {
+      "x": 0,
+      "y": 992,
+      "kind": "block",
+      "label": "Spruce Pressure Plate"
+    },
+    "spruce_sapling": {
+      "x": 32,
+      "y": 992,
+      "kind": "item",
+      "label": "Spruce Sapling"
+    },
+    "spruce_sign": {
+      "x": 64,
+      "y": 992,
+      "kind": "item",
+      "label": "Spruce Sign"
+    },
+    "spruce_slab": {
+      "x": 96,
+      "y": 992,
+      "kind": "block",
+      "label": "Spruce Slab"
+    },
+    "spruce_stairs": {
+      "x": 128,
+      "y": 992,
+      "kind": "block",
+      "label": "Spruce Stairs"
+    },
+    "spruce_trapdoor": {
+      "x": 160,
+      "y": 992,
+      "kind": "block",
+      "label": "Spruce Trapdoor"
+    },
+    "spruce_wood": {
+      "x": 192,
+      "y": 992,
+      "kind": "block",
+      "label": "Spruce Wood"
+    },
+    "spyglass": {
+      "x": 224,
+      "y": 992,
+      "kind": "item",
+      "label": "Spyglass"
+    },
+    "squid_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Squid Spawn Egg"
+    },
+    "stick": {
+      "x": 672,
+      "y": 320,
+      "kind": "item",
+      "label": "Stick"
+    },
+    "sticky_piston": {
+      "x": 256,
+      "y": 992,
+      "kind": "block",
+      "label": "Sticky Piston"
+    },
+    "stone": {
+      "x": 256,
+      "y": 512,
+      "kind": "block",
+      "label": "Stone"
+    },
+    "stone_axe": {
+      "x": 288,
+      "y": 992,
+      "kind": "item",
+      "label": "Stone Axe"
+    },
+    "stone_brick_slab": {
+      "x": 320,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Brick Slab"
+    },
+    "stone_brick_stairs": {
+      "x": 352,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Brick Stairs"
+    },
+    "stone_brick_wall": {
+      "x": 384,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Brick Wall"
+    },
+    "stone_bricks": {
+      "x": 288,
+      "y": 512,
+      "kind": "block",
+      "label": "Stone Bricks"
+    },
+    "stone_button": {
+      "x": 416,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Button"
+    },
+    "stone_hoe": {
+      "x": 448,
+      "y": 992,
+      "kind": "item",
+      "label": "Stone Hoe"
+    },
+    "stone_pickaxe": {
+      "x": 480,
+      "y": 992,
+      "kind": "item",
+      "label": "Stone Pickaxe"
+    },
+    "stone_pressure_plate": {
+      "x": 512,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Pressure Plate"
+    },
+    "stone_shovel": {
+      "x": 544,
+      "y": 992,
+      "kind": "item",
+      "label": "Stone Shovel"
+    },
+    "stone_slab": {
+      "x": 576,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Slab"
+    },
+    "stone_stairs": {
+      "x": 608,
+      "y": 992,
+      "kind": "block",
+      "label": "Stone Stairs"
+    },
+    "stone_sword": {
+      "x": 640,
+      "y": 992,
+      "kind": "item",
+      "label": "Stone Sword"
+    },
+    "stonecutter": {
+      "x": 672,
+      "y": 992,
+      "kind": "block",
+      "label": "Stonecutter"
+    },
+    "stray_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Stray Spawn Egg"
+    },
+    "strider_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Strider Spawn Egg"
+    },
+    "string": {
+      "x": 704,
+      "y": 992,
+      "kind": "item",
+      "label": "String"
+    },
+    "stripped_acacia_log": {
+      "x": 736,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Acacia Log"
+    },
+    "stripped_acacia_wood": {
+      "x": 768,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Acacia Wood"
+    },
+    "stripped_bamboo_block": {
+      "x": 800,
+      "y": 992,
+      "kind": "block",
+      "label": "Block of Stripped Bamboo"
+    },
+    "stripped_birch_log": {
+      "x": 832,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Birch Log"
+    },
+    "stripped_birch_wood": {
+      "x": 864,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Birch Wood"
+    },
+    "stripped_cherry_log": {
+      "x": 896,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Cherry Log"
+    },
+    "stripped_cherry_wood": {
+      "x": 928,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Cherry Wood"
+    },
+    "stripped_crimson_hyphae": {
+      "x": 960,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Crimson Hyphae"
+    },
+    "stripped_crimson_stem": {
+      "x": 992,
+      "y": 992,
+      "kind": "block",
+      "label": "Stripped Crimson Stem"
+    },
+    "stripped_dark_oak_log": {
+      "x": 0,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Dark Oak Log"
+    },
+    "stripped_dark_oak_wood": {
+      "x": 32,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Dark Oak Wood"
+    },
+    "stripped_jungle_log": {
+      "x": 64,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Jungle Log"
+    },
+    "stripped_jungle_wood": {
+      "x": 96,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Jungle Wood"
+    },
+    "stripped_mangrove_log": {
+      "x": 128,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Mangrove Log"
+    },
+    "stripped_mangrove_wood": {
+      "x": 160,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Mangrove Wood"
+    },
+    "stripped_oak_log": {
+      "x": 192,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Oak Log"
+    },
+    "stripped_oak_wood": {
+      "x": 224,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Oak Wood"
+    },
+    "stripped_spruce_log": {
+      "x": 256,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Spruce Log"
+    },
+    "stripped_spruce_wood": {
+      "x": 288,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Spruce Wood"
+    },
+    "stripped_warped_hyphae": {
+      "x": 320,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Warped Hyphae"
+    },
+    "stripped_warped_stem": {
+      "x": 352,
+      "y": 1024,
+      "kind": "block",
+      "label": "Stripped Warped Stem"
+    },
+    "structure_block": {
+      "x": 384,
+      "y": 1024,
+      "kind": "block",
+      "label": "Structure Block"
+    },
+    "structure_void": {
+      "x": 416,
+      "y": 1024,
+      "kind": "item",
+      "label": "Structure Void"
+    },
+    "sugar": {
+      "x": 448,
+      "y": 1024,
+      "kind": "item",
+      "label": "Sugar"
+    },
+    "sugar_cane": {
+      "x": 480,
+      "y": 1024,
+      "kind": "item",
+      "label": "Sugar Cane"
+    },
+    "sunflower": {
+      "x": 512,
+      "y": 1024,
+      "kind": "item",
+      "label": "Sunflower"
+    },
+    "suspicious_gravel": {
+      "x": 544,
+      "y": 1024,
+      "kind": "block",
+      "label": "Suspicious Gravel"
+    },
+    "suspicious_sand": {
+      "x": 576,
+      "y": 1024,
+      "kind": "block",
+      "label": "Suspicious Sand"
+    },
+    "suspicious_stew": {
+      "x": 608,
+      "y": 1024,
+      "kind": "item",
+      "label": "Suspicious Stew"
+    },
+    "sweet_berries": {
+      "x": 640,
+      "y": 1024,
+      "kind": "item",
+      "label": "Sweet Berries"
+    },
+    "tadpole_bucket": {
+      "x": 672,
+      "y": 1024,
+      "kind": "item",
+      "label": "Bucket of Tadpole"
+    },
+    "tadpole_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Tadpole Spawn Egg"
+    },
+    "tall_grass": {
+      "x": 704,
+      "y": 1024,
+      "kind": "block",
+      "label": "Tall Grass"
+    },
+    "target": {
+      "x": 736,
+      "y": 1024,
+      "kind": "block",
+      "label": "Target"
+    },
+    "terracotta": {
+      "x": 768,
+      "y": 1024,
+      "kind": "block",
+      "label": "Terracotta"
+    },
+    "tide_armor_trim_smithing_template": {
+      "x": 800,
+      "y": 1024,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "tinted_glass": {
+      "x": 832,
+      "y": 1024,
+      "kind": "block",
+      "label": "Tinted Glass"
+    },
+    "tipped_arrow": {
+      "x": 864,
+      "y": 1024,
+      "kind": "item",
+      "label": "Tipped Arrow"
+    },
+    "tnt": {
+      "x": 896,
+      "y": 1024,
+      "kind": "block",
+      "label": "TNT"
+    },
+    "tnt_minecart": {
+      "x": 928,
+      "y": 1024,
+      "kind": "item",
+      "label": "Minecart with TNT"
+    },
+    "torch": {
+      "x": 960,
+      "y": 1024,
+      "kind": "block",
+      "label": "Torch"
+    },
+    "torchflower": {
+      "x": 992,
+      "y": 1024,
+      "kind": "item",
+      "label": "Torchflower"
+    },
+    "torchflower_seeds": {
+      "x": 0,
+      "y": 1056,
+      "kind": "item",
+      "label": "Torchflower Seeds"
+    },
+    "totem_of_undying": {
+      "x": 32,
+      "y": 1056,
+      "kind": "item",
+      "label": "Totem of Undying"
+    },
+    "trader_llama_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Trader Llama Spawn Egg"
+    },
+    "trapped_chest": {
+      "x": 192,
+      "y": 192,
+      "kind": "block",
+      "label": "Trapped Chest"
+    },
+    "trial_key": {
+      "x": 64,
+      "y": 1056,
+      "kind": "item",
+      "label": "Trial Key"
+    },
+    "trial_spawner": {
+      "x": 96,
+      "y": 1056,
+      "kind": "block",
+      "label": "Trial Spawner"
+    },
+    "trident": {
+      "x": 128,
+      "y": 1056,
+      "kind": "item",
+      "label": "Trident"
+    },
+    "tripwire_hook": {
+      "x": 160,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tripwire Hook"
+    },
+    "tropical_fish": {
+      "x": 192,
+      "y": 1056,
+      "kind": "item",
+      "label": "Tropical Fish"
+    },
+    "tropical_fish_bucket": {
+      "x": 224,
+      "y": 1056,
+      "kind": "item",
+      "label": "Bucket of Tropical Fish"
+    },
+    "tropical_fish_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Tropical Fish Spawn Egg"
+    },
+    "tube_coral": {
+      "x": 256,
+      "y": 1056,
+      "kind": "item",
+      "label": "Tube Coral"
+    },
+    "tube_coral_block": {
+      "x": 288,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tube Coral Block"
+    },
+    "tube_coral_fan": {
+      "x": 320,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tube Coral Fan"
+    },
+    "tuff": {
+      "x": 352,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff"
+    },
+    "tuff_brick_slab": {
+      "x": 384,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Brick Slab"
+    },
+    "tuff_brick_stairs": {
+      "x": 416,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Brick Stairs"
+    },
+    "tuff_brick_wall": {
+      "x": 448,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Brick Wall"
+    },
+    "tuff_bricks": {
+      "x": 480,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Bricks"
+    },
+    "tuff_slab": {
+      "x": 512,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Slab"
+    },
+    "tuff_stairs": {
+      "x": 544,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Stairs"
+    },
+    "tuff_wall": {
+      "x": 576,
+      "y": 1056,
+      "kind": "block",
+      "label": "Tuff Wall"
+    },
+    "turtle_egg": {
+      "x": 608,
+      "y": 1056,
+      "kind": "item",
+      "label": "Turtle Egg"
+    },
+    "turtle_helmet": {
+      "x": 640,
+      "y": 1056,
+      "kind": "item",
+      "label": "Turtle Shell"
+    },
+    "turtle_scute": {
+      "x": 672,
+      "y": 1056,
+      "kind": "item",
+      "label": "Turtle Scute"
+    },
+    "turtle_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Turtle Spawn Egg"
+    },
+    "twisting_vines": {
+      "x": 704,
+      "y": 1056,
+      "kind": "item",
+      "label": "Twisting Vines"
+    },
+    "vault": {
+      "x": 736,
+      "y": 1056,
+      "kind": "block",
+      "label": "Vault"
+    },
+    "verdant_froglight": {
+      "x": 768,
+      "y": 1056,
+      "kind": "block",
+      "label": "Verdant Froglight"
+    },
+    "vex_armor_trim_smithing_template": {
+      "x": 800,
+      "y": 1056,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "vex_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Vex Spawn Egg"
+    },
+    "villager_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Villager Spawn Egg"
+    },
+    "vindicator_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Vindicator Spawn Egg"
+    },
+    "vine": {
+      "x": 832,
+      "y": 1056,
+      "kind": "block",
+      "label": "Vines"
+    },
+    "wandering_trader_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Wandering Trader Spawn Egg"
+    },
+    "ward_armor_trim_smithing_template": {
+      "x": 864,
+      "y": 1056,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "warden_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Warden Spawn Egg"
+    },
+    "warped_button": {
+      "x": 896,
+      "y": 1056,
+      "kind": "block",
+      "label": "Warped Button"
+    },
+    "warped_door": {
+      "x": 928,
+      "y": 1056,
+      "kind": "item",
+      "label": "Warped Door"
+    },
+    "warped_fence": {
+      "x": 960,
+      "y": 1056,
+      "kind": "block",
+      "label": "Warped Fence"
+    },
+    "warped_fence_gate": {
+      "x": 992,
+      "y": 1056,
+      "kind": "block",
+      "label": "Warped Fence Gate"
+    },
+    "warped_fungus": {
+      "x": 0,
+      "y": 1088,
+      "kind": "item",
+      "label": "Warped Fungus"
+    },
+    "warped_fungus_on_a_stick": {
+      "x": 32,
+      "y": 1088,
+      "kind": "item",
+      "label": "Warped Fungus on a Stick"
+    },
+    "warped_hanging_sign": {
+      "x": 64,
+      "y": 1088,
+      "kind": "item",
+      "label": "Warped Hanging Sign"
+    },
+    "warped_hyphae": {
+      "x": 96,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Hyphae"
+    },
+    "warped_nylium": {
+      "x": 128,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Nylium"
+    },
+    "warped_planks": {
+      "x": 160,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Planks"
+    },
+    "warped_pressure_plate": {
+      "x": 192,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Pressure Plate"
+    },
+    "warped_roots": {
+      "x": 224,
+      "y": 1088,
+      "kind": "item",
+      "label": "Warped Roots"
+    },
+    "warped_sign": {
+      "x": 256,
+      "y": 1088,
+      "kind": "item",
+      "label": "Warped Sign"
+    },
+    "warped_slab": {
+      "x": 288,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Slab"
+    },
+    "warped_stairs": {
+      "x": 320,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Stairs"
+    },
+    "warped_stem": {
+      "x": 352,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Stem"
+    },
+    "warped_trapdoor": {
+      "x": 384,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Trapdoor"
+    },
+    "warped_wart_block": {
+      "x": 416,
+      "y": 1088,
+      "kind": "block",
+      "label": "Warped Wart Block"
+    },
+    "water_bucket": {
+      "x": 448,
+      "y": 1088,
+      "kind": "item",
+      "label": "Water Bucket"
+    },
+    "waxed_chiseled_copper": {
+      "x": 352,
+      "y": 192,
+      "kind": "block",
+      "label": "Waxed Chiseled Copper"
+    },
+    "waxed_copper_block": {
+      "x": 800,
+      "y": 224,
+      "kind": "block",
+      "label": "Waxed Block of Copper"
+    },
+    "waxed_copper_bulb": {
+      "x": 832,
+      "y": 224,
+      "kind": "block",
+      "label": "Waxed Copper Bulb"
+    },
+    "waxed_copper_door": {
+      "x": 480,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Copper Door"
+    },
+    "waxed_copper_grate": {
+      "x": 896,
+      "y": 224,
+      "kind": "block",
+      "label": "Waxed Copper Grate"
+    },
+    "waxed_copper_trapdoor": {
+      "x": 992,
+      "y": 224,
+      "kind": "block",
+      "label": "Waxed Copper Trapdoor"
+    },
+    "waxed_cut_copper": {
+      "x": 864,
+      "y": 256,
+      "kind": "block",
+      "label": "Waxed Cut Copper"
+    },
+    "waxed_cut_copper_slab": {
+      "x": 896,
+      "y": 256,
+      "kind": "block",
+      "label": "Waxed Cut Copper Slab"
+    },
+    "waxed_cut_copper_stairs": {
+      "x": 512,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Cut Copper Stairs"
+    },
+    "waxed_exposed_chiseled_copper": {
+      "x": 800,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Chiseled Copper"
+    },
+    "waxed_exposed_copper": {
+      "x": 832,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Copper"
+    },
+    "waxed_exposed_copper_bulb": {
+      "x": 864,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Copper Bulb"
+    },
+    "waxed_exposed_copper_door": {
+      "x": 544,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Exposed Copper Door"
+    },
+    "waxed_exposed_copper_grate": {
+      "x": 928,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Copper Grate"
+    },
+    "waxed_exposed_copper_trapdoor": {
+      "x": 960,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Copper Trapdoor"
+    },
+    "waxed_exposed_cut_copper": {
+      "x": 992,
+      "y": 384,
+      "kind": "block",
+      "label": "Waxed Exposed Cut Copper"
+    },
+    "waxed_exposed_cut_copper_slab": {
+      "x": 0,
+      "y": 416,
+      "kind": "block",
+      "label": "Waxed Exposed Cut Copper Slab"
+    },
+    "waxed_exposed_cut_copper_stairs": {
+      "x": 576,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Exposed Cut Copper Stairs"
+    },
+    "waxed_oxidized_chiseled_copper": {
+      "x": 864,
+      "y": 736,
+      "kind": "block",
+      "label": "Waxed Oxidized Chiseled Copper"
+    },
+    "waxed_oxidized_copper": {
+      "x": 896,
+      "y": 736,
+      "kind": "block",
+      "label": "Waxed Oxidized Copper"
+    },
+    "waxed_oxidized_copper_bulb": {
+      "x": 928,
+      "y": 736,
+      "kind": "block",
+      "label": "Waxed Oxidized Copper Bulb"
+    },
+    "waxed_oxidized_copper_door": {
+      "x": 608,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Oxidized Copper Door"
+    },
+    "waxed_oxidized_copper_grate": {
+      "x": 992,
+      "y": 736,
+      "kind": "block",
+      "label": "Waxed Oxidized Copper Grate"
+    },
+    "waxed_oxidized_copper_trapdoor": {
+      "x": 0,
+      "y": 768,
+      "kind": "block",
+      "label": "Waxed Oxidized Copper Trapdoor"
+    },
+    "waxed_oxidized_cut_copper": {
+      "x": 32,
+      "y": 768,
+      "kind": "block",
+      "label": "Waxed Oxidized Cut Copper"
+    },
+    "waxed_oxidized_cut_copper_slab": {
+      "x": 64,
+      "y": 768,
+      "kind": "block",
+      "label": "Waxed Oxidized Cut Copper Slab"
+    },
+    "waxed_oxidized_cut_copper_stairs": {
+      "x": 640,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Oxidized Cut Copper Stairs"
+    },
+    "waxed_weathered_chiseled_copper": {
+      "x": 672,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Chiseled Copper"
+    },
+    "waxed_weathered_copper": {
+      "x": 704,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Copper"
+    },
+    "waxed_weathered_copper_bulb": {
+      "x": 736,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Copper Bulb"
+    },
+    "waxed_weathered_copper_door": {
+      "x": 768,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Copper Door"
+    },
+    "waxed_weathered_copper_grate": {
+      "x": 800,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Copper Grate"
+    },
+    "waxed_weathered_copper_trapdoor": {
+      "x": 832,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Copper Trapdoor"
+    },
+    "waxed_weathered_cut_copper": {
+      "x": 864,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Cut Copper"
+    },
+    "waxed_weathered_cut_copper_slab": {
+      "x": 896,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Cut Copper Slab"
+    },
+    "waxed_weathered_cut_copper_stairs": {
+      "x": 928,
+      "y": 1088,
+      "kind": "block",
+      "label": "Waxed Weathered Cut Copper Stairs"
+    },
+    "wayfinder_armor_trim_smithing_template": {
+      "x": 960,
+      "y": 1088,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "weathered_chiseled_copper": {
+      "x": 672,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Chiseled Copper"
+    },
+    "weathered_copper": {
+      "x": 704,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Copper"
+    },
+    "weathered_copper_bulb": {
+      "x": 736,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Copper Bulb"
+    },
+    "weathered_copper_door": {
+      "x": 992,
+      "y": 1088,
+      "kind": "item",
+      "label": "Weathered Copper Door"
+    },
+    "weathered_copper_grate": {
+      "x": 800,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Copper Grate"
+    },
+    "weathered_copper_trapdoor": {
+      "x": 832,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Copper Trapdoor"
+    },
+    "weathered_cut_copper": {
+      "x": 864,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Cut Copper"
+    },
+    "weathered_cut_copper_slab": {
+      "x": 896,
+      "y": 1088,
+      "kind": "block",
+      "label": "Weathered Cut Copper Slab"
+    },
+    "weathered_cut_copper_stairs": {
+      "x": 0,
+      "y": 1120,
+      "kind": "block",
+      "label": "Weathered Cut Copper Stairs"
+    },
+    "weeping_vines": {
+      "x": 32,
+      "y": 1120,
+      "kind": "item",
+      "label": "Weeping Vines"
+    },
+    "wet_sponge": {
+      "x": 64,
+      "y": 1120,
+      "kind": "block",
+      "label": "Wet Sponge"
+    },
+    "wheat": {
+      "x": 96,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wheat"
+    },
+    "wheat_seeds": {
+      "x": 128,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wheat Seeds"
+    },
+    "white_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "White Banner"
+    },
+    "white_bed": {
+      "x": 160,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Bed"
+    },
+    "white_candle": {
+      "x": 192,
+      "y": 1120,
+      "kind": "item",
+      "label": "White Candle"
+    },
+    "white_carpet": {
+      "x": 224,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Carpet"
+    },
+    "white_concrete": {
+      "x": 256,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Concrete"
+    },
+    "white_concrete_powder": {
+      "x": 288,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Concrete Powder"
+    },
+    "white_dye": {
+      "x": 320,
+      "y": 1120,
+      "kind": "item",
+      "label": "White Dye"
+    },
+    "white_glazed_terracotta": {
+      "x": 352,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Glazed Terracotta"
+    },
+    "white_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "White Shulker Box"
+    },
+    "white_stained_glass": {
+      "x": 384,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Stained Glass"
+    },
+    "white_stained_glass_pane": {
+      "x": 416,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Stained Glass Pane"
+    },
+    "white_terracotta": {
+      "x": 448,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Terracotta"
+    },
+    "white_tulip": {
+      "x": 480,
+      "y": 1120,
+      "kind": "item",
+      "label": "White Tulip"
+    },
+    "white_wool": {
+      "x": 512,
+      "y": 1120,
+      "kind": "block",
+      "label": "White Wool"
+    },
+    "wild_armor_trim_smithing_template": {
+      "x": 544,
+      "y": 1120,
+      "kind": "item",
+      "label": "Smithing Template"
+    },
+    "wind_charge": {
+      "x": 576,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wind Charge"
+    },
+    "witch_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Witch Spawn Egg"
+    },
+    "wither_rose": {
+      "x": 608,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wither Rose"
+    },
+    "wither_skeleton_skull": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Wither Skeleton Skull"
+    },
+    "wither_skeleton_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Wither Skeleton Spawn Egg"
+    },
+    "wither_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Wither Spawn Egg"
+    },
+    "wolf_armor": {
+      "x": 640,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wolf Armor"
+    },
+    "wolf_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Wolf Spawn Egg"
+    },
+    "wooden_axe": {
+      "x": 672,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wooden Axe"
+    },
+    "wooden_hoe": {
+      "x": 704,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wooden Hoe"
+    },
+    "wooden_pickaxe": {
+      "x": 736,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wooden Pickaxe"
+    },
+    "wooden_shovel": {
+      "x": 768,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wooden Shovel"
+    },
+    "wooden_sword": {
+      "x": 800,
+      "y": 1120,
+      "kind": "item",
+      "label": "Wooden Sword"
+    },
+    "writable_book": {
+      "x": 832,
+      "y": 1120,
+      "kind": "item",
+      "label": "Book and Quill"
+    },
+    "written_book": {
+      "x": 864,
+      "y": 1120,
+      "kind": "item",
+      "label": "Written Book"
+    },
+    "yellow_banner": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Yellow Banner"
+    },
+    "yellow_bed": {
+      "x": 896,
+      "y": 1120,
+      "kind": "block",
+      "label": "Yellow Bed"
+    },
+    "yellow_candle": {
+      "x": 928,
+      "y": 1120,
+      "kind": "item",
+      "label": "Yellow Candle"
+    },
+    "yellow_carpet": {
+      "x": 960,
+      "y": 1120,
+      "kind": "block",
+      "label": "Yellow Carpet"
+    },
+    "yellow_concrete": {
+      "x": 992,
+      "y": 1120,
+      "kind": "block",
+      "label": "Yellow Concrete"
+    },
+    "yellow_concrete_powder": {
+      "x": 0,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Concrete Powder"
+    },
+    "yellow_dye": {
+      "x": 32,
+      "y": 1152,
+      "kind": "item",
+      "label": "Yellow Dye"
+    },
+    "yellow_glazed_terracotta": {
+      "x": 64,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Glazed Terracotta"
+    },
+    "yellow_shulker_box": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Yellow Shulker Box"
+    },
+    "yellow_stained_glass": {
+      "x": 96,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Stained Glass"
+    },
+    "yellow_stained_glass_pane": {
+      "x": 128,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Stained Glass Pane"
+    },
+    "yellow_terracotta": {
+      "x": 160,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Terracotta"
+    },
+    "yellow_wool": {
+      "x": 192,
+      "y": 1152,
+      "kind": "block",
+      "label": "Yellow Wool"
+    },
+    "zoglin_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Zoglin Spawn Egg"
+    },
+    "zombie_head": {
+      "x": 0,
+      "y": 0,
+      "kind": "fallback",
+      "label": "Zombie Head"
+    },
+    "zombie_horse_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Zombie Horse Spawn Egg"
+    },
+    "zombie_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Zombie Spawn Egg"
+    },
+    "zombie_villager_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Zombie Villager Spawn Egg"
+    },
+    "zombified_piglin_spawn_egg": {
+      "x": 608,
+      "y": 0,
+      "kind": "item",
+      "label": "Zombified Piglin Spawn Egg"
+    }
+  }
+}

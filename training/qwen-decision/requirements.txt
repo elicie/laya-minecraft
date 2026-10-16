@@ -1,0 +1,4 @@
+# torch and transformers are read from the existing environment, without modifying it.
+peft==0.21.2
+bitsandbytes==0.50.2
+accelerate==1.15.0

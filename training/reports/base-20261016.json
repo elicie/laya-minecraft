@@ -1,0 +1,103 @@
+{
+  "recordedAt": "2026-10-16T11:26:05.121990+00:00",
+  "base": "Qwen/Qwen3.5-9B",
+  "model": "qwen35-base-v6-20261016",
+  "method": "Supervised NF4 QLoRA, rank8; not reinforcement learning",
+  "adapterSha256": "968d230fed57baf7dd7374e0ad4689381f5b69a71eee597711ad17eed315ab50",
+  "v5OptimizerSteps": 80,
+  "v6AdditionalOptimizerSteps": 80,
+  "trainableParameters": 18481152,
+  "trainRows": 640,
+  "trainingOriginals": {
+    "production": 10,
+    "controlled": 22
+  },
+  "weightSquaredDeltaFromV5": 0.18168039388547186,
+  "canonicalProfile": "canonical-base-v1",
+  "canonicalEvaluation": {
+    "qwen35-decision-v3": {
+      "correct": 17,
+      "total": 25,
+      "illegal": 8,
+      "accuracy": 0.68
+    },
+    "qwen35-base-v5-20261016": {
+      "correct": 25,
+      "total": 25,
+      "illegal": 0,
+      "accuracy": 1.0
+    },
+    "qwen35-base-v6-20261016": {
+      "correct": 25,
+      "total": 25,
+      "illegal": 0,
+      "accuracy": 1.0
+    }
+  },
+  "canonicalEvaluationComposition": {
+    "controlledObservations": 24,
+    "productionNightShadow": 1,
+    "productionSchedulerDecisions": 0
+  },
+  "canonicalProfileApproved": true,
+  "broadEvaluationApproved": false,
+  "broadV6BaseAccuracy": {
+    "correct": 160,
+    "total": 161,
+    "illegal": 1
+  },
+  "legacyBeforeAfter": {
+    "correct": 737,
+    "total": 738,
+    "illegal": 0,
+    "accuracy": 0.9986449864498645
+  },
+  "canonicalLimitation": "Only exact canonical question, descriptions and criterion order accepted; broader question variants failed qualification. Small controlled-heavy evaluation does not prove general autonomous Minecraft mastery.",
+  "continuousRun": {
+    "path": "runtime/validation-runs/base-three-days-20261016-0941",
+    "measuredControllerVersion": 37,
+    "worldAgeDelta": 72040,
+    "deaths": 0,
+    "minimumHealth": 20,
+    "minimumFood": 20,
+    "distinctCompletedTasks": 13,
+    "distinctAssignedTasks": 14,
+    "completedAttempts": 18,
+    "assignedAttempts": 25,
+    "actualStalls": 3,
+    "maximumSampleGapSeconds": 3.320753,
+    "earlierInterruptedRunsAdded": false,
+    "deathsBeforeValidRun": 9,
+    "fullyUnsupervised": false,
+    "finalV39NewThreeDayRunPerformed": false
+  },
+  "finalController": {
+    "version": 39,
+    "sourceSha256": "70d3dcaedac32169e4e73efb2ca40feaa97ef1e230ebf4ddde22194793b010ca",
+    "verifiedModelActionsAfterRestart": 12,
+    "finalVersionNewThreeDayRunPerformed": false
+  },
+  "validation": {
+    "unitPassed": 660,
+    "unitFailed": 0,
+    "typecheckPassed": true,
+    "serverBuildPassed": true,
+    "physicalFoodChainVersions": [
+      "1.21.1",
+      "26.1"
+    ],
+    "warehouseLogToHoePassed": true,
+    "carriedLogFromFieldToExistingTablePassed": true,
+    "proofDirectory": "runtime/validation-proofs/base-20261016"
+  },
+  "productionFood": {
+    "firstCycleCompleted": true,
+    "mealFoodBefore": 17,
+    "mealFoodAfter": 20,
+    "capacityPlots": 3,
+    "breadReserveTarget": 8,
+    "reserveTargetAchieved": false,
+    "mainFullyHealed": false
+  },
+  "sourceEvidence": "Locally retained immutable run shards, evaluation reports, adapter, controller source archives, and actual scheduler/attempt results; raw data and model weights are not in Git."
+}

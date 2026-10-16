@@ -23,6 +23,8 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 | 메시지 | 의미 |
 | --- | --- |
 | bot.ready / bot.status | 실제 연결 준비와 주기적 상태 |
+| bot.died | 사망 식별자·시점·월드·차원·위치와 사망 전 소지품 |
+| bot.recovery | 사망 복구 단계·예산·실제 회수/미회수 수량·현재 안전 여부 |
 | task.accepted / task.rejected | 작업 수락 또는 이유를 포함한 거절 |
 | task.started / task.progress | 실제 시작과 현재 진행 |
 | task.result | 관측, 변경된 수량, 체크포인트와 실행 결과 |
@@ -36,14 +38,89 @@ TypeScript 타입과 런타임 검증을 packages/contracts에 함께 둡니다.
 
 실행 결과는 completed, partial, condition-wait, failed, uncertain을 구분합니다. completed 보고는 중앙 검증을 시작하는 근거이며 목표 완료 여부는 완료 조건과 현재 관측으로 판단합니다.
 
+건축 목표의 `params.siteSelection: "nearby"`는 현재 봇 주변의 부지 탐색을 먼저 배정합니다. 워커는 실제 블록 관측으로 전체 건축 공간, 기초와 바깥 접근로를 확인하고 현장에 접근한 뒤 `checkpoint.buildSite`에 `origin`, `design`, `entrance`, `observedAt`을 보고합니다. 중앙은 현재 시도와 세션의 관측을 검증한 후 같은 목표에 확정 좌표를 반영하고 건설을 계획합니다. 부지 탐색 완료만으로 건축 목표를 완료하지 않습니다.
+
+주변 탐색은 기본적으로 자연 지형 정리도 계획할 수 있습니다(`params.allowPreparation: false`이면 탐색만 수행). 정리가 필요한 경우 탐색 워커는 월드를 변경하지 않고 `checkpoint.buildSitePreparation`으로 계획을 보고합니다. 이 계획은 `origin`, `design`, `entrance`, `observedAt`, 실제 시작 위치 `near`, 한 칸씩 연결된 `path`, 변경 목록 `edits`를 포함합니다. 각 변경은 정수 `position`, 관측한 `before`와 목표 `after`(`air` 또는 `dirt`)를 지정하며 전체 변경은 최대 192개입니다.
+
+중앙은 현재 시도에서 관측한 변경 전 블록, 지지 지반과 경로를 검증합니다. 다른 작업 구역과 겹치지 않는 계획을 같은 목표의 `params.sitePreparation`에 보존하고 `siteSelection: "preparing"`으로 전환합니다. 실행 작업은 `kind: "build"`, `params.mode: "prepare-site"`, `params.preparation`으로 구분하고, 부지·접근로와 확인할 지반 좌표를 예약합니다. 정리 워커는 변경 직전의 실제 블록을 재확인하고 이미 완료한 변경은 건너뜁니다. 정리 뒤 전체 지면과 공간, 실제 출입 위치 접근을 `buildSite`로 확인해야 고정 좌표의 건축 단계로 넘어갑니다.
+
+건축의 조건 대기는 `checkpoint.waitingFor`로 필요한 블록 좌표 또는 재료 수량을 지정합니다. 중앙은 해당 조건의 실제 내용이 바뀌었을 때 재개를 판단합니다. 상태 보고 시간이나 관측 ID가 바뀌는 것만으로 같은 작업을 반복하지 않습니다. 워커는 지도 표본에 포함되지 않는 대기 좌표도 공개 `blockAt` API로 주기적으로 관측합니다.
+
+재료 대기의 `resourceNames`에는 실제 산출물의 원천 블록도 포함합니다. 예를 들어
+조약돌은 `stone`과 `cobblestone`을 감시합니다. 선택적인 `resourcePositions`는
+최대 64개 실제 자원·접근 좌표를 담고, `failedCause`는 실패 원인을 보존합니다.
+중앙은 수량·원재료·해당 좌표의 실제 블록과 봇 위치 변화를 비교합니다. 이전
+형식의 대기도 원천 이름을 보완해 복원하며, 미관측 값을 빈 블록으로 만들지
+않습니다. 탐색 예산과 방문 기록은 체크포인트에 보존하고 자기 탐색 이동이나
+보고 시간만 바뀌었다는 이유로 같은 탐색 예산을 초기화하지 않습니다.
+
+일반 수집·제작의 자원 복구 대기는 같은 inventory 조건에
+`causeCode: RESOURCE_MISSING`을 사용합니다. 기본 `watchPosition: false`로
+자체 탐색 이동에 의한 재배정을 막고, 실제 재고·원천 자원·접근 좌표가
+바뀌었을 때 재개합니다. 고갈한 탐색을 5초마다 다시 배정하지 않습니다.
+
+실제 블록 관측에는 선택적인 `stateId`를 포함할 수 있습니다. 같은 이름의
+작물 성숙 변화도 자원 대기 조건에 반영하며, 필드가 없거나 청크를 관측하지
+못한 경우에는 이전 실제 값을 보존합니다. 건축 완료 조건의 블록 비교는
+기존처럼 좌표와 이름을 사용합니다.
+
+사망 기록은 `deathId`로 중복을 막고 봇별 최근 20개를 보존합니다. `recovery`의
+단계는 `waiting-respawn`, `recovering`, `held`, `resolved`이며 체크포인트와
+최대 5회 예산을 재시작 후 유지합니다. 새 세션에서 실제 준비·양수 체력과
+`resolved`·`safe`를 확인하기 전에는 일반 작업을 배정하지 않습니다.
+회수 수량은 실제 인벤토리 증가로 확인하고 미회수 수량을 완료 수량으로
+바꾸지 않습니다. 사망 전 사실과 다른 복구 보고나 오래된 세션은 거부합니다.
+
+`safety.alert.supportRequired`는 최신 실제 적 ID·이름·좌표가 있을 때 중앙의
+지원 목표를 생성합니다. 지원 작업은 정확한 `targetEntityId`와 현재 요청자
+세션·월드·차원·유효 시간을 고정합니다. 같은 종류의 다른 적의 사망은 완료
+증거가 아닙니다. 바쁜 지원 봇은 실제 중단 및 최신 규칙 적용을 확인한 뒤
+배정하고, 지원 종료 후 보존한 기존 작업 체크포인트를 다시 평가합니다.
+
+건축 출입 복구는 `checkpoint.buildAccessPreparation`으로 보고합니다.
+`start`, 고정 출입 위치 `target`, `observedAt`, 한 칸씩 이어진 최대 65칸
+`path`, 최대 32개 `edits`(`before`와 `after: air|dirt`)를 포함합니다.
+중앙은 현재 시도의 실제 관측·기초·공간·인접 위험·보호 좌표를 검증한 후
+같은 목표·세대에 `mode: prepare-access`, `parentTaskId`인 선행 작업을
+예약합니다. 실제 변경 결과와 입구 도착 증거를 확인해야 원래 건축을 재개합니다.
+
 ## 브라우저 API
 
 API prefix는 /api/v1입니다. GET /snapshot과 SSE GET /stream이 동일한 전체 상태 형식을 사용합니다. SSE event 종류는 snapshot, event, command입니다. GET /events는 보존 중인 로그 조회입니다.
 
 명령 API는 봇 등록과 제거, 역할과 정지 상태 변경, 목표 해석과 등록·수정·취소, 마을과 규칙 변경을 제공합니다. 목표 해석은 실행을 시작하지 않고 구조화된 미리보기를 반환합니다. 목표 등록은 기본 예약이며 명시적인 executionMode로 즉시 전환할 수 있습니다.
 
+`GET /blueprints`는 저장한 설계도를 조회하고, `POST /blueprints`, `PATCH /blueprints/:id`, `DELETE /blueprints/:id`는 생성·수정·삭제를 요청합니다. 수정은 이름·템플릿·크기·목재·재료·가구를 포함한 전체 편집 정의를 받으며 버전과 식별자는 중앙이 부여합니다. 설계도 목록은 전체 상태의 `blueprints`에도 포함되고 기존 체크포인트에 목록이 없으면 빈 목록으로 복원합니다. 기본 템플릿은 수정하지 않습니다.
+
+사용자 설계의 건축 목표는 `params.blueprint`로 등록된 ID를 선택합니다. 중앙은 현재 정의를 `params.blueprintDefinition`에 보존하고, 이후 해당 목표의 탐색·정리·건축에 같은 정의를 전달합니다. 사용자나 모델이 제시한 임의 정의로 등록된 설계를 대체하지 않습니다. 부지·정리 결과의 선택적 `blueprintDefinition`도 배정한 정의와 일치해야 합니다. 저장한 설계의 이름을 포함한 자연어 건축 지시는 등록된 ID로 해석할 수 있습니다.
+
+`PATCH /goals/:id`에서 `params`를 지정하면 기존 객체를 전체 교체합니다. 생략하면 기존 값을 보존합니다. 따라서 기존 고정 좌표를 제거하고 주변 부지 탐색으로 바꿀 때는 `{"params":{"blueprint":"warehouse","siteSelection":"nearby"}}`를 보냅니다. 목표 ID와 제목은 유지하고 변경된 조건으로 남은 작업을 다시 계획합니다.
+
 각 명령은 commandId를 반환합니다. 유효성 검증과 영속 기록 후 accepted, 적용 진행 중 applying, 실제 확인 후 applied, 실패 시 failed를 표시합니다. HTTP 응답이나 IPC send 반환만으로 applied를 표시하지 않습니다. GET /commands/:id로 상태를 확인합니다.
 
 POST/DELETE /bots/:id/viewer는 화면 연결을 제어하고 /viewer/:id/*는 봇별 화면을 중계합니다. 브라우저는 실제 준비된 viewer URL을 받은 뒤 연결합니다.
 
 동일 Idempotency-Key와 동일 본문은 기존 명령을 반환하고, 같은 키의 다른 본문은 충돌로 거절합니다. 동시 규칙 수정은 현재 버전 검사로 처리합니다. 지원하지 않는 작업이나 해석되지 않은 항목은 명확한 오류 또는 미리보기 수정 항목으로 반환합니다.
+
+## 인벤토리 관측
+
+수집·전리품 수량 목표는 `Goal.completionLocation`으로 `inventory` 또는
+`warehouse` 완료 기준을 고정합니다. 지정한 창고가 없으면 `inventory`를
+사용하고, 현재 월드·차원의 활성 준비 봇이 보고한 최신 인벤토리를 합산합니다.
+이전 세션·중앙 실행·오래된 보고와 중복 관측은 합산하지 않습니다. 배정할
+때 다른 봇이 이미 배정받은 부족 수량과 실제 인벤토리 공간을 확인합니다.
+일회성 목표의 `completionSnapshot`에는 완료 시점의 실제 봇·세션별 수량을
+저장하며 이후 소비나 재시작으로 완료를 취소하지 않습니다. 기존 창고 미설정
+대기 목표도 ID·입력·세대를 유지하며 인벤토리 기준으로 다시 평가합니다.
+
+`BotReport.inventory`는 계획과 수량 검증에 쓰는 기존 합산 목록을 유지합니다.
+화면은 선택적인 `inventoryView`로 실제 Java 플레이어 슬롯 46개를 받습니다.
+0은 제작 결과, 1~4는 2×2 제작, 5~8은 방어구, 9~35는 가방, 36~44는 핫바,
+45는 보조 손입니다. 빈 슬롯은 `null`이고 목록 자체가 없으면 슬롯을 아직
+관측하지 않은 상태입니다. `selectedHotbarSlot`은 실제 선택한 핫바의 0~8
+인덱스이며, `cursor`는 커서에 든 아이템입니다.
+
+슬롯 아이템은 이름·수량과 선택적인 표시 이름·사용자 이름·최대 묶음 수량,
+내구도·마법 부여 정보를 담습니다. 원시 NBT는 전송하지 않습니다. 다른 창을
+열었을 때도 해당 창의 플레이어 영역만 플레이어 슬롯으로 대응시키고, 창고
+내용을 봇 가방으로 표시하지 않습니다. 슬롯 보고는 아이템 조작 명령이 아닙니다.
