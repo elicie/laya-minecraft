@@ -8,6 +8,7 @@ import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
 import { preserveMaterialWait } from '../packages/minecraft/src/material-wait';
 import {foodRecoveryFingerprint} from '../packages/minecraft/src/worker-recovery';
+import {ResourceRecovery} from '../packages/minecraft/src/resource-recovery';
 
 function options() {
   const launch = WorkerLaunchSchema.parse({ botId: 'b', sessionId: 's', controllerEpoch: 'e', config: { name: 'ActionBot' }, rules: {} });
@@ -120,6 +121,15 @@ test('direct harvesting uses the actual full support beside a dry ledge without 
  f.services.checkpoint.resourceRecovery={oak_log:{origin:{x:-100,y:64,z:0},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'exhausted',reason:'spent'}};
  f.services.near=async()=>assert.fail('the existing ledge support must not require a new approach');
  await f.executor.ensureItem('oak_log',1,f.services);assert.equal(f.stock.get('oak_log'),1);assert.equal(f.dug.length,1);assert.equal(f.bot.blockAt(new Vec3(9,63,6)).name,'dirt');
+});
+
+for(const utility of [false,true])test(`an exhausted ${utility?'shared utility':'ordinary'} collector ignores a nearer covered matching source in favor of a harvestable one`,async()=>{
+ const f=woodRecipeFixture([]),covered=new Vec3(9,62,6),visible=new Vec3(12,64,6);for(const p of [covered,visible]){f.cells.set(p.toString(),'oak_log');f.locations.push(p);}f.cells.set(new Vec3(9,66,6).toString(),'oak_leaves');f.cells.set(visible.offset(0,1,0).toString(),'oak_leaves');
+ Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true,canSeeBlock:(b:{position:Vec3})=>!b.position.equals(covered)});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});
+ const key=utility?'$utility_wood':'oak_log',budget={origin:{x:9,y:64,z:6},visited:[],failed:[],probes:[],destinationsUsed:5,approachesUsed:8,elapsedMs:60000,status:'searching',reason:'spent'};f.services.checkpoint.resourceRecovery={[key]:budget};if(utility)f.services.checkpoint.materialExpedition=true;
+ new ResourceRecovery(f.bot as unknown as Bot,f.services,key,['oak_log'],false,()=>false).wait('spent',1);
+ f.services.near=async()=>assert.fail('a covered source must not cause another approach');const dig=f.bot.dig.bind(f.bot);f.bot.dig=async block=>{assert.ok(block.position.equals(visible));const saved=(f.services.checkpoint.resourceRecovery as any)[key];assert.equal(saved.destinationsUsed,5);assert.equal(saved.approachesUsed,8);assert.equal(saved.elapsedMs,60000);await dig(block);};
+ await f.executor.ensureItem(utility?'crafting_table':'oak_log',1,f.services);assert.equal(f.stock.get(utility?'crafting_table':'oak_log'),1);assert.equal(f.bot.blockAt(covered).name,'oak_log');assert.deepEqual(f.dug,['oak_log']);
 });
 
 for(const defect of ['airborne','edge','hidden','out-of-reach','threat','protected','unsafe-support'] as const)test(`direct harvesting with a spent search refuses ${defect}`,async()=>{
