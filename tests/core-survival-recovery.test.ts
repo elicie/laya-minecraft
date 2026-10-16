@@ -108,6 +108,32 @@ test('personal guard equipment cannot be crafted by a different idle bot while i
   assert.throws(() => f.core.createGoal({ kind: 'craft', item: 'stone_sword', requiredBotId: 'missing-bot' }));
 });
 
+test('binding an existing equipment job safely transfers the same checkpoint without replanning or refreshing resource budgets',()=>{
+ const f=fixture(2),g=f.core.createGoal({kind:'craft',item:'stone_sword',preferredBotId:'helper-0'}),first=f.assignments()[0]!;
+ f.receive('helper-0','task.started',{},first);
+ const bound=f.core.updateGoal(g.id,{requiredBotId:'helper-1'});assert.equal(bound.generation,0);assert.equal(f.assignments().length,1);
+ assert.ok(f.sent.some(m=>m.type==='task.cancel'&&m.attemptId===first.attemptId&&m.payload.preserveProgress));
+ const checkpoint={resourceRecovery:{cobblestone:{destinationsUsed:5,elapsedMs:60000}},workStep:3};
+ f.receive('helper-0','task.cancelled',{safeStopped:true,checkpoint,observations:[],evidence:[]},first);
+ const second=f.assignments().at(-1)!;assert.equal(second.botId,'helper-1');assert.equal(second.taskId,first.taskId);assert.deepEqual(second.payload.checkpoint,checkpoint);
+ assert.equal(f.core.getSnapshot().goals.find(x=>x.id===g.id)!.generation,0);
+});
+
+test('binding the user job to a different worker frees the former helper autonomous work before the user job completes',()=>{
+ const f=fixture(1);f.core.updateRules({autonomyEnabled:true});f.ready('bot');f.ready('helper-0');
+ const autonomous=f.core.createGoal({kind:'craft',item:'oak_planks',source:'autonomous',preferredBotId:'helper-0',requiredBotId:'helper-0'}),first=f.assignments().at(-1)!;
+ f.receive('helper-0','task.started',{},first);
+ const user=f.core.createGoal({kind:'craft',item:'stone_sword',preferredBotId:'helper-0',requiredBotId:'helper-0',executionMode:'immediate'});
+ const checkpoint={farmStep:4,resourceRecovery:{sand:{destinationsUsed:5,elapsedMs:60000}}};
+ f.receive('helper-0','task.cancelled',{safeStopped:true,checkpoint,observations:[],evidence:[]},first);
+ const working=f.assignments().at(-1)!;assert.equal(working.payload.task.goalId,user.id);
+ f.core.updateGoal(user.id,{requiredBotId:'bot'});
+ f.receive('helper-0','task.cancelled',{safeStopped:true,checkpoint:{},observations:[],evidence:[]},working);
+ const resumed=f.assignments().filter(t=>t.payload.task.goalId===autonomous.id).at(-1)!;
+ assert.equal(resumed.taskId,first.taskId);assert.equal(resumed.botId,'helper-0');assert.deepEqual(resumed.payload.checkpoint,checkpoint);
+ assert.equal(f.core.getSnapshot().goals.find(g=>g.id===user.id)!.state,'active');
+});
+
 test('a helper safely preserves its work, attacks the exact requested hostile and resumes its checkpoint', () => {
   const f = fixture(1); const goal = f.core.createGoal({ kind: 'craft', item: 'oak_planks', preferredBotId: 'helper-0' });
   const original = f.assignments()[0]!; assert.equal(original.botId, 'helper-0'); f.receive('helper-0', 'task.started', {}, original);

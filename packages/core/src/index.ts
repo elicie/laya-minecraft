@@ -436,6 +436,27 @@ export class FleetController {
     const goal = this.goal(goalId), parsed = GoalPatchSchema.parse(patch);
     if (terminalGoals.has(goal.state)) throw new Error('A finished goal cannot be edited');
     if (parsed.preferredBotId) this.agent(parsed.preferredBotId);
+    if (parsed.requiredBotId) this.agent(parsed.requiredBotId);
+    if (parsed.requiredBotId && Object.keys(parsed).length === 1) {
+      // Binding an existing equipment job is an ownership correction, not a
+      // new resource search. Preserve its generation, work and spent budgets.
+      goal.input.requiredBotId = parsed.requiredBotId;
+      for (const task of this.currentTasks(goal)) {
+        task.affinityBotId = parsed.requiredBotId;
+        const attempt = this.state.attempts.find(a => a.id === task.attemptId);
+        if (this.taskHasActor(task) && attempt?.botId !== parsed.requiredBotId) this.cancelTask(task, '지정한 봇에게 진행을 보존해 인계합니다.', true);
+      }
+      for (const task of this.state.tasks) {
+        if (task.blockedByGoalId !== goal.id || task.source !== 'autonomous' || !task.affinityBotId || task.affinityBotId === parsed.requiredBotId || this.taskHasActor(task)) continue;
+        // This entire user job now belongs to a different worker. Its former
+        // helper must be able to resume farming before construction finishes.
+        delete task.blockedByGoalId;task.updatedAt=this.now();
+        this.changed('autonomy.returned', '다른 봇에게 고정된 사용자 작업의 이전 자율 작업을 같은 진행에서 재개합니다.', { taskId:task.id,goalId:task.goalId,botId:task.affinityBotId });
+      }
+      goal.updatedAt = this.now();
+      this.changed('goal.assignment-bound', '기존 작업과 탐색 예산을 보존하고 담당 봇을 고정했습니다.', { goalId, commandId });
+      this.applied(commandId, { goalId }); this.tick(); return clone(goal);
+    }
     const updated = GoalInputSchema.parse({ ...goal.input, ...parsed, preferredBotId: parsed.preferredBotId === null ? undefined : parsed.preferredBotId ?? goal.input.preferredBotId });
     if (parsed.params !== undefined) this.pinBlueprint(updated, goal.input);
     goal.input = updated;

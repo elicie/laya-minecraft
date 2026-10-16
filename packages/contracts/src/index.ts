@@ -95,7 +95,7 @@ export type GoalInput = z.input<typeof GoalInputSchema>;
 export type GoalDefinition = z.output<typeof GoalInputSchema>;
 // A supplied params object replaces the previous object; omission preserves it.
 // This allows changing a fixed build origin back to nearby site selection.
-export const GoalPatchSchema = z.object({ title: z.string().min(1).max(500).optional(), quantity: z.number().int().min(1).max(1000000).optional(), priority: z.number().int().min(0).max(100).optional(), preferredBotId: IdSchema.nullable().optional(), mode: z.enum(['once', 'maintain']).optional(), params: JsonObjectSchema.optional() }).strict();
+export const GoalPatchSchema = z.object({ title: z.string().min(1).max(500).optional(), quantity: z.number().int().min(1).max(1000000).optional(), priority: z.number().int().min(0).max(100).optional(), preferredBotId: IdSchema.nullable().optional(), requiredBotId: IdSchema.optional(), mode: z.enum(['once', 'maintain']).optional(), params: JsonObjectSchema.optional() }).strict();
 export type GoalPatch = z.infer<typeof GoalPatchSchema>;
 export interface GoalPreview { request: string; goals: GoalDefinition[]; warnings: string[]; source: 'code' | 'laya' | 'qwen'; }
 export interface Interpretation { goal: GoalDefinition; source: 'qwen' | 'code'; warnings: string[]; }

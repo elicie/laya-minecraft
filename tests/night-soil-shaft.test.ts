@@ -28,3 +28,32 @@ test('a resumed closed shaft with a missing roof remains pending instead of repo
  f.s.checkpoint.nightSoilShaft={outside:{x:0,y:64,z:0},phase:'closed',dug:3,initialDirt:0,exitAttempts:0};
  await assert.rejects(restInSoilShaft(f.s,()=>false,()=>true,()=>true),ConditionWait);assert.equal(f.edits,0);assert.equal(f.s.checkpoint.nightBurrowPending,true);
 });
+
+test('a different new shelter archives the old escape route instead of reopening at dusk for a completed old trip',async()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(.5,61,.5);f.cells.set('0,61,0','air');f.cells.set('0,62,0','air');
+ f.s.checkpoint.nightSoilShaft={outside:{x:0,y:64,z:0},phase:'closed',dug:3,initialDirt:0,exitAttempts:0};
+ f.s.checkpoint.nightSoilEgress={origin:{x:20,y:64,z:0},path:[{x:19,y:64,z:0}],walked:1};
+ f.s.check=()=>{throw new ConditionWait('fixture boundary');};
+ await assert.rejects(restInSoilShaft(f.s,()=>false,()=>true,()=>true),ConditionWait);
+ assert.equal(f.s.checkpoint.nightSoilEgress,undefined);assert.equal((f.s.checkpoint.nightSoilEgressHistory as any[]).length,1);assert.equal(f.edits,0);
+});
+
+test('a restored climbing checkpoint reseals its own open cap if night arrived before the first jump',async()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(.5,61,.5);for(const y of [61,62,63])f.cells.set(`0,${y},0`,'air');
+ f.s.checkpoint.nightSoilShaft={outside:{x:0,y:64,z:0},phase:'climbing',dug:3,initialDirt:0,exitAttempts:0};
+ let dirt=3;(f.bot.inventory as any).items=()=>[{name:'dirt',count:dirt}];
+ f.s.place=async(p)=>{assert.deepEqual(p,{x:0,y:63,z:0});f.cells.set('0,63,0','dirt');dirt--;};
+ f.s.check=()=>{throw new ConditionWait('fixture boundary');};
+ await assert.rejects(restInSoilShaft(f.s,()=>false,()=>true,()=>true),ConditionWait);
+ assert.equal(f.cells.get('0,63,0'),'dirt');assert.equal(dirt,2);assert.equal((f.s.checkpoint.nightSoilShaft as any).phase,'closed');assert.equal((f.s.checkpoint.nightSoilShaft as any).exitAttempts,0);
+});
+
+test('an unthreatened shelter at daylight dusk keeps its roof closed instead of inventing an evacuation',async()=>{
+ const f=fixture();f.bot.entity.position=new Vec3(.5,61,.5);f.cells.set('0,61,0','air');f.cells.set('0,62,0','air');
+ (f.bot.time as any).isDay=true;(f.bot as any).world={raycast:()=>null};
+ (f.bot.pathfinder as any).movements={getNeighbors:(p:any)=>[[1,0],[-1,0],[0,1],[0,-1]].map(([x,z])=>({...p,x:p.x+x!,z:p.z+z!,cost:1,toBreak:[],toPlace:[],parkour:false}))};
+ f.s.checkpoint.nightSoilShaft={outside:{x:0,y:64,z:0},phase:'closed',dug:3,initialDirt:0,exitAttempts:0};
+ let checks=0;f.s.check=()=>{if(++checks>2)throw new ConditionWait('fixture boundary');};
+ await assert.rejects(restInSoilShaft(f.s,()=>false,()=>true,()=>true),ConditionWait);
+ assert.equal(f.s.checkpoint.nightSoilEgress,undefined);assert.equal((f.s.checkpoint.nightSoilShaft as any).phase,'closed');assert.equal(f.edits,0);
+});
