@@ -9,6 +9,8 @@ import { ControlStore } from '../apps/server/src/store';
 class SnapshotCountingCore extends FleetController {
   snapshotReads = 0;
   checkpointCopies = 0;
+  schedulingPasses = 0;
+  override tick() { this.schedulingPasses++; super.tick(); }
   override getSnapshot() { this.snapshotReads++; return super.getSnapshot(); }
   override checkpoint() { this.checkpointCopies++; return super.checkpoint(); }
 }
@@ -55,7 +57,7 @@ test('recovery execution checkpoints and durable journal remain complete without
 test('status and world report bursts coalesce checkpoint writes without snapshot readers, while critical events persist immediately', async () => {
   const store = new CountingStore(':memory:');
   let api: ReturnType<typeof createControlServer> | undefined;
-  const core = new SnapshotCountingCore({send(){},rules:{autonomyEnabled:false},onEvent(event){api?.observeEvent(event);}});
+  const core = new SnapshotCountingCore({send(){},deferReportScheduling:true,rules:{autonomyEnabled:false},onEvent(event){api?.observeEvent(event);}});
   api=createControlServer({core,store,port:0});
   const address=await api.listen();
   const agent=core.addAgent({name:'BurstReports'}); core.startSession(agent.id,'burst-session');
@@ -66,11 +68,16 @@ test('status and world report bursts coalesce checkpoint writes without snapshot
   receive('bot.ready',report); receive('rules.applied',{version:rules.version});
   try {
     const before=store.checkpointWrites;
+    const schedulingBefore=core.schedulingPasses;
     for(let i=0;i<40;i++) {
       receive('bot.status',{...report,position:{x:i+.5,y:64,z:.5}});
       receive('world.observed',{observations:[{id:randomUUID(),kind:'blocks',world:rules.world,dimension:rules.dimension,observedAt:Date.now(),data:{blocks:[{position:{x:i,y:63,z:0},name:'grass_block'}]}}]});
     }
     assert.equal(store.checkpointWrites,before,'high-frequency reports must not synchronously rewrite the entire history');
+    assert.equal(core.schedulingPasses,schedulingBefore,'report bursts update state without repeatedly planning the whole fleet');
+    assert.equal(core.getAgents()[0]!.session!.report!.position!.x,39.5,'latest heartbeat facts are applied before scheduling');
+    core.tick();
+    assert.equal(core.schedulingPasses,schedulingBefore+1,'the periodic server tick runs one scheduling pass');
     assert.equal(core.snapshotReads,0);
     assert.ok(store.listEvents(100).some(event=>event.type==='world.observed'),'individual world events remain recorded');
     const response=await fetch(`http://127.0.0.1:${address.port}/api/v1/health`);
@@ -87,6 +94,34 @@ test('status and world report bursts coalesce checkpoint writes without snapshot
   } finally { await api.close(); }
   assert.equal(store.loadCheckpoint<FleetCheckpoint>()!.agents[0]!.session!.report!.position!.x,88.5,'shutdown flushes the latest pending report');
   store.close();
+});
+
+test('deferred report scheduling keeps live resource spend and handles a death immediately', () => {
+  let now=100000;
+  const sent:CentralMessage[]=[];
+  const core=new SnapshotCountingCore({now:()=>now,send:(_bot,message)=>sent.push(message),deferReportScheduling:true,rules:{autonomyEnabled:false}});
+  const agent=core.addAgent({name:'ReportSpend',role:'gatherer'});core.startSession(agent.id,'spend-session');const rules=core.getRules();
+  const receive=(type:string,payload:unknown,extra={})=>core.receive({protocolVersion:1,messageId:randomUUID(),controllerEpoch:core.controllerEpoch,botId:agent.id,sessionId:'spend-session',sentAt:now,type,payload,...extra});
+  const report={ready:true,world:rules.world,dimension:rules.dimension,position:{x:.5,y:64,z:.5},health:20,food:20,inventory:[],action:'collect',reason:'actual search',mode:'working',capabilities:['collect','explore'],rulesVersion:rules.version};
+  assert.equal(receive('bot.ready',{...report,mode:'idle'}),true);assert.equal(receive('rules.applied',{version:rules.version}),true);
+  core.createGoal({kind:'collect',item:'sand',quantity:6,completionLocation:'inventory',requiredBotId:agent.id});
+  const assignment=sent.find((message):message is Extract<CentralMessage,{type:'task.assign'}>=>message.type==='task.assign');assert.ok(assignment);
+  const extra={taskId:assignment.taskId,attemptId:assignment.attemptId};
+  receive('task.accepted',{},extra);receive('task.started',{},extra);
+  const before=core.schedulingPasses;
+  for(let i=0;i<40;i++){
+    now++;
+    assert.equal(receive('task.progress',{action:'수집',reason:'same resource search',checkpoint:{resourceRecovery:{sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:59000+i}}},observations:[]},extra),true);
+    assert.equal(receive('bot.status',report),true);
+  }
+  assert.equal(core.schedulingPasses,before);
+  assert.equal(core.getAgents()[0]!.session!.lastReportAt,now);
+  assert.deepEqual(core.checkpoint().tasks.find(task=>task.id===assignment.taskId)!.checkpoint.resourceRecovery,{sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:59039}});
+  assert.equal(receive('bot.died',{deathId:'actual-death',occurredAt:now,world:rules.world,dimension:rules.dimension,position:report.position,priorInventory:[]}),true);
+  assert.equal(core.schedulingPasses,before+1,'death handling bypasses report scheduling deferral');
+  assert.equal(core.getAgents()[0]!.recovery!.deathId,'actual-death');
+  assert.ok(sent.some(message=>message.type==='task.cancel'&&message.attemptId===assignment.attemptId));
+  assert.deepEqual(core.checkpoint().tasks.find(task=>task.id===assignment.taskId)!.checkpoint.resourceRecovery,{sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:59039}});
 });
 
 function headers(key: string = randomUUID()) { return { 'content-type': 'application/json', 'x-laya-control': '1', 'idempotency-key': key }; }

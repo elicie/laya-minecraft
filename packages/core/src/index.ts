@@ -30,6 +30,8 @@ export interface FleetControllerOptions {
   rules?: Partial<Rules>;
   decide?: (request: { state: string; candidates: { id: string; description: string;action?:string }[]; signal?: AbortSignal }) => Promise<SchedulerDecision>;
   scoreEveryDecision?:boolean;
+  /** The server's periodic tick schedules from the latest report batch. */
+  deferReportScheduling?: boolean;
 }
 const terminalGoals = new Set(['completed', 'cancelled']);
 const activeAttempts = new Set(['assigned', 'accepted', 'running', 'cancelling']);
@@ -519,7 +521,10 @@ export class FleetController {
     this.state.processedMessageIds.push(message.messageId);
     if (this.state.processedMessageIds.length > 10000) this.messageIds.delete(this.state.processedMessageIds.shift()!);
     this.handleMessage(agent, message);
-    this.tick();
+    // Updating reports/checkpoints is immediate. Replanning the entire fleet
+    // for every progress packet can keep an IPC queue ahead of heartbeats.
+    // Critical results, deaths and safety messages still schedule immediately.
+    if (!this.options.deferReportScheduling || !['bot.status', 'world.observed', 'task.progress'].includes(message.type)) this.tick();
     return true;
   }
   receive(value: unknown): boolean { return this.onWorkerMessage(value); }

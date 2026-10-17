@@ -512,6 +512,10 @@ export class MineflayerExecutor {
     let skippedFrom = vector(this.bot.entity.position).floored(), legacyCheckedAt = '';
     let attempts = 0;
     while (this.count(itemName) < minimum) {
+      // Rejected sources can otherwise form a chain of already-settled
+      // promises. Give server packets, safety cancellation and heartbeat
+      // timers an event-loop turn even when no candidate can be walked to.
+      await s.pause(0);
       if(resourceTrip(s.checkpoint)?.phase==='returning')throw new ConditionWait('미완료 재료 원정의 실제 복귀를 먼저 마쳐야 합니다.',s.checkpoint);
       if(this.materialRestNeeded(itemName,minimum,s)){
         s.checkpoint.waitingFor={kind:'inventory',causeCode:'BUILD_MATERIAL',item:itemName,minimum,watchPosition:false,watchDaylight:true};
@@ -525,6 +529,7 @@ export class MineflayerExecutor {
         legacyCheckedAt = region;
         const legacy = recovery.state.failed.filter(entry => !entry.from && this.collectMatches(itemName, entry.name) && recovery.within(entry.position) && vector(entry.position).distanceTo(actual)<=48).sort((a,b)=>vector(a.position).distanceTo(actual)-vector(b.position).distanceTo(actual)).slice(0,8);
         for (const entry of legacy) {
+          await s.pause(0);
           const block = this.bot.blockAt(vector(entry.position));
           if (!block || !this.collectMatches(itemName,block.name) || !this.collectible(block,s)) continue;
           const stands = this.resourceStands(block,s), route = stands.find(p=>recovery.route(vector(p)));

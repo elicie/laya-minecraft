@@ -7,7 +7,7 @@ import { blueprintPreset } from '../packages/contracts/src/blueprint-catalog';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ResourceRecovery, foodSearchCanExpand, reconcileResourceJourneys, safeResourceStand, safeResourceRoute } from '../packages/minecraft/src/resource-recovery';
 import { observedGroundRoute } from '../packages/minecraft/src/observed-ground-walk';
-import { ActionFailure, ConditionWait } from '../packages/minecraft/src/services';
+import { ActionFailure, ConditionWait, pause } from '../packages/minecraft/src/services';
 import { approachKnownBase, beginResourceTrip, recordResourceTripPosition, returnFromResourceTrip, resourceTrip, resumeResourceTrip } from '../packages/minecraft/src/resource-trip';
 import { walkingFeet } from '../packages/minecraft/src/observations';
 import { leaveRecoveryEdge } from '../packages/minecraft/src/recovery-safety';
@@ -52,6 +52,23 @@ function fixture() {
   const add = (p: Vec3, name: string) => { sources.push(p); cells.set(p.toString(), name); };
   return { bot, executor, services, cells, ages, sources, stock, moved, dug, add, launch, set loaded(fn: typeof loaded) { loaded = fn; }, set routeAllowed(fn: typeof routeAllowed) { routeAllowed = fn; }, set visible(fn: typeof visible) { visible = fn; },set pathRadius(n:number){pathRadius=n;} };
 }
+
+test('rejected source candidates yield to a queued heartbeat without refilling the current search allowance', async () => {
+  const f = fixture(); f.bot.health = 20; f.bot.food = 20; f.launch.config.allowedActions = ['collect'];
+  Object.assign(f.bot.registry.itemsByName, { sand: { id: 3 } });
+  for (let x = 6; x < 38; x++) f.add(new Vec3(x,80,0),'sand');
+  const recovery = new ResourceRecovery(f.bot as unknown as Bot, f.services, 'sand', ['sand'], false, () => false);
+  Object.assign(recovery.state, { destinationsUsed: 4, approachesUsed: 7, elapsedMs: 59000 });
+  f.services.pause = ms => pause(ms, f.services.signal);
+  let heartbeat = false;
+  const timer = setTimeout(() => { heartbeat = true; }, 0);
+  try {
+    await assert.rejects(f.executor.ensureItem('sand',1,f.services), ConditionWait);
+    assert.equal(heartbeat,true,'failed candidates must not monopolize the worker event loop');
+    assert.equal(recovery.state.destinationsUsed,4); assert.equal(recovery.state.approachesUsed,7); assert.equal(recovery.state.elapsedMs,59000);
+    assert.deepEqual(f.dug,[]); assert.deepEqual(f.moved,[]);
+  } finally { clearTimeout(timer); }
+});
 
 test('building material expedition obtains distant actual sand and returns via loaded saved waypoints without losing its search origin',async()=>{
   const f=fixture();f.bot.health=20;f.bot.food=20;Object.assign(f.bot.registry.itemsByName,{sand:{id:3}});
