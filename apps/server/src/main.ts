@@ -78,6 +78,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
   let pruneTimer: ReturnType<typeof setInterval> | undefined;
   let shutdown: Promise<void> | undefined;
   const reconnectAt = new Map<string, number>();
+  const lastDelayWarning = new Map<string, number>();
   function close(): Promise<void> {
     shutdown ??= (async () => {
       closing = true;
@@ -118,7 +119,16 @@ export async function startRuntime(options: RuntimeOptions = {}) {
       workerPath: options.workerPath ?? join(__dirname, '../../../packages/minecraft/src/worker' + (__filename.endsWith('.ts') ? '.ts' : '.js')),
       execArgv: options.workerExecArgv,
       store,
-      onMessage: (_botId, message) => core!.onWorkerMessage(message),
+      onMessage: (botId, message) => {
+        if (message && typeof message === 'object' && 'type' in message && message.type === 'bot.status' && 'sentAt' in message && typeof message.sentAt === 'number') {
+          const now = Date.now(), delayMs = now - message.sentAt;
+          if (delayMs > 5000 && now - (lastDelayWarning.get(botId) ?? 0) > 10000) {
+            lastDelayWarning.set(botId, now);
+            console.warn(JSON.stringify({ kind: 'worker-report-delay', botId, sentAt: message.sentAt, receivedAt: now, delayMs }));
+          }
+        }
+        core!.onWorkerMessage(message);
+      },
       onExit: (botId, sessionId) => { core!.confirmWorkerStopped(botId, sessionId); reconnectAt.set(botId, Date.now() + (options.reconnectDelayMs ?? 5000)); },
       onError: (botId, error) => { console.error(`[worker ${botId}] ${error.message}`); },
     });

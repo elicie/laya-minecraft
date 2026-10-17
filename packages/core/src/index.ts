@@ -1205,7 +1205,10 @@ export class FleetController {
       if (stock !== undefined) {
         if (goal.targetQuantity === undefined) goal.targetQuantity = stock + goal.input.quantity;
         goal.progress = { current: stock, target: goal.targetQuantity };
-        const needsReturn=goal.input.kind==='collect' && goal.input.params.returnTo!==undefined;
+        // An inventory parcel must finish its own promised return. Fresh
+        // warehouse stock can be supplied by another bot, so it must stop an
+        // unnecessary search even if that collector has not returned yet.
+        const needsReturn=goal.completionLocation==='inventory' && goal.input.kind==='collect' && goal.input.params.returnTo!==undefined;
         const returned=!needsReturn || tasks.length>0 && tasks.filter(t=>t.kind==='collect').every(t=>t.state==='completed');
         if (stock >= goal.targetQuantity && returned) {
           for (const task of tasks) if (this.taskHasActor(task)) this.cancelTask(task, goal.completionLocation === 'inventory' ? '봇 인벤토리 합산 목표 수량 확인' : '공동 창고 목표 수량 확인', false); else if (task.state !== 'completed') { task.state = 'cancelled'; this.release(task.attemptId); }
