@@ -80,6 +80,8 @@ export function foodSearchObservationArea(checkpoint: JsonObject): { center: Pos
 const air = new Set(['air', 'cave_air', 'void_air']);
 const walkOnlyFlowers=new Set(['dandelion','poppy','blue_orchid','allium','azure_bluet','red_tulip','orange_tulip','white_tulip','pink_tulip','oxeye_daisy','cornflower','lily_of_the_valley','sunflower','lilac','rose_bush','peony','wildflowers','pink_petals']);
 const vegetation = new Set(['short_grass', 'tall_grass', 'fern', 'large_fern', 'leaf_litter', 'bush', 'firefly_bush', 'short_dry_grass', 'tall_dry_grass',...walkOnlyFlowers]);
+// Walking clearance only: installed lights are not vegetation to clear or collect.
+const walkOnlyFixtures = new Set(['torch', 'wall_torch']);
 const constructionGround = new Set<string>([...BUILD_MATERIALS,'crafting_table','furnace']);
 const fallingGround = new Set(['sand', 'red_sand', 'gravel']);
 const danger = new Set(['water', 'lava', 'fire', 'soul_fire', 'magma_block', 'cactus', 'campfire', 'soul_campfire', 'powder_snow', 'sweet_berry_bush']);
@@ -88,9 +90,9 @@ const keyOf = (p: Position) => `${p.x},${p.y},${p.z}`;
 const approachBudgetReason = '자원 접근 예산을 소진했습니다. 실제 자원이나 접근 지형의 변화를 기다립니다.';
 function resourceProperties(block: ReturnType<Bot['blockAt']>): string { if (!block || typeof block.getProperties !== 'function') return ''; const age = block.getProperties().age; return age === undefined ? '' : `age:${age}`; }
 
-/** Walking through natural grass does not require clearing or harvesting it. */
+/** Noncolliding vegetation and installed lights can be walked through intact. */
 export function resourceClearance(block: ReturnType<Bot['blockAt']>): boolean {
-  return !!block && block.boundingBox === 'empty' && (air.has(block.name) || vegetation.has(block.name));
+  return !!block && block.boundingBox === 'empty' && (air.has(block.name) || vegetation.has(block.name) || walkOnlyFixtures.has(block.name));
 }
 
 function stableResourceGround(bot: Bot, p: Vec3): boolean {
