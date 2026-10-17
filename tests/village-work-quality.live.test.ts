@@ -119,7 +119,8 @@ test(
           world: house.world,
           warehouse: house.warehouse,
           baseShelter: house.base,
-          autonomyEnabled: false,
+          autonomyEnabled: true,
+          baseAutonomy: {id:'quality-stock-field',origin:{x:30020,y:79,z:30020},positions:[{x:30020,y:79,z:30020}],breadTarget:8,woodTarget:1,botId:'quality-builder'},
           workstations: [
             {
               name: "crafting_table",
@@ -251,6 +252,9 @@ test(
       assert.equal(revalidated.payload.attemptCount,3);
       assert.deepEqual(revalidated.payload.progress,{recoveredCount:5,remainingCount:25,lostCount:25});
       assert.deepEqual(revalidated.payload.checkpoint.deathRecovery,{elapsedMs:60000,failed:['preserved']});
+      for(let i=0;i<100&&!messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container'));i++){worker.pollSafety();await sleep(50);}
+      assert.ok(messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container')),'the sheltered producer must publish a fresh real chest observation during the night');
+      assert.equal(bot.blockAt(new Vec3(house.base.door.x,house.base.door.y,house.base.door.z))!.getProperties().open,false);
       await craft("stone_sword", true);
       assert.equal(bot.heldItem?.name, "stone_sword");
       assert.ok(bot.inventory.items().some((i) => i.name === "wooden_sword"));

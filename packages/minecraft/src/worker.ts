@@ -645,11 +645,25 @@ export class MinecraftWorker {
       }else if(!this.local)this.recoverDeath();
       return;
     }
+    const shelteredWarehouse = this.launch.rules.warehouse;
+    const refreshShelteredStock = this.centralConnected && this.launch.rules.autonomyEnabled && this.launch.rules.baseAutonomy?.botId === this.launch.botId
+      && shelteredWarehouse && Date.now() - this.lastWarehouseAt > 10000 && this.executor.canObserveContainerHere(shelteredWarehouse);
     if (!this.active && this.launch.config.enabled && !this.recoveryPending() && this.bot.health >= 20 && this.bot.food >= 18
-      && this.executor.gearPreparationNeeded() && verifiedWarehouseInterior(this.bot,this.launch.rules) && (!this.local || this.local.mode === 'survival')) {
-      const equip = () => { if (this.ready && !this.stopping && this.launch.config.enabled && !this.active && !this.local && verifiedWarehouseInterior(this.bot,this.launch.rules)) this.startLocal(s=>this.executor.prepareGear(s),'idle'); };
-      if (this.local) { if (!this.local.controller.signal.aborted) void this.stopLocal().then(equip); }
-      else equip();
+      && (this.executor.gearPreparationNeeded() || refreshShelteredStock) && verifiedWarehouseInterior(this.bot,this.launch.rules) && (!this.local || this.local.mode === 'survival')) {
+      const maintain = () => {
+        if (!this.ready || this.stopping || !this.launch.config.enabled || this.active || this.local || this.bot.health < 20 || this.bot.food < 18 || !verifiedWarehouseInterior(this.bot,this.launch.rules)) return;
+        this.startLocal(async s => {
+          if (this.executor.gearPreparationNeeded()) await this.executor.prepareGear(s);
+          if (refreshShelteredStock && shelteredWarehouse && this.executor.canObserveContainerHere(shelteredWarehouse)) {
+            this.lastWarehouseAt = Date.now();
+            const observation = await this.executor.observeContainer(shelteredWarehouse,s,false);
+            if (observation.kind === 'container') this.foodCheckpoint.foodWarehouse = {container:observation.data.container,items:observation.data.items};
+            this.message('world.observed',{observations:s.observations});
+          }
+        },'idle');
+      };
+      if (this.local) { if (!this.local.controller.signal.aborted) void this.stopLocal().then(maintain); }
+      else maintain();
       return;
     }
     if (this.local) return;
