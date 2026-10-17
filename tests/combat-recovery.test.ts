@@ -46,6 +46,23 @@ function fixture(targetName = 'zombie') {
 }
 const assessment = { role: 'builder', health: 20, food: 20, weapon: false, shield: false, enemies: 1, allies: 0, attacked: true, threateningVillage: false, targetName: 'zombie', distance: 2 };
 
+test('a guard holds its ground for an airborne phantom and strikes only an actual swoop in reach',async()=>{
+ const f=fixture('phantom'),origin=f.bot.entity.position.clone();f.slots[36]={name:'wooden_sword',count:1};f.target.position=new Vec3(8,72,0);let waits=0;
+ f.services.pause=async()=>{if(++waits===3)f.target.position=origin.offset(1,1,0);};
+ await f.executor.fightEntity(f.target,f.services);
+ assert.equal(f.moves,0);assert.equal(f.attacks,1);assert.ok(waits>=3);assert.ok(f.bot.entity.position.equals(origin));
+});
+
+test('stationary phantom defense still obeys target expiry and deteriorating survival conditions',async()=>{
+ for(const kind of ['expiry','injury'] as const){
+  const f=fixture('phantom');f.slots[36]={name:'wooden_sword',count:1};f.target.position=new Vec3(8,72,0);let valid=true,retreats=0;
+  f.services.pause=async()=>{if(kind==='expiry')valid=false;else f.bot.health=5;};
+  f.executor.retreat=async()=>{retreats++;throw new ConditionWait('actual cover route required');};
+  await assert.rejects(f.executor.fightEntity(f.target,f.services,false,()=>valid),ConditionWait);
+  assert.equal(f.moves,0);assert.equal(f.attacks,0);assert.equal(retreats,kind==='injury'?1:0);assert.equal(f.executor.fighting,false);
+ }
+});
+
 test('recovery admits a distant pillager only behind real cover and immediately revokes it for an exposed or nearby threat',()=>{
  const f=fixture('pillager');f.target.position=new Vec3(15,64,0);
  assert.equal(recoverySafe(f.bot,6),false);f.changes.set(new Vec3(7,65,0).toString(),'stone');f.raw.world.raycast=()=>({position:new Vec3(7,65,0)});

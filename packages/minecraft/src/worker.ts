@@ -683,12 +683,20 @@ export class MinecraftWorker {
     }
     if (this.active) return;
     const warehouse = this.launch.rules.warehouse;
-    // Background stock refresh is local observation, not a new return trip.
-    // Distant work and shelter retain ownership of the actor's movement.
-    if (this.centralConnected && warehouse && this.executor.canObserveContainerHere(warehouse) && Date.now() - this.lastWarehouseAt > 10000) {
+    const base = this.launch.rules.baseShelter;
+    // At dawn the designated producer can be just outside a closed warehouse.
+    // A local-only refresh there deadlocks supply planning on stale stock.
+    // Permit that idle producer's short registered door passage; other actors
+    // and distant work still retain their position. Survival gates run first.
+    const producerAtBase = !!warehouse && !!base && this.launch.config.enabled && this.launch.rules.autonomyEnabled &&
+      this.launch.rules.baseAutonomy?.botId === this.launch.botId && base.warehouseId === warehouse.id &&
+      base.world === this.launch.rules.world && base.dimension === this.launch.rules.dimension &&
+      warehouse.world === base.world && warehouse.dimension === base.dimension && this.bot.entity.onGround === true &&
+      vector(this.bot.entity.position).distanceTo(vector(base.outside)) <= 6;
+    if (this.centralConnected && warehouse && (this.executor.canObserveContainerHere(warehouse) || producerAtBase) && Date.now() - this.lastWarehouseAt > 10000) {
       this.lastWarehouseAt = Date.now();
       this.startLocal(async (s) => {
-        const observation = await this.executor.observeContainer(warehouse, s, false);
+        const observation = await this.executor.observeContainer(warehouse, s, producerAtBase);
         if (observation.kind === 'container') this.foodCheckpoint.foodWarehouse = { container: { ...observation.data.container, position: { ...observation.data.container.position } }, items: observation.data.items.map(item => ({ ...item })) };
         this.message('world.observed', { observations: s.observations });
       }, 'idle');

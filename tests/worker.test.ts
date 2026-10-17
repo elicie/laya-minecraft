@@ -11,7 +11,7 @@ import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ActionFailure, ConditionWait, pause, type ActionServices } from '../packages/minecraft/src/services';
 
-function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseFailure?:boolean;nightShelterWait?:boolean;nightShelterUnavailable?:boolean;restoredSealed?:boolean } = {}) {
+function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: boolean; foodFailure?: boolean; unarmed?: boolean; shield?: boolean;warehouseObservation?:boolean;warehouseOccluded?:boolean;warehouseFailure?:boolean;nightShelterWait?:boolean;nightShelterUnavailable?:boolean;restoredSealed?:boolean } = {}) {
   const emitter = new EventEmitter();
   const messages: WorkerMessage[] = [];
   let executions = 0;
@@ -19,6 +19,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
   let retreats = 0;
   let foodAttempts = 0;
   let shelters = 0;
+  const warehouseMovement: boolean[] = [];
   let mealAvailable = !!options.meal;
   const launch = WorkerLaunchSchema.parse({ botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch',
     ...(options.restoredSealed?{restoreRecovery:{deathId:'restored-life',occurredAt:1,world:'127.0.0.1:25566',dimension:'overworld',priorInventory:[],phase:'resolved',safe:false,reason:'saved footing',attemptCount:0,progress:{recoveredCount:0,remainingCount:0},updatedAt:1,checkpoint:{}},restoreSurvivalRecovery:{startedAt:1,targetHealth:20,checkpoint:{nightBurrowPending:true,nightSoilShaft:{outside:{x:0,y:67,z:0},phase:'closed',dug:3,initialDirt:0,exitAttempts:0},resourceRecovery:{$food:{destinationsUsed:5,elapsedMs:60000}}}}}:{}),
@@ -33,10 +34,11 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
     quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
   class ControlledExecutor extends MineflayerExecutor {
-    override canObserveContainerHere(container:ContainerRef):boolean{return options.warehouseObservation===true&&bot.entity.position.distanceTo(new Vec3(container.position.x,container.position.y,container.position.z))<=4;}
+    override canObserveContainerHere(container:ContainerRef):boolean{return options.warehouseObservation===true&&!options.warehouseOccluded&&bot.entity.position.distanceTo(new Vec3(container.position.x,container.position.y,container.position.z))<=4;}
     override async shelterAtNight(s:ActionServices):Promise<boolean>{if(options.nightShelterUnavailable){shelters++;return false;}if(!options.nightShelterWait)return super.shelterAtNight(s);shelters++;assert.deepEqual(s.checkpoint.resourceRecovery,{$food:{destinationsUsed:5,elapsedMs:60000}});s.checkpoint.nightBasePending=true;s.progress('창고 야간 대피','보존한 식량 탐색을 중단하고 야간을 대피합니다.');await s.pause(120000);return true;}
-    override async observeContainer(container:ContainerRef,s:ActionServices):Promise<ObservationInput>{
+    override async observeContainer(container:ContainerRef,s:ActionServices,allowMovement=true):Promise<ObservationInput>{
       if(!options.warehouseObservation)return super.observeContainer(container,s);
+      warehouseMovement.push(allowMovement);
       s.progress('창고 출입','실제 문과 양쪽 발판을 확인하며 출입합니다.');
       if(options.warehouseFailure)throw new ConditionWait('상자가 가려져 실제 재고를 확인하지 못했습니다.');
       const o:ObservationInput={id:randomUUID(),observedAt:Date.now(),world:launch.rules.world,dimension:'overworld',kind:'container',data:{container,items:[]}};s.observations.push(o);return o;
@@ -65,7 +67,7 @@ function fixture(options: { unknownAbort?: boolean; foodWait?: boolean; meal?: b
   const task: TaskSpec = { id: 'task', goalId: 'goal', kind: 'collect', params: { item: 'oak_log', quantity: 1 }, dependencies: [], reservationKeys: [], completion: { kind: 'inventory', item: 'oak_log', minimum: 1 } };
   const envelope = (type: string, payload: unknown, extra: object = {}) => ({ protocolVersion: 1, messageId: randomUUID(), botId: 'bot', sessionId: 'session', controllerEpoch: 'epoch', sentAt: Date.now(), type, payload, ...extra });
   const assign = (attemptId: string = randomUUID(), extra: object = {}) => envelope('task.assign', { task, checkpoint: { step: 7 }, rulesVersion: launch.rules.version }, { taskId: 'task', attemptId, ...extra });
-  return { worker, bot, emitter, launch, messages, envelope, assign,
+  return { worker, bot, emitter, launch, messages, envelope, assign, warehouseMovement,
     get shelters(){return shelters;},
     get executions() { return executions; }, get fights() { return fights; }, get retreats() { return retreats; }, get foodAttempts() { return foodAttempts; } };
 }
@@ -104,6 +106,19 @@ test('idle stock refresh leaves a nearby resource work point alone when the ches
  const f=fixture({warehouseObservation:true});f.launch.rules.warehouse={id:'nearby',world:f.launch.rules.world,dimension:'overworld',position:{x:6,y:64,z:0}};f.emitter.emit('spawn');f.emitter.emit('health');
  try{const before=f.bot.entity.position.clone();f.worker.pollSafety();await settle();assert.ok(f.bot.entity.position.equals(before));assert.equal(f.messages.some(m=>m.type==='world.observed'&&m.payload.observations.some(o=>o.kind==='container')),false);}
  finally{await f.worker.shutdown('test complete');}
+});
+
+for (const variant of ['producer','other-bot','distant','active','disabled','wrong-warehouse','wrong-world','airborne'] as const) test(`closed-door stock refresh respects producer ownership: ${variant}`,async()=>{
+ const f=fixture({warehouseObservation:true,warehouseOccluded:true});
+ f.launch.rules.warehouse={id:'base',world:f.launch.rules.world,dimension:'overworld',position:{x:1,y:64,z:1}};
+ f.launch.rules.baseShelter={warehouseId:variant==='wrong-warehouse'?'other':'base',world:variant==='wrong-world'?'other':f.launch.rules.world,dimension:'overworld',door:{x:0,y:64,z:1},outside:{x:0,y:64,z:0},inside:{x:1,y:64,z:1},blocks:[{position:{x:1,y:63,z:1},name:'stone'}]};
+ f.launch.rules.baseAutonomy={id:'farm',origin:{x:10,y:64,z:10},positions:[{x:11,y:64,z:10}],breadTarget:8,woodTarget:1,botId:variant==='other-bot'?'other':f.launch.botId};
+ if(variant==='disabled')f.launch.rules.autonomyEnabled=false;
+ if(variant==='distant')f.bot.entity.position=new Vec3(20,64,0);
+ f.bot.entity.onGround=variant!=='airborne';
+ f.emitter.emit('spawn');f.emitter.emit('health');
+ try{if(variant==='active')await f.worker.receive(f.assign());f.worker.pollSafety();await settle();assert.deepEqual(f.warehouseMovement,variant==='producer'?[true]:[]);}
+ finally{await f.worker.shutdown('producer stock observation complete');}
 });
 test('a restored sealed shelter resumes its own exit before generic unsafe post-death footing recovery',async()=>{
  const f=fixture({restoredSealed:true,nightShelterWait:true,unarmed:true});Object.assign(f.bot,{time:{isDay:true,timeOfDay:0,doDaylightCycle:true}});
