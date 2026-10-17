@@ -14,6 +14,7 @@ import {
 } from '../../../packages/contracts/src';
 import { ControlStore, type CommandReceipt, type StoredEvent } from './store';
 import { proxyViewerHttp, proxyViewerUpgrade, type ViewerTarget } from './viewer-proxy';
+import { createViewerAssets, VIEWER_PROTOCOL, type ViewerAssets } from './viewer-assets';
 import { dashboardSnapshot } from './dashboard-snapshot';
 import {createOperationsReader} from './operations';
 import { SseClient, sseFrame } from './sse-client';
@@ -51,6 +52,7 @@ export interface ControlServerOptions {
   allowedOrigins?: string[];
   now?: () => number;
   webRoot?: string;
+  viewerAssets?: ViewerAssets | Promise<ViewerAssets>;
 }
 const modeSchema = z.enum(['queued', 'immediate']).default('queued');
 const botPatchRequest = z.object({ patch: BotPatchSchema, mode: modeSchema }).strict();
@@ -67,6 +69,8 @@ export function createControlServer(options: ControlServerOptions) {
   let dirtySnapshot = false;
   let checkpointDirty = false;
   let closed = false;
+  let viewerAssets = options.viewerAssets ? Promise.resolve(options.viewerAssets) : undefined;
+  const assets = () => viewerAssets ??= createViewerAssets();
 
   function persist(event?: StoredEvent): void {
     if (core.serializeCheckpoint) store.saveSerializedCheckpoint(core.serializeCheckpoint(), event);
@@ -172,18 +176,23 @@ export function createControlServer(options: ControlServerOptions) {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname;
+      if (path.startsWith('/viewer-assets/')) { await (await assets()).handle(req, res); return; }
       const viewer = path.match(/^\/viewer\/([^/]+)(?:\/|$)/);
       const viewerPolling = /^\/viewer\/[^/]+\/socket\.io\/?$/.test(path);
-      if (viewer && (req.method === 'GET' || req.method === 'POST' && viewerPolling)) {
+      if (viewer && (req.method === 'GET' || req.method === 'HEAD' || req.method === 'POST' && viewerPolling)) {
         validateOrigin(req, options.allowedOrigins);
         const target = viewerTarget(decodeURIComponent(viewer[1]!));
         if (!target) throw new HttpError(503, 'VIEWER_UNAVAILABLE', '선택한 봇의 3D 화면이 준비되지 않았습니다.');
-        proxyViewerHttp(req, res, target);
+        if (viewerPolling) { proxyViewerHttp(req, res, target); return; }
+        const shared = await assets();
+        const relativePath = path.slice(viewer[0].length);
+        if (shared.redirect(req, res, relativePath)) return;
+        proxyViewerHttp(req, res, target, shared.basePath);
         return;
       }
       if(req.method==='GET'&&path==='/api/v1/operations'){json(res,200,await readOperations());return;}
       if (req.method === 'GET' && path === '/api/v1/health') {
-        json(res, 200, { ok: true, controllerEpoch: core.controllerEpoch ?? core.getSnapshot().controllerEpoch }); return;
+        json(res, 200, { ok: true, controllerEpoch: core.controllerEpoch ?? core.getSnapshot().controllerEpoch, viewerProtocol: VIEWER_PROTOCOL }); return;
       }
       if (req.method === 'GET' && path === '/api/v1/snapshot') {
         if (url.searchParams.get('view') === 'dashboard') {
@@ -307,7 +316,7 @@ export function createControlServer(options: ControlServerOptions) {
     try {
       validateOrigin(req, options.allowedOrigins);
       const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-      const match = path.match(/^\/viewer\/([^/]+)\/socket\.io\/?$/);
+      const match = path.match(/^\/viewer\/([^/]+)\/(?:socket\.io|stream)\/?$/);
       const target = match ? viewerTarget(decodeURIComponent(match[1]!)) : undefined;
       if (!target) return socket.destroy();
       proxyViewerUpgrade(req, socket, head, target);

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   DEFAULT_RULES, BotInputSchema, GoalInputSchema,
@@ -14,6 +14,7 @@ import { createControlServer, type FleetControlPort } from '../apps/server/src/c
 import type { ControlServerOptions } from '../apps/server/src/control-server';
 import { ControlStore } from '../apps/server/src/store';
 import { reconcileCommandReceipts } from '../apps/server/src/reconciliation';
+import { createViewerAssets } from '../apps/server/src/viewer-assets';
 
 function fixture(options: Partial<ControlServerOptions> = {}) {
   const store = new ControlStore(':memory:');
@@ -67,6 +68,30 @@ function fixture(options: Partial<ControlServerOptions> = {}) {
 function headers(key: string = randomUUID()): Record<string, string> {
   return { 'content-type': 'application/json', 'x-laya-control': '1', 'idempotency-key': key };
 }
+
+test('controller serves shared static assets without state reads while iframe HTML keeps actual viewer readiness fencing', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'laya-viewer-static-'));
+  writeFileSync(join(directory, 'index.js'), 'original-index'); writeFileSync(join(directory, 'worker.js'), 'original-worker');
+  writeFileSync(join(directory, 'three.module.js'), 'export {}'); writeFileSync(join(directory, 'viewer.css'), 'body{}');
+  const assets = await createViewerAssets({ publicRoot: directory });
+  const f = fixture({ viewerAssets: assets, viewerPortBase: 4200 });
+  let reads = 0; const originalSnapshot = f.core.getSnapshot;
+  f.core.getSnapshot = () => { reads++; return originalSnapshot(); };
+  const address = await f.api.listen(), base = `http://127.0.0.1:${address.port}`;
+  try {
+    const before = reads;
+    assert.equal(await (await fetch(`${base}${assets.basePath}/worker.js`)).text(), 'original-worker'); assert.equal(reads, before);
+    const agent = f.core.addAgent({ name: 'AssetBot' }); agent.session = { id: 'actual-session', state: 'ready', lastReportAt: Date.now(), rulesVersion: 1 };
+    await fetch(`${base}/api/v1/bots/${agent.id}/viewer`, { method: 'POST', headers: headers(), body: '{}' });
+    assert.equal((await fetch(`${base}/viewer/${agent.id}/`)).status, 503);
+    agent.viewer = { state: 'ready', port: 4200, prefix: `/viewer/${agent.id}` };
+    const html = await fetch(`${base}/viewer/${agent.id}/`); assert.equal(html.status, 200); assert.equal(html.headers.get('cache-control'), 'no-store'); assert.ok((await html.text()).includes(`<base href="${assets.basePath}/">`));
+    const redirect = await fetch(`${base}/viewer/${agent.id}/worker.js`, { redirect: 'manual' }); assert.equal(redirect.status, 307); assert.equal(redirect.headers.get('location'), `${assets.basePath}/worker.js`);
+    agent.viewer = { state: 'stopped' };
+    assert.equal((await fetch(`${base}/viewer/${agent.id}/`)).status, 503);
+    assert.equal(await (await fetch(`${base}${assets.basePath}/worker.js`)).text(), 'original-worker', 'distribution caching is independent of bot lifecycle');
+  } finally { await f.api.close(); f.store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
 
 test('HTTP validates commands, defaults to disposable port, and deduplicates goal creation', async () => {
   const f = fixture();
@@ -207,5 +232,51 @@ test('viewer Socket.IO polling POST forwards its body without control headers an
     assert.equal(response.status, 200); assert.equal(await response.text(), 'ok'); assert.equal(forwarded, '40');
     const denied = await fetch(path, { method: 'POST', headers: { origin: 'https://other.example', 'content-type': 'text/plain' }, body: '40' });
     assert.equal(denied.status, 403); assert.equal(forwarded, '40');
+  } finally { await f.api.close(); f.store.close(); await new Promise<void>(resolve => upstream.close(() => resolve())); }
+});
+
+test('health declares the compact viewer protocol and missing build assets fail explicitly', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'laya-viewer-not-built-')), previous = process.env.LAYA_VIEWER_ASSET_ROOT;
+  process.env.LAYA_VIEWER_ASSET_ROOT = join(directory, 'missing');
+  const f = fixture(), address = await f.api.listen(), base = `http://127.0.0.1:${address.port}`;
+  try {
+    const health = await (await fetch(`${base}/api/v1/health`)).json() as { ok: boolean; viewerProtocol: string };
+    assert.equal(health.ok, true); assert.equal(health.viewerProtocol, 'compact-voxel-v1');
+    const response = await fetch(`${base}/viewer-assets/${'0'.repeat(64)}/index.js`);
+    assert.equal(response.status, 503);
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'VIEWER_ASSETS_NOT_BUILT');
+  } finally { await f.api.close(); f.store.close(); if (previous === undefined) delete process.env.LAYA_VIEWER_ASSET_ROOT; else process.env.LAYA_VIEWER_ASSET_ROOT = previous; rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('native viewer stream and legacy socket upgrades share actual readiness and origin fences', async () => {
+  const paths: string[] = [];
+  const upstream = createServer();
+  upstream.on('upgrade', (req, socket) => {
+    paths.push(req.url!);
+    socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\ncompact-live');
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const port = (upstream.address() as AddressInfo).port, f = fixture({ viewerPortBase: port });
+  const address = await f.api.listen(), base = `http://127.0.0.1:${address.port}`;
+  const agent = f.core.addAgent({ name: 'CompactStreamBot' });
+  agent.session = { id: 'session', state: 'ready', lastReportAt: Date.now(), rulesVersion: 1 };
+  async function upgrade(path: string, origin = 'http://127.0.0.1:5173') {
+    return await new Promise<string>((resolve, reject) => {
+      const req = request(`${base}${path}`, { headers: { connection: 'Upgrade', upgrade: 'websocket', origin } });
+      req.once('upgrade', (_response, socket, head) => { socket.destroy(); resolve(head.toString()); });
+      req.once('response', response => { response.resume(); reject(new Error(`Unexpected HTTP ${response.statusCode}`)); });
+      req.once('error', reject); req.setTimeout(2000, () => req.destroy(new Error('Upgrade timed out'))); req.end();
+    });
+  }
+  try {
+    await fetch(`${base}/api/v1/bots/${agent.id}/viewer`, { method: 'POST', headers: headers(), body: '{}' });
+    await assert.rejects(upgrade(`/viewer/${agent.id}/stream`)); assert.deepEqual(paths, []);
+    agent.viewer = { state: 'ready', port, prefix: `/viewer/${agent.id}` };
+    assert.equal(await upgrade(`/viewer/${agent.id}/stream`), 'compact-live');
+    assert.equal(await upgrade(`/viewer/${agent.id}/socket.io/?transport=websocket`), 'compact-live');
+    await assert.rejects(upgrade(`/viewer/${agent.id}/stream`, 'https://other.example'));
+    await assert.rejects(upgrade(`/viewer/${agent.id}/arbitrary`));
+    agent.viewer = { state: 'stopped' }; await assert.rejects(upgrade(`/viewer/${agent.id}/stream`));
+    assert.deepEqual(paths, [`/viewer/${agent.id}/stream`, `/viewer/${agent.id}/socket.io/?transport=websocket`]);
   } finally { await f.api.close(); f.store.close(); await new Promise<void>(resolve => upstream.close(() => resolve())); }
 });

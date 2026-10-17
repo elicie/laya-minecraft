@@ -4,16 +4,14 @@ import minecraftData from 'minecraft-data';
 import blockLoader from 'prismarine-block';
 import chunkLoader from 'prismarine-chunk';
 import { Vec3 } from 'vec3';
-import { get } from 'node:http';
+import { createCompactViewerServer } from './viewer-stream';
 
 interface Column { toJson(): string; getBlockStateId(p: Vec3): number; getBiome(p: Vec3): number; setBlockStateId(p: Vec3, id: number): void; setBiome(p: Vec3, id: number): void; }
 interface Palette { type: string; value?: number; palette?: number[]; }
 interface Section { data: string; noSizePrefix?: boolean; hasFluidCount?: boolean; fluidCount?: number; }
 interface SerializedColumn { sections: string[]; biomes: string[]; minY: number; }
-interface ViewerApi { supportedVersions: string[]; mineflayer(bot: unknown, options: { port: number; prefix: string; firstPerson: boolean; viewDistance: number }): void; }
-const viewerApi = require('prismarine-viewer') as ViewerApi;
-
-export function createRenderAdapter(bot: Bot, targetVersion = viewerApi.supportedVersions.at(-1)!) {
+export function createRenderAdapter(bot: Bot, targetVersion?: string) {
+  targetVersion ??= (require('prismarine-viewer') as { supportedVersions: string[] }).supportedVersions.at(-1)!;
   const sourceData = minecraftData(bot.version), targetData = minecraftData(targetVersion);
   const SourceBlock = blockLoader(bot.version), TargetBlock = blockLoader(targetVersion);
   const TargetChunk = chunkLoader(targetVersion) as unknown as { fromJson(json: string): Column };
@@ -97,15 +95,7 @@ export function createRenderAdapter(bot: Bot, targetVersion = viewerApi.supporte
   return { adapter, stateId, convertColumn, dispose: () => { for (const [event, callback] of listeners) bot.removeListener(event, callback); cache.clear(); adapter.removeAllListeners(); } };
 }
 
-export async function createBotViewer(bot: Bot, options: { port: number; prefix: string }) {
-  const render = createRenderAdapter(bot);
-  try {
-    viewerApi.mineflayer(render.adapter, { ...options, firstPerson: true, viewDistance: 4 });
-    await new Promise<void>((resolve, reject) => {
-      const request = get(`http://127.0.0.1:${options.port}${options.prefix}/`, (response) => { response.resume(); response.statusCode === 200 ? resolve() : reject(new Error('화면 서버가 준비되지 않았습니다.')); });
-      request.setTimeout(3000, () => request.destroy(new Error('화면 서버 연결 시간이 초과됐습니다.')));
-      request.on('error', reject);
-    });
-  } catch (error) { render.adapter.viewer?.close(); render.dispose(); throw error; }
-  return { version: render.adapter.version, close: () => { render.adapter.viewer?.close(); render.dispose(); } };
+export async function createBotViewer(bot: Bot, options: { port: number; prefix: string }): Promise<{ version: string; close(): void }> {
+  const viewer = await createCompactViewerServer(bot, options);
+  return { version: viewer.version, close: viewer.close };
 }

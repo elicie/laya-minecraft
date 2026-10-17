@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type {
   Agent,
   CoreEvent,
@@ -92,12 +93,39 @@ export function BotDetail({
     : undefined;
   const stale = !live || isReportStale(bot.session?.lastReportAt, now);
   const viewerUrl = safeViewerUrl(bot.viewer.prefix, bot.id);
-  const viewing =
+  const viewerIdentity = `${bot.id}:${bot.session?.id}:${viewerUrl}`;
+  const [openedViewer, setOpenedViewer] = useState<string | null>(null);
+  const viewerAvailable = !!(
     viewerConfirmed &&
-    !stale &&
     !viewerPaused &&
     bot.viewer.state === "ready" &&
-    viewerUrl;
+    bot.session?.id &&
+    viewerUrl
+  );
+  const viewing = viewerAvailable && (!stale || openedViewer === viewerIdentity);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [terrain, setTerrain] = useState<{ identity: string; status: string; reason: string } | null>(null);
+  const terrainReady = terrain?.identity === viewerIdentity && terrain.status === "terrain-ready";
+  useEffect(() => {
+    if (!viewing) setTerrain(null);
+    const receive = (event: MessageEvent) => {
+      if (!viewing || event.origin !== location.origin || event.source !== frame.current?.contentWindow) return;
+      const value = event.data;
+      if (!value || value.type !== "laya-viewer" || value.protocolVersion !== 1 ||
+        !["loading", "terrain-ready", "disconnected", "error"].includes(value.status) ||
+        typeof value.reason !== "string") return;
+      if (value.status === "terrain-ready" && (!value.cameraReady || !value.textureReady || !(value.triangles > 0))) return;
+      setTerrain({ identity: viewerIdentity, status: value.status, reason: value.reason.slice(0, 300) });
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, [viewing, viewerIdentity]);
+  useEffect(() => {
+    setOpenedViewer((previous) => {
+      if (!viewerAvailable || (stale && previous !== viewerIdentity)) return null;
+      return stale ? previous : viewerIdentity;
+    });
+  }, [viewerAvailable, viewerIdentity, stale]);
   return (
     <section
       className="panel bot-detail"
@@ -121,35 +149,51 @@ export function BotDetail({
       </div>
       <div className="bot-observation">
         <div className="bot-view">
-          {viewing ? (
-            <iframe
-              className="viewer"
-              title={`${bot.config.name} 실시간 3D 화면`}
-              src={viewerUrl}
-              referrerPolicy="same-origin"
-            />
-          ) : (
-            <div className="viewer-placeholder">
-              <span style={{ fontSize: 26 }}>◇</span>
-              <p>
-                {viewerPaused
-                  ? "관전을 잠시 멈췄습니다."
-                  : stale
-                    ? "봇 연결 확인 후 3D 화면을 엽니다."
-                    : bot.viewer.state === "failed"
-                      ? "관전 화면을 준비하지 못했습니다."
-                      : "실제 3D 화면을 준비하고 있습니다."}
-              </p>
-              {bot.viewer.state === "failed" && (
-                <button disabled={!live || busy} onClick={onViewerToggle}>
-                  다시 연결
-                </button>
-              )}
-            </div>
-          )}
+          <div className="viewer-surface">
+            {viewing && (
+              <iframe
+                key={viewerIdentity}
+                ref={frame}
+                className={`viewer${stale || !terrainReady ? " viewer-retained" : ""}`}
+                aria-hidden={stale || !terrainReady || undefined}
+                tabIndex={stale || !terrainReady ? -1 : undefined}
+                title={`${bot.config.name} 실시간 3D 화면`}
+                src={viewerUrl!}
+                referrerPolicy="same-origin"
+              />
+            )}
+            {(!viewing || stale || !terrainReady) && (
+              <div
+                className={`viewer-placeholder${viewing ? " viewer-overlay" : ""}`}
+                role={viewing ? "status" : undefined}
+              >
+                <span style={{ fontSize: 26 }}>◇</span>
+                <p>
+                  {viewing && stale
+                    ? "봇 연결을 확인하고 있습니다. 확인 후 관전을 이어갑니다."
+                    : viewing
+                      ? terrain?.identity === viewerIdentity ? terrain.reason : "관측한 지형을 불러오고 있습니다."
+                    : viewerPaused
+                      ? "관전을 잠시 멈췄습니다."
+                      : stale
+                        ? "봇 연결 확인 후 3D 화면을 엽니다."
+                        : bot.viewer.state === "failed"
+                          ? "관전 화면을 준비하지 못했습니다."
+                          : "실제 3D 화면을 준비하고 있습니다."}
+                </p>
+                {bot.viewer.state === "failed" && (
+                  <button disabled={!live || busy} onClick={onViewerToggle}>
+                    다시 연결
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="viewer-toolbar">
             <span>
-              {viewing ? "실시간 관전" : "관전 대기"} · 선택한 봇 한 대
+              {viewing
+                ? stale ? "지난 관전 · 연결 확인 중" : terrainReady ? "실시간 관전" : "지형 확인 중"
+                : "관전 대기"} · 선택한 봇 한 대
             </span>
             <button disabled={!live || busy} onClick={onViewerToggle}>
               {viewerPaused || bot.viewer.state === "failed"
