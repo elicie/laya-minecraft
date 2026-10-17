@@ -14,6 +14,7 @@ import { foodSearchCanExpand, reconcileResourceJourneys } from './resource-recov
 import { resourceTrip } from './resource-trip';
 import { executeVillageTask } from './village-actions';
 import { duskOrNight } from './night-burrow';
+import { localNightTask, localNightGuard, verifiedWarehouseInterior } from './night-work';
 import { ActionFailure, ConditionWait, type ActionServices } from './services';
 import { inventory, inventoryView, nearbyBlocks, position, vector, walkingFeet } from './observations';
 import { assessCombat, combatEquipment, HOSTILES, rangedThreat } from './combat-policy';
@@ -385,7 +386,9 @@ export class MinecraftWorker {
     if (!this.launch.config.enabled) return 'paused';
     if (this.active) return 'busy';
     if (this.emergencyActive()) return 'emergency';
-    if (this.survivalUrgent()&&!foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint,message.payload.task)||this.nightWorkBlocked()) return 'survival';
+    if (this.foodCheckpoint.nightBasePending === true && !verifiedWarehouseInterior(this.bot,this.launch.rules)) return 'survival';
+    const shelteredWork=this.bot.health>=20&&this.bot.food>=(this.foodCheckpoint.expeditionFoodTarget===19?19:18)&&this.foodCheckpoint.nightBurrowPending!==true&&verifiedWarehouseInterior(this.bot,this.launch.rules)&&localNightTask(this.bot,this.launch.rules,message.payload.task);
+    if (this.survivalUrgent()&&!shelteredWork&&!foodReserveReturnAllowed(this.launch.rules,this.bot.health,this.bot.food,this.foodCheckpoint,message.payload.task)||this.nightWorkBlocked(message.payload.task)) return 'survival';
     if (this.recoveryPending()) return 'recovery';
     if (message.payload.rulesVersion !== this.launch.rules.version) return 'rules';
   }
@@ -411,6 +414,12 @@ export class MinecraftWorker {
       this.taskMessage(message, 'task.rejected', { reason: '이 봇에 허용된 실행 가능한 작업이 아닙니다.', retryable: false }); return;
     }
     await this.stopLocal();
+    if (localNightTask(this.bot, this.launch.rules, message.payload.task) && verifiedWarehouseInterior(this.bot, this.launch.rules)) {
+      // Entry is physically complete and the door is closed. Release only the
+      // shelter wait; task movement still uses normal verified door passage.
+      this.foodCheckpoint.nightBasePending = false;
+      if (this.foodCheckpoint.nightBase && typeof this.foodCheckpoint.nightBase === 'object' && !Array.isArray(this.foodCheckpoint.nightBase)) this.foodCheckpoint.nightBase.phase = 'done';
+    }
     if (this.pendingRules) this.applyRules(this.pendingRules);
     const changed = this.assignmentBlock(message);
     if (changed) { this.rejectAssignment(message, changed); return; }
@@ -536,7 +545,8 @@ export class MinecraftWorker {
       this.message('bot.status', this.report());
     });
   }
-  private nightWorkBlocked():boolean {
+  private nightWorkBlocked(task?: import('../../contracts/src').TaskSpec):boolean {
+    if (task && localNightTask(this.bot, this.launch.rules, task) || this.active && localNightTask(this.bot, this.launch.rules, this.active.message.payload.task) || localNightGuard(this.bot, this.launch.rules, this.launch.config.role)) return false;
     const gear=combatEquipment(this.bot);
     return this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable===true&&this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot)&&!(gear.weapon&&(gear.shield||gear.armorPoints>=12));
   }
@@ -579,7 +589,8 @@ export class MinecraftWorker {
       const allies = Object.values(this.bot.players).filter((p) => p.entity && p.entity.id !== this.bot.entity.id && p.entity.position.distanceTo(this.bot.entity.position) < 8);
       const center = this.launch.rules.center;
       const threateningVillage = !!center && Math.hypot(target.position.x - center.x, target.position.z - center.z) <= this.launch.rules.radius || allies.some((p) => p.entity!.position.distanceTo(target.position) < 8);
-      const decision = exposed ? { response: 'retreat' as const, reason: '가까운 실제 적에게 노출돼 피격 전에 안전한 지면과 엄폐를 확보합니다.', supportRequired: true } : assessCombat({ role: this.launch.config.role, health: this.bot.health, food: this.bot.food, ...equipment, rangedEnemies: enemies.filter(e => rangedThreat(e.name ?? '')).length, enemies: enemies.filter((e) => e.position.distanceTo(this.bot.entity.position) < 8).length, allies: allies.length, attacked, threateningVillage, targetName: target.name ?? '', distance: target.position.distanceTo(this.bot.entity.position) }, this.launch.rules);
+      const avoidAtNight=this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot)&&equipment.armorPoints<12&&!verifiedWarehouseInterior(this.bot,this.launch.rules)&&visibleThreat(this.bot,target);
+      const decision = exposed||avoidAtNight ? { response: 'retreat' as const, reason: avoidAtNight?'야간 작업 중 관측한 적을 피해 안전한 거리와 엄폐를 확보합니다.':'가까운 실제 적에게 노출돼 피격 전에 안전한 지면과 엄폐를 확보합니다.', supportRequired: true } : assessCombat({ role: this.launch.config.role, health: this.bot.health, food: this.bot.food, ...equipment, rangedEnemies: enemies.filter(e => rangedThreat(e.name ?? '')).length, enemies: enemies.filter((e) => e.position.distanceTo(this.bot.entity.position) < 8).length, allies: allies.length, attacked, threateningVillage, targetName: target.name ?? '', distance: target.position.distanceTo(this.bot.entity.position) }, this.launch.rules);
       if (decision.response !== 'ignore') {
         if (this.combatWait && (this.now() < this.combatWait.retryAt || this.combatWait.fingerprint === this.combatFingerprint(target))) {
           this.action = '지원·안전 경로 대기'; this.reason = this.combatWait.reason; return;
@@ -635,12 +646,16 @@ export class MinecraftWorker {
     if (this.combatWait && !urgentSurvival) { this.action = '지원·안전 경로 대기'; this.reason = this.combatWait.reason; return; }
     if (this.recoveryPending() && (!urgentSurvival||(this.foodCheckpoint.nightBurrowPending===true||this.foodCheckpoint.nightBasePending===true)&&!survivalRecoveryNeeded(this.bot.health,this.bot.food,this.launch.rules.combat))) { this.recoverDeath(); return; }
     if (!this.launch.config.enabled && !urgentSurvival) return;
+    if(!this.active&&!urgentSurvival&&this.launch.rules.workstations.length>0&&this.executor.gearPreparationNeeded()){
+      this.startLocal(s=>this.executor.prepareGear(s),'idle');return;
+    }
     const actualNight=this.bot.time?.doDaylightCycle===true&&duskOrNight(this.bot);
     if(this.bot.time?.isDay===true&&!duskOrNight(this.bot)){delete this.foodCheckpoint.nightShelterUnavailable;delete this.foodCheckpoint.nightBurrowChecked;}
     const searchOrigin=PositionSchema.safeParse((this.foodCheckpoint.nightBurrowSearch as JsonObject|undefined)?.origin);
     if(searchOrigin.success&&vector(this.bot.entity.position).distanceTo(vector(searchOrigin.data))>16)delete this.foodCheckpoint.nightShelterUnavailable;
     const nightGear=combatEquipment(this.bot);
-    if(actualNight&&this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable!==true&&!(nightGear.weapon&&(nightGear.shield||nightGear.armorPoints>=12))&&['build','collect'].every(action=>this.launch.config.allowedActions.includes(action as ActionKind))){
+    const localNightWork = !!this.active && localNightTask(this.bot, this.launch.rules, this.active.message.payload.task) || localNightGuard(this.bot, this.launch.rules, this.launch.config.role);
+    if(actualNight&&!localNightWork&&this.launch.config.enabled&&this.foodCheckpoint.nightShelterUnavailable!==true&&!(nightGear.weapon&&(nightGear.shield||nightGear.armorPoints>=12))&&['build','collect'].every(action=>this.launch.config.allowedActions.includes(action as ActionKind))){
       this.survivalRecovery??={startedAt:this.now(),targetHealth:20,checkpoint:{}};
       this.startLocal(async s=>{await this.cancelActive('야간 거점 대피를 위해 작업 진행을 보존합니다.','task.interrupted');if(!await this.executor.shelterAtNight(s)){this.foodCheckpoint.nightBurrowPending=false;this.foodCheckpoint.nightShelterUnavailable=true;}},'survival',this.foodCheckpoint);return;
     }

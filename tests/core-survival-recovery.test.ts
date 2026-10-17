@@ -3,6 +3,8 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { FleetController } from '../packages/core/src';
 import { DeathRecordSchema, FleetCheckpointSchema, RecoveryStateSchema, WorkerLaunchSchema, type CentralMessage, type DeathRecord, type RecoveryState } from '../packages/contracts/src';
+import {blueprint} from '../packages/contracts/src/blueprints';
+import {warehouseShelter} from '../packages/core/src/warehouse-shelter';
 
 const world = '127.0.0.1:25566', dimension = 'overworld';
 function fixture(helpers = 0) {
@@ -22,6 +24,17 @@ function fixture(helpers = 0) {
   const alert = (botId = 'bot', entityId = 'enemy-uuid') => receive(botId, 'safety.alert', { response: 'retreat', reason: '좀비가 공격해 지원을 요청합니다.', supportRequired: true, threats: [{ entityId, name: 'zombie', x: 3, y: 64, z: 0 }] });
   return { core, sent, receive, report, status, ready, assignments, death, recovery, alert, now: () => clock, advance: (ms: number) => clock += ms };
 }
+
+test('healthy closed-night shelter reports admit local crafting while resource collection and genuine recovery remain blocked',()=>{
+ for(const mode of ['healthy','injured','hungry','burrow']as const){
+  const f=fixture(),warehouse={id:'night-work',world,dimension,position:{x:1,y:64,z:1}},base=warehouseShelter(warehouse,blueprint('warehouse',{x:0,y:63,z:0}))!;
+  f.core.updateRules({warehouse,baseShelter:base});const survivalRecovery={startedAt:1,targetHealth:20,checkpoint:{nightBasePending:true,nightBase:{warehouseId:warehouse.id,phase:'closed'},...(mode==='burrow'?{nightBurrowPending:true}:{}),resourceRecovery:{$food:{destinationsUsed:5,elapsedMs:60000}}}};
+  f.ready('bot',{position:{x:base.inside.x+.5,y:base.inside.y,z:base.inside.z+.5},isDay:false,timeOfDay:14000,health:mode==='injured'?19:20,food:mode==='hungry'?17:20,mode:'survival',action:'창고 야간 대피',survivalRecovery});
+  f.core.createGoal({kind:'collect',item:'oak_log',quantity:1,completionLocation:'inventory',requiredBotId:'bot',priority:100});const craft=f.core.createGoal({kind:'craft',item:'stone_sword',requiredBotId:'bot',priority:90});
+  assert.equal(f.assignments().length,mode==='healthy'?1:0,mode);if(mode==='healthy')assert.equal(f.assignments()[0]!.payload.task.goalId,craft.id);
+  assert.deepEqual(f.core.getSnapshot().agents[0]!.survivalRecovery,survivalRecovery,'offering work never resets a survival search budget');
+ }
+});
 
 test('death is recorded once while idle, blocks respawn assignments and preserves an honest partial recovery', () => {
   const f = fixture(), death = f.death();

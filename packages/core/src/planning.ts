@@ -1,4 +1,4 @@
-import { BuildSitePreparationSchema, MaterialAccessPlanSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
+import { BuildSitePreparationSchema, MaterialAccessPlanSchema, UtilityCleanupPlanSchema, PreparationVerificationSchema, buildSiteCells, preparationProofPositions, type ActionKind, type CompletionCondition, type ContainerRef, type ExpectedBlock, type Goal, type JsonObject, type Position, type Rules, type TaskSpec } from '../../contracts/src';
 import { footprintInside, positionKey } from './verification';
 import { BLUEPRINTS, blueprint, resolveBlueprint } from '../../contracts/src/blueprints';
 
@@ -83,6 +83,16 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'craft' || input.kind === 'smelt') {
+    if(input.params.equipmentDevelopment===true&&input.kind==='craft'){
+      if(!destination||!input.requiredBotId||!Array.isArray(input.params.warehouseInputs)||input.params.warehouseInputs.length>8)return{tasks:[],waiting:'장비 담당 봇과 실제 창고 재료 목록을 확인해야 합니다.'};
+      let dependencies=portal('inside');
+      for(const row of input.params.warehouseInputs){
+        if(!row||typeof row!=='object'||Array.isArray(row)||typeof row.item!=='string'||typeof row.quantity!=='number'||!Number.isInteger(row.quantity)||row.quantity<1||row.quantity>64)return{tasks:[],waiting:'장비 제작에 가져올 실제 재료 수량을 확인해야 합니다.'};
+        const take=add('take',{item:row.item,quantity:row.quantity,destination:jsonObject(destination)},{kind:'transfer',container:destination,item:row.item,quantity:row.quantity,direction:'take'},dependencies,[containerKey(destination)]);dependencies=[take.id];
+      }
+      const crafted=add('craft',{...input.params,item:input.item!,quantity:input.quantity},{kind:'inventory',item:input.item!,minimum:input.quantity},dependencies);
+      portal('outside',[crafted.id]);return{tasks};
+    }
     if(input.kind==='craft'&&input.params.recipeFromWarehouse===true){
       if(input.item!=='bread'||!destination)return {tasks:[],waiting:'창고의 실제 밀을 사용하는 빵 제작과 입고 계획이 필요합니다.'};
       const dependencies=portal('inside'),quantity=input.quantity;
@@ -95,6 +105,12 @@ export function planGoal(goal: Goal, rules: Rules, newId: () => string, warehous
     return { tasks };
   }
   if (input.kind === 'build') {
+    if(input.params.mode==='utility-cleanup'){
+      const parsed=UtilityCleanupPlanSchema.safeParse(input.params.cleanup);
+      if(input.source!=='user'||!parsed.success)return{tasks:[],waiting:'정리할 임시 제작대 위치를 명시해야 합니다.'};
+      const blocks=parsed.data.positions.map(position=>({position,name:'air'}));
+      add('build',{...input.params,cleanup:jsonObject(parsed.data)},{kind:'blocks',blocks},[],blocks.map(b=>`block:${rules.world}:${rules.dimension}:${positionKey(b.position)}`));return{tasks};
+    }
     if(input.params.mode==='material-access'){
       const parsed=MaterialAccessPlanSchema.safeParse(input.params.access);
       if(input.source!=='user'||!parsed.success)return {tasks,waiting:'명시한 자원 접근로의 제한된 실제 지형 계획이 필요합니다.'};

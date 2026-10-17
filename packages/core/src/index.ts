@@ -2,7 +2,7 @@ import {idleResourceTaskCanYield} from './resource-affinity';
 import { randomUUID } from 'node:crypto';
 import {
   BuildAccessPreparationSchema, accessPreparationFinalBlocks, validateBuildAccessPreparation, BlueprintDefinitionSchema, BlueprintInputSchema, BotInputSchema, BotPatchSchema, BuildSiteSchema, BuildSitePreparationSchema, BuildWaitingForSchema, ContainerRefSchema, DeathRecordSchema, DEFAULT_RULES, FleetCheckpointSchema, GoalInputSchema, GoalPatchSchema, MaterialAccessPlanSchema, PositionSchema, PreparationVerificationSchema, PROTOCOL_VERSION, RulesPatchSchema, RulesSchema, WorkerMessageSchema,
-  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, foodReserveReturnAllowed, validateBuildSitePreparation,
+  buildSiteCells, isBuildSiteAir, isBuildSiteGround, itemCount, matchesPreparationTarget, resourceNamesFor, sameContainer, survivalRecoveryNeeded, foodReserveReturnAllowed, canScheduleNightShelterWork, validateBuildSitePreparation,
   type Agent, type BotInput, type BotPatch, type CentralMessage, type CoreEvent, type ExecutionMode, type FleetCheckpoint, type FleetSnapshot,
   type Goal, type GoalInput, type GoalPatch, type JsonObject, type Observation, type ObservationInput, type ResultPayload,
   type DeathRecord, type RecoveryState, type BlueprintDefinition, type BlueprintInput, type BuildSite, type BuildSitePreparation, type BuildWaitingFor, type ExpectedBlock, type GoalDefinition, type Position, type Rules, type RulesPatch, type Task, type TaskAttempt, type WorkerMessage,
@@ -15,6 +15,7 @@ import { distance, footprintInside, freshObservations, positionKey, verifyComple
 import { collectionHints } from './resource-hints';
 import { warehouseShelter } from './warehouse-shelter';
 import { baseSupplyGoals } from './base-supply';
+import { equipmentDevelopmentGoals } from './equipment-development';
 import { baseDecisionAction } from './base-decisions';
 import { CheckpointJson } from './checkpoint-json';
 
@@ -1307,10 +1308,11 @@ export class FleetController {
   private assignmentReady(agent: Agent): boolean {
     const session = agent.session, report = session?.report;
     const reserveReturn = !!report && foodReserveReturnAllowed(this.state.rules, report.health, report.food, (agent.survivalRecovery ?? report.survivalRecovery)?.checkpoint);
+    const nightWork = !!report && canScheduleNightShelterWork(this.state.rules,{...report,survivalRecovery:agent.survivalRecovery??report.survivalRecovery});
     return (!agent.recovery || agent.recovery.phase === 'resolved' && agent.recovery.safe) && agent.config.enabled && agent.desiredConfig?.enabled !== false
       && agent.status !== 'removing' && agent.status !== 'removed' && session?.state === 'ready' && !!report?.ready && !session.activeAttemptId
       && session.rulesVersion === this.state.rules.version && this.now() - session.lastReportAt < this.state.rules.statusTimeoutMs
-      && !['emergency', 'recovering', 'paused', 'stopping'].includes(report.mode) && (!this.survivalBlocked(agent) || reserveReturn);
+      && !['emergency', 'recovering', 'paused', 'stopping'].includes(report.mode) && (!this.survivalBlocked(agent) || reserveReturn || nightWork);
   }
   private candidateTasks(agent: Agent): Task[] {
     if (!this.assignmentReady(agent)) return [];
@@ -1318,7 +1320,7 @@ export class FleetController {
     return this.state.tasks.filter(task => {
       const goal = this.goal(task.goalId);
       const report = agent.session!.report!;
-      if (this.survivalBlocked(agent) && !foodReserveReturnAllowed(this.state.rules, report.health, report.food, (agent.survivalRecovery ?? report.survivalRecovery)?.checkpoint, task)) return false;
+      if (this.survivalBlocked(agent) && !foodReserveReturnAllowed(this.state.rules, report.health, report.food, (agent.survivalRecovery ?? report.survivalRecovery)?.checkpoint, task) && !canScheduleNightShelterWork(this.state.rules,{...report,survivalRecovery:agent.survivalRecovery??report.survivalRecovery},task)) return false;
       if (goal.input.requiredBotId && goal.input.requiredBotId !== agent.id) return false;
       if (task.assignmentWait?.botId === agent.id) return false;
       if (!runnable.has(task.state) || task.generation !== goal.generation || terminalGoals.has(goal.state) || goal.state === 'cancelling' || goal.state === 'held' || (task.retryAt ?? 0) > this.now()) return false;
@@ -1367,8 +1369,14 @@ export class FleetController {
     const proof = ContainerRefSchema.safeParse(goal.input.params.verifiedWarehouse);
     return task.completion.kind === 'warehouse' && task.state === 'completed' && task.generation === goal.generation && goal.state === 'completed' && proof.success && sameContainer(proof.data, task.completion.container);
   }
+  private verifiedRegisteredStructureTask(goal: Goal, task: Task): boolean {
+    return goal.state === 'completed' && task.state === 'completed' && task.kind === 'build' && task.generation === goal.generation && task.completion.kind === 'blocks' &&
+      BlueprintDefinitionSchema.safeParse(goal.input.params.blueprintDefinition).success;
+  }
   private protectedPositions(task: Task): Position[] {
     const positions = new Map<string, Position>();
+    const repair = task.source === 'user' && task.params.mode === 'material-access' ? MaterialAccessPlanSchema.safeParse(task.params.access) : undefined;
+    const fill = new Set(repair?.success ? repair.data.edits.filter(e => e.before === 'air' && e.after === 'dirt').map(e => positionKey(e.position)) : []);
     for (const other of this.state.tasks) {
       const goal = this.goal(other.goalId);
       if (other.id !== task.id && task.params.mode !== 'material-access' && other.kind === 'build' && other.params.mode === 'material-access' && other.source === 'user' && other.state === 'completed' && goal.state === 'completed' && other.generation === goal.generation && other.reservationKeys.every(key => key.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`))) {
@@ -1382,13 +1390,21 @@ export class FleetController {
         }
         continue;
       }
-      const verified = this.verifiedWarehouseTask(goal, other);
+      const verified = this.verifiedWarehouseTask(goal, other) || this.verifiedRegisteredStructureTask(goal, other);
       if (other.id === task.id || other.id === task.params.parentTaskId || isBuildSiteTask(task) && task.params.fixedOrigin && other.goalId === task.goalId || !['build', 'farm'].includes(other.kind) || other.generation !== goal.generation || (['completed', 'cancelled'].includes(other.state) || terminalGoals.has(goal.state)) && !verified) continue;
       if (verified && other.goalId === task.goalId) continue;
+      const built = fill.size && verified && (other.completion.kind === 'warehouse' || other.completion.kind === 'blocks') ? other.completion.blocks : [];
+      const xs = built.map(b => b.position.x), zs = built.map(b => b.position.z), floor = Math.min(...built.map(b => b.position.y));
       for (const reservation of other.reservationKeys) {
         if (!reservation.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`)) continue;
         const values = reservation.split(':').at(-1)!.split(',').map(Number);
-        if (values.length === 3 && values.every(Number.isInteger)) positions.set(values.join(','), { x: values[0]!, y: values[1]!, z: values[2]! });
+        if (values.length === 3 && values.every(Number.isInteger)) {
+          const p = { x: values[0]!, y: values[1]!, z: values[2]! };
+          // A completed site's empty exterior buffer may receive explicit soil
+          // support. Keep excavation, interior columns and real blocks protected.
+          if (built.length && fill.has(positionKey(p)) && p.y < floor && (p.x < Math.min(...xs) || p.x > Math.max(...xs) || p.z < Math.min(...zs) || p.z > Math.max(...zs))) continue;
+          positions.set(values.join(','), p);
+        }
       }
     }
     return [...positions.values()];
@@ -1502,6 +1518,7 @@ export class FleetController {
         this.applyAgentRules(agent);
       }
       if(this.state.rules.autonomyEnabled&&this.state.rules.baseAutonomy&&this.state.rules.center&&this.state.agents.some(a=>a.session?.state==='ready'&&a.config.enabled))for(const input of baseSupplyGoals(this.state.rules,this.state.goals,this.state.observations,this.now(),this.controllerEpoch))this.createGoal(input);
+      for(const input of equipmentDevelopmentGoals(this.state.rules,this.state.agents,this.state.goals,this.state.observations,this.now(),this.controllerEpoch))this.createGoal(input);
       if (this.state.rules.autonomyEnabled && !this.state.rules.baseAutonomy && this.state.rules.center && this.state.rules.warehouse && this.state.agents.some(a => a.session?.state === 'ready' && a.config.enabled)) {
         for (const stock of this.state.rules.developmentStock) if (!this.state.goals.some(g => g.input.source === 'autonomous' && g.input.kind === 'collect' && g.input.item === stock.item)) {
           const input = GoalInputSchema.parse({ kind: 'collect', item: stock.item, quantity: stock.quantity, mode: 'maintain', source: 'autonomous', priority: 10 });
@@ -1534,7 +1551,7 @@ export class FleetController {
     const retention = this.now() - this.state.rules.logRetentionDays * 86400000;
     // Actual warehouse ownership outlives gameplay-log retention. Its validated
     // footprint must remain protected when later collectors search for stone.
-    this.state.goals = this.state.goals.filter(g => !terminalGoals.has(g.state) || g.input.source === 'autonomous' || g.updatedAt >= retention || this.state.tasks.some(t => t.goalId === g.id && this.verifiedWarehouseTask(g, t)));
+    this.state.goals = this.state.goals.filter(g => !terminalGoals.has(g.state) || g.input.source === 'autonomous' || g.updatedAt >= retention || this.state.tasks.some(t => t.goalId === g.id && (this.verifiedWarehouseTask(g, t) || this.verifiedRegisteredStructureTask(g, t))));
     const goals = new Map(this.state.goals.map(g => [g.id, g]));
     this.state.tasks = this.state.tasks.filter(t => {
       const goal = goals.get(t.goalId);
