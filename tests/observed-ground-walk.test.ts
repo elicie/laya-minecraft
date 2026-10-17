@@ -4,11 +4,12 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import {alternateSafeWalk} from '../packages/minecraft/src/safe-walk';
 import { observedGroundApproach, observedGroundRoute, observedGroundStand } from '../packages/minecraft/src/observed-ground-walk';
+import { resourceClearance } from '../packages/minecraft/src/resource-recovery';
 
 function fixture(){
   const cells=new Map<string,string>();let loaded=(p:Vec3)=>true;
   const route=Array.from({length:90},(_,i)=>({x:i+1,y:64,z:0,toBreak:[] as unknown[],toPlace:[] as unknown[],parkour:false}));
-  const bot={entity:{position:new Vec3(.5,64,.5)},entities:{} as Record<string,{name:string;position:Vec3}>,blockAt(p:Vec3){if(!loaded(p))return null;const name=cells.get(p.toString())??(p.y<64?'stone':'air');return{name,position:p,shapes:[[0,0,0,1,1,1]],boundingBox:['air','water','lava','bush','firefly_bush','short_dry_grass','tall_dry_grass','sweet_berry_bush','dandelion'].includes(name)?'empty':'block'};},pathfinder:{movements:{canDig:false,allow1by1towers:false},getPathTo:()=>({status:'success',path:route})}};
+  const bot={entity:{position:new Vec3(.5,64,.5)},entities:{} as Record<string,{name:string;position:Vec3}>,blockAt(p:Vec3){if(!loaded(p))return null;const name=cells.get(p.toString())??(p.y<64?'stone':'air');return{name,position:p,shapes:[[0,0,0,1,1,1]],boundingBox:['air','water','lava','bush','firefly_bush','short_dry_grass','tall_dry_grass','sweet_berry_bush','dandelion','torch','wall_torch'].includes(name)?'empty':'block'};},pathfinder:{movements:{canDig:false,allow1by1towers:false},getPathTo:()=>({status:'success',path:route})}};
   return{bot:bot as unknown as Bot,raw:bot,cells,route,set loaded(fn:typeof loaded){loaded=fn;}};
 }
 
@@ -51,6 +52,26 @@ test('a read-only return can walk across an intact full utility floor and flower
   const f=fixture();f.cells.set(new Vec3(45,63,0).toString(),'crafting_table');f.cells.set(new Vec3(46,64,0).toString(),'dandelion');
   assert.equal(observedGroundRoute(f.bot,{x:90,y:64,z:0})?.length,90);
   assert.equal(f.cells.get(new Vec3(45,63,0).toString()),'crafting_table');assert.equal(f.cells.get(new Vec3(46,64,0).toString()),'dandelion');
+});
+
+test('a verified return passes intact noncolliding ground and wall torches at body or head height',()=>{
+  for(const name of ['torch','wall_torch'])for(const y of [64,65]){
+    const f=fixture(),p=new Vec3(45,y,0);f.cells.set(p.toString(),name);
+    assert.equal(observedGroundRoute(f.bot,{x:90,y:64,z:0})?.length,90,`${name} at ${y}`);
+    assert.equal(f.cells.get(p.toString()),name);
+    f.loaded=q=>!q.equals(p.offset(0,63-y,0));
+    assert.equal(observedGroundRoute(f.bot,{x:90,y:64,z:0}),undefined,'torch clearance cannot replace observed support');
+  }
+});
+
+test('fixture clearance still requires empty collision and excludes hazards and unknown fixtures',()=>{
+  const block=(name:string,boundingBox='empty')=>({name,boundingBox}) as ReturnType<Bot['blockAt']>;
+  for(const name of ['torch','wall_torch']){
+    assert.equal(resourceClearance(block(name)),true);
+    assert.equal(resourceClearance(block(name,'block')),false);
+  }
+  for(const name of ['water','lava','fire','soul_fire','campfire','sweet_berry_bush','unknown_fixture'])assert.equal(resourceClearance(block(name)),false,name);
+  assert.equal(resourceClearance(null),false);
 });
 
 test('an intact exposed ore cube is a walking support and is left unmined',()=>{
