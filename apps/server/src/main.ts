@@ -124,6 +124,7 @@ export async function startRuntime(options: RuntimeOptions = {}) {
     });
     core = new FleetController({
       checkpoint,
+      deferReportScheduling: true,
       send: (botId, message) => supervisor!.send(botId, message),
       decide: (request) => laya.choose(request),
       scoreEveryDecision:!!process.env.QWEN_DECISION_URL,
