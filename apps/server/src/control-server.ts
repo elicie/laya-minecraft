@@ -105,7 +105,11 @@ export function createControlServer(options: ControlServerOptions) {
   function observeEvent(event: CoreEvent): void {
     if (closed) return;
     dirtySnapshot = true;
-    const transient = ['bot.status', 'world.observed', 'task.progress'].includes(event.type);
+    // scheduler.decision durably grants the attempt before IPC dispatch, and
+    // terminal results flush the latest checkpoint. Acknowledgement summaries
+    // keep their immediate journal entries without rewriting all retained
+    // history again for each packet. Restarts still fence unfinished grants.
+    const transient = ['bot.status', 'world.observed', 'task.progress', 'task.assigned', 'task.accepted', 'task.started', 'task.condition-changed'].includes(event.type);
     if (transient) {
       checkpointDirty = true;
       if (event.type !== 'bot.status') { store.appendEvent(event as unknown as StoredEvent); broadcast('event', event, event.id); }

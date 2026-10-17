@@ -494,6 +494,30 @@ test('additional quantity freezes warehouse baseline; maintain stock reactivates
   assert.equal(f.core.getSnapshot().goals.find(g => g.id === additional.id)?.targetQuantity, 42);
 });
 
+test('fresh stock delivered by another bot stops an unnecessary returning warehouse search and keeps its spent checkpoint',()=>{
+ const f=fixture(2);f.observeStock(0);
+ const goal=f.core.createGoal({kind:'collect',item:'oak_log',quantity:1,mode:'maintain',requiredBotId:'bot-0',params:{returnTo:{x:0,y:64,z:0}}}),collect=f.latest();f.begin(collect);
+ const checkpoint={resourceRecovery:{oak_log:{destinationsUsed:4,approachesUsed:7,elapsedMs:59000}},resourceTrip:{item:'oak_log',minimum:1,home:{x:0,y:64,z:0},trail:[{x:0,y:64,z:0}],phase:'outbound'}};
+ f.receive(collect.botId,'task.progress',{action:'collect',reason:'preserved search',checkpoint,observations:[]},collect);
+ const generation=f.core.getSnapshot().goals.find(g=>g.id===goal.id)!.generation;
+ const next=f.core.createGoal({kind:'home',requiredBotId:'bot-0',priority:99,params:{position:{x:0,y:64,z:0}}});
+ const old=f.obs('container',{container:warehouse,items:[{name:'oak_log',count:1}]});old.observedAt=f.now()-f.core.getRules().observationMaxAgeMs-1;
+ f.receive('bot-1','world.observed',{observations:[old]});assert.equal(f.sent.some(m=>m.type==='task.cancel'&&m.attemptId===collect.attemptId),false,'expired stock cannot stop an unfinished search');
+ f.observeStock(1,'bot-1');
+ assert.ok(f.sent.some(m=>m.type==='task.cancel'&&m.attemptId===collect.attemptId));
+ assert.equal(f.core.getSnapshot().goals.find(g=>g.id===goal.id)!.state,'maintaining');
+ assert.equal(f.assignments().some(m=>m.payload.task.goalId===next.id),false,'the old actor stays fenced until an actual stop acknowledgement');
+ f.receive(collect.botId,'task.cancelled',{safeStopped:true,checkpoint,observations:[],evidence:[],reason:'stock already delivered'},collect);
+ const state=f.core.getSnapshot();assert.equal(state.goals.find(g=>g.id===goal.id)!.generation,generation);assert.deepEqual(state.tasks.find(t=>t.id===collect.taskId)!.checkpoint,checkpoint);
+ assert.equal(f.latest().payload.task.goalId,next.id);assert.equal(f.assignments().filter(m=>m.payload.task.goalId===goal.id).length,1,'no new search is created while actual stock is sufficient');
+});
+
+test('inventory parcels still finish their own promised return before their goal can complete',()=>{
+ const f=fixture();const goal=f.core.createGoal({kind:'collect',item:'oak_log',quantity:1,completionLocation:'inventory',requiredBotId:'bot-0',params:{returnTo:{x:0,y:64,z:0}}}),collect=f.latest();f.begin(collect);
+ f.status('bot-0',[{name:'oak_log',count:1}]);assert.equal(f.core.getSnapshot().goals.find(g=>g.id===goal.id)!.state,'active');assert.equal(f.sent.some(m=>m.type==='task.cancel'&&m.attemptId===collect.attemptId),false);
+ f.result(collect,{outcome:'completed',observations:[f.obs('inventory',{items:[{name:'oak_log',count:1}]}),f.obs('position',{position:{x:0,y:64,z:0}})],checkpoint:{resourceTrip:{item:'oak_log',minimum:1,home:{x:0,y:64,z:0},trail:[{x:0,y:64,z:0}],phase:'complete',completedAt:f.now()}}});assert.equal(f.core.getSnapshot().goals.find(g=>g.id===goal.id)!.state,'completed');
+});
+
 test('container reservations serialize store tasks while resource acquisition can run in parallel', () => {
   const f = fixture(2); f.observeStock(0);
   f.core.createGoal({ kind: 'collect', item: 'oak_log', quantity: 8 });

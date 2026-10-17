@@ -21,6 +21,33 @@ class CountingStore extends ControlStore {
   }
 }
 
+test('assignment grants persist before IPC, acknowledgement journals coalesce writes, and restart fencing and terminal budgets stay intact',async()=>{
+ const store=new CountingStore(':memory:');let api:ReturnType<typeof createControlServer>|undefined;let writesAtGrant=0;const sent:CentralMessage[]=[];
+ const core=new FleetController({deferReportScheduling:true,rules:{autonomyEnabled:false},onEvent(event){api?.observeEvent(event);},send:(_bot,message)=>{
+  sent.push(message);
+  if(message.type==='task.assign'){
+   const saved=store.loadCheckpoint<FleetCheckpoint>()!;assert.equal(saved.attempts.find(a=>a.id===message.attemptId)!.state,'assigned','the complete grant is durable before the worker can act');writesAtGrant=store.checkpointWrites;
+  }
+ }});
+ api=createControlServer({core,store,port:0});await api.listen();
+ try{
+  const agent=core.addAgent({name:'DurableReports'});core.startSession(agent.id,'milestone-session');const rules=core.getRules();
+  const receive=(type:string,payload:unknown,extra={})=>core.receive({protocolVersion:1,messageId:randomUUID(),controllerEpoch:core.controllerEpoch,botId:agent.id,sessionId:'milestone-session',sentAt:Date.now(),type,payload,...extra});
+  receive('bot.ready',{ready:true,world:rules.world,dimension:rules.dimension,position:{x:0,y:64,z:0},health:20,food:20,inventory:[],action:'idle',reason:'ready',mode:'idle',capabilities:['collect','explore'],rulesVersion:rules.version});receive('rules.applied',{version:rules.version});
+  core.createGoal({kind:'collect',item:'sand',quantity:6,completionLocation:'inventory',requiredBotId:agent.id});
+  const grant=sent.find((m):m is Extract<CentralMessage,{type:'task.assign'}>=>m.type==='task.assign');assert.ok(grant);const extra={taskId:grant.taskId,attemptId:grant.attemptId};
+  receive('task.accepted',{},extra);receive('task.started',{},extra);
+  const checkpoint={resourceRecovery:{sand:{destinationsUsed:5,approachesUsed:8,elapsedMs:60000}},waitingFor:{kind:'inventory',causeCode:'RESOURCE_MISSING',item:'sand',minimum:6,resourceNames:['sand'],watchPosition:true}};
+  receive('task.progress',{action:'collect',reason:'spent budget',checkpoint,observations:[]},extra);
+  assert.equal(store.checkpointWrites,writesAtGrant,'milestone and progress summaries do not rewrite retained history');
+  const journal=store.listEvents(100);for(const type of ['scheduler.decision','task.assigned','task.accepted','task.started','task.progress'])assert.ok(journal.some(e=>e.type===type),type+' stays journaled immediately');
+  const durable=store.loadCheckpoint<FleetCheckpoint>()!,resends:CentralMessage[]=[];const restored=new FleetController({checkpoint:durable,send:(_bot,message)=>resends.push(message)});restored.tick();
+  assert.equal(restored.checkpoint().attempts.find(a=>a.id===grant.attemptId)!.state,'uncertain');assert.equal(resends.some(m=>m.type==='task.assign'),false,'a crash before the coalesced flush cannot run a second actor');restored.dispose();
+  receive('task.result',{outcome:'condition-wait',checkpoint,observations:[],evidence:[],reason:'actual missing sand'},extra);
+  assert.ok(store.checkpointWrites>writesAtGrant);const final=store.loadCheckpoint<FleetCheckpoint>()!;assert.deepEqual(final.tasks.find(t=>t.id===grant.taskId)!.checkpoint,checkpoint);assert.deepEqual(final.attempts.find(a=>a.id===grant.attemptId)!.result!.checkpoint,checkpoint,'the terminal write flushes full resource spend and evidence');
+ }finally{await api.close();store.close();}
+});
+
 test('event subscribers cannot alter controller history and do not request full snapshots', () => {
   const received: CoreEvent[] = [];
   const core = new SnapshotCountingCore({ send() {}, onEvent(event) { received.push(structuredClone(event)); event.message='external mutation'; } });
