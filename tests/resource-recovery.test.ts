@@ -4,6 +4,8 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { RecoveryStateSchema, WorkerLaunchSchema, WorkerMessageSchema, type Position } from '../packages/contracts/src';
 import { blueprintPreset } from '../packages/contracts/src/blueprint-catalog';
+import { blueprint } from '../packages/contracts/src/blueprints';
+import { warehouseShelter } from '../packages/core/src/warehouse-shelter';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ResourceRecovery, foodSearchCanExpand, reconcileResourceJourneys, safeResourceStand, safeResourceRoute } from '../packages/minecraft/src/resource-recovery';
 import { observedGroundApproach, observedGroundRoute } from '../packages/minecraft/src/observed-ground-walk';
@@ -52,6 +54,13 @@ function fixture() {
   const add = (p: Vec3, name: string) => { sources.push(p); cells.set(p.toString(), name); };
   return { bot, executor, services, cells, ages, sources, stock, moved, dug, add, launch, set loaded(fn: typeof loaded) { loaded = fn; }, set routeAllowed(fn: typeof routeAllowed) { routeAllowed = fn; }, set visible(fn: typeof visible) { visible = fn; },set pathRadius(n:number){pathRadius=n;} };
 }
+
+test('collection walks through the protected yard to an offsite source without mining its nearby ground',async()=>{
+ const f=fixture();f.bot.health=20;f.bot.food=20;const world=f.services.rules.world,container={id:'w',world,dimension:'overworld',position:{x:-5,y:71,z:-5}};
+ f.launch.rules.baseShelter=warehouseShelter(container,blueprint('warehouse',{x:-6,y:70,z:-6}))!;
+ const near=new Vec3(15,64,0),quarry=new Vec3(30,64,0);f.add(near,'stone');f.add(quarry,'stone');
+ await f.executor.ensureItem('cobblestone',1,f.services);assert.equal(f.stock.get('cobblestone'),1);assert.deepEqual(f.dug,[quarry]);assert.equal(f.bot.blockAt(near)?.name,'stone');
+});
 
 for(const spent of [false,true])test(`a solid search landmark uses a verified neighboring stand and ${spent?'preserves exhausted search spend':'collects actual material and returns'}`,async()=>{
  const f=fixture();f.bot.health=20;f.bot.food=20;f.launch.config.allowedActions=['collect'];Object.assign(f.bot.registry.itemsByName,{sand:{id:3}});

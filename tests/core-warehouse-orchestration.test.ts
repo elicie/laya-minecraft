@@ -198,6 +198,16 @@ test('custom warehouse without chests completes its building and explicitly expl
   const finished = f.core.getSnapshot().goals.find(value => value.id === goal.id)!; assert.equal(finished.state, 'completed'); assert.match(finished.reason!, /상자가 없어/); assert.equal(f.core.getSnapshot().rules.warehouse, null); assert.equal(f.core.getSnapshot().tasks.some(task => task.completion.kind === 'warehouse'), false);
 });
 
+test('completed registered buildings without a warehouse keep their floor protected after log retention expires',()=>{
+ const f=fixture(),preset=blueprintPreset('warehouse'),definition=f.core.createBlueprint({...preset,title:'보존할 작업실',furniture:{...preset.furniture,chest:false}});
+ const goal=f.core.createGoal({kind:'build',params:{blueprint:definition.id,origin}}),build=f.latest();
+ f.result(build,{outcome:'completed',observations:[f.obs('blocks',{blocks:blueprint(definition.id,origin,definition.wood,definition)})]});
+ assert.equal(f.core.getSnapshot().goals.find(g=>g.id===goal.id)?.state,'completed');assert.equal(f.core.getSnapshot().rules.warehouse,null);
+ f.advance(31*86400000);f.ready();f.core.tick();assert.equal(f.core.getSnapshot().goals.find(g=>g.id===goal.id)?.state,'completed');
+ f.core.createGoal({kind:'collect',item:'cobblestone',quantity:1,completionLocation:'inventory'});const collect=f.latest();assert.equal(collect.payload.task.kind,'collect');
+ assert.ok((collect.payload.task.params.protectedPositions as Position[]).some(p=>p.x===origin.x&&p.y===origin.y&&p.z===origin.z));FleetCheckpointSchema.parse(f.core.checkpoint());
+});
+
 test('cancelled registration and direct injected registration modes cannot activate a warehouse', () => {
   const f = fixture(), { goal, assignment: build } = f.build(), check = f.built(build); f.core.cancelGoal(goal.id); f.result(check, f.registration(check));
   assert.equal(f.core.getSnapshot().rules.warehouse, null); assert.equal(f.core.getSnapshot().goals[0]!.state, 'cancelled'); assert.equal(f.core.getSnapshot().goals[0]!.input.params.verifiedWarehouse, undefined);

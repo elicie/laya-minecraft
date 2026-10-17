@@ -9,6 +9,7 @@ import {crossOpenDoor} from './door-passage';
 import {centerSupportedCell} from './standing-footprint';
 import {settleWarehouseThreshold} from './base-threshold';
 import {withWarehouseDoor} from './warehouse-door-lease';
+import {localNightExitClear} from './night-work';
 
 export function warehouseInterior(s:ActionServices,p:Position=s.bot.entity.position):boolean{
  const base=s.rules.baseShelter;if(!base||base.world!==s.rules.world||base.dimension!==s.rules.dimension)return false;
@@ -75,7 +76,7 @@ export async function restInWarehouse(s:ActionServices,enabled:()=>boolean,eat?:
       if(!inside())throw new ConditionWait('창고 내부의 실제 도착을 확인해야 합니다.',s.checkpoint);
       await withWarehouseDoor(s,()=>door(false));
     }else if(inside()){
-      if(b.time?.doDaylightCycle===true&&night()||!clear(base.outside,12))throw new ConditionWait('낮과 안전한 창고 출구를 확인한 뒤 작업을 재개합니다.',s.checkpoint);
+      if(b.time?.doDaylightCycle===true&&night()&&!(s.checkpoint.nightLocalWork===true&&localNightExitClear(b,s.rules))||!clear(base.outside,12))throw new ConditionWait('안전한 창고 출구와 허용된 근거리 작업을 확인한 뒤 재개합니다.',s.checkpoint);
       await s.near(vector(base.inside).offset(.5,0,.5),0);await stable();
       await withWarehouseDoor(s,async()=>{await door(true);await crossOpenDoor(s,base.door,base.outside,enabled,()=>clear(b.entity.position,12));await stable();await centerSupportedCell(b,s);await door(false);await stable();});
     }else{await approachOutside();}

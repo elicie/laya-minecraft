@@ -75,10 +75,10 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
     entity: { position: new Vec3(0, 64, 0) }, entities: {}, world: { raycast: () => null },
     inventory: { items: () => [...stock].filter(([, count]) => count > 0).map(([name, count]) => ({ name, count, type: ids[name] })), emptySlotCount: () => 36 },
     registry: { itemsByName: Object.fromEntries(names.map(name => [name, { id: ids[name] }])), items: Object.fromEntries(names.map(name => [ids[name], { name }])) },
-    blockAt(p: Vec3) { const name = cells.get(p.toString()) ?? (p.y === 63 ? 'dirt' : 'air'); return { name, position: p, boundingBox: name === 'air' ? 'empty' : 'block', canHarvest: () => true, getProperties: () => ({}) }; },
-    findBlock(request: { matching: (block: unknown) => boolean; useExtraInfo?: (block: unknown) => boolean }) {
+    blockAt(p: Vec3) { const name = cells.get(p.toString()) ?? (p.y === 63 ? 'dirt' : 'air'); return { name, position: p, boundingBox: ['air','torch','wall_torch'].includes(name) ? 'empty' : 'block', canHarvest: () => true, getProperties: () => ({}) }; },
+    findBlock(request: { matching: (block: unknown) => boolean; useExtraInfo?: (block: unknown) => boolean; maxDistance?:number }) {
       queries++;
-      for (const p of [...locations].sort((a,b)=>a.distanceTo(bot.entity.position)-b.distanceTo(bot.entity.position))) { const block = bot.blockAt(p); if (request.matching(block) && (!request.useExtraInfo || request.useExtraInfo(block))) return block; }
+      for (const p of [...locations].sort((a,b)=>a.distanceTo(bot.entity.position)-b.distanceTo(bot.entity.position))) { if(p.distanceTo(bot.entity.position)>(request.maxDistance??Infinity))continue;const block = bot.blockAt(p); if (request.matching(block) && (!request.useExtraInfo || request.useExtraInfo(block))) return block; }
       return null;
     },
     recipesAll(id: number) { return recipes.get(id) ?? []; },
@@ -99,6 +99,18 @@ function woodRecipeFixture(observed: string[], initial: Record<string, number> =
   services.near = async p => { if (blockedWood && locations.some(q => bot.blockAt(q).name === `${blockedWood}_log` && q.distanceTo(new Vec3(p.x, p.y, p.z)) < 4)) throw new ConditionWait('NoPath'); bot.entity.position = new Vec3(p.x, p.y, p.z); };
   return { executor, services, bot, stock, cells, locations, crafted, dug, get queries() { return queries; }, set blockedWood(value: string) { blockedWood = value; }, set failCraft(value: boolean) { failCraft = value; } };
 }
+
+test('a registered table beyond the local scan is reused for a stone sword while an old wooden sword remains in inventory',async()=>{
+ const f=woodRecipeFixture([],{wooden_sword:1,cobblestone:2,stick:1}),p=new Vec3(40,64,0);
+ f.cells.set(p.toString(),'crafting_table');f.locations.push(p);f.executor.options.rules.workstations=[{name:'crafting_table',position:p,world:f.services.rules.world,dimension:f.services.rules.dimension}];
+ await f.executor.ensureItem('stone_sword',1,f.services);
+ assert.equal(f.executor.count('stone_sword'),1);assert.equal(f.executor.count('wooden_sword'),1);assert.deepEqual(f.crafted,['stone_sword']);assert.equal(f.cells.get(p.toString()),'crafting_table');assert.deepEqual(f.dug,[]);
+});
+
+test('creating an unregistered utility never clears an installed passable torch',async()=>{
+ const f=woodRecipeFixture([],{crafting_table:1,oak_planks:3,stick:2}),p=new Vec3(2,64,0);f.cells.set(p.toString(),'torch');f.locations.push(p);
+ await f.executor.ensureItem('wooden_pickaxe',1,f.services);assert.equal(f.executor.count('wooden_pickaxe'),1);assert.equal(f.cells.get(p.toString()),'torch');assert.equal(f.dug.includes('torch'),false);
+});
 
 test('an exhausted search can harvest a newly reached visible log without movement or a new search allowance',async()=>{
  const f=woodRecipeFixture(['oak']);Object.assign(f.bot,{health:20,food:20,canDigBlock:()=>true});Object.assign(f.bot.entity,{position:new Vec3(9.5,64,6.5),onGround:true});

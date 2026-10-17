@@ -4,6 +4,7 @@ import { InventoryViewSchema } from './inventory';
 export * from './blueprint-catalog';
 export * from './inventory';
 export * from './resource-wait';
+export * from './night-work';
 
 export const PROTOCOL_VERSION = 1 as const;
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -61,6 +62,7 @@ export const RulesSchema = z.object({
   center: PositionSchema.nullable().default(null), radius: z.number().min(1).max(10000).default(64),
   warehouse: ContainerRefSchema.nullable().default(null),
   baseShelter: BaseShelterSchema.nullable().default(null),
+  workstations: z.array(z.object({ name: z.enum(['crafting_table', 'furnace']), position: PositionSchema, world: z.string().min(1), dimension: z.string().min(1) }).strict()).max(64).default([]),
   foodSearchHints: z.array(z.object({position:PositionSchema,resource:z.enum(['pig','cow','sheep','chicken','rabbit','wheat','carrots','potatoes','melon','sweet_berry_bush']),observedAt:z.number().nonnegative(),world:z.string().min(1),dimension:z.string().min(1)}).strict()).max(32).default([]),
   baseAutonomy: z.object({id:IdSchema,origin:PositionSchema,positions:z.array(PositionSchema).min(1).max(32),breadTarget:z.number().int().min(1).max(64).default(8),woodTarget:z.number().int().min(1).max(64).default(2),botId:IdSchema.optional()}).strict().nullable().default(null),
   maxRetries: z.number().int().min(0).max(5).default(5),
@@ -108,6 +110,7 @@ export type BuildSite = z.infer<typeof BuildSiteSchema>;
 export const BuildSitePreparationSchema = BuildSiteSchema.extend({ near: PositionSchema, edits: z.array(z.object({ position: BlockPositionSchema, before: z.string().min(1), after: z.enum(['air', 'dirt']) }).strict()).max(192), path: z.array(BlockPositionSchema).min(1).max(65) }).strict();
 export type BuildSitePreparation = z.infer<typeof BuildSitePreparationSchema>;
 export const MaterialAccessPlanSchema=z.object({edits:z.array(z.object({stand:BlockPositionSchema,position:BlockPositionSchema,before:z.enum(['air','dirt','grass_block','sand','red_sand']),after:z.enum(['air','oak_planks','dirt'])}).strict()).min(1).max(24),exit:BlockPositionSchema}).strict();
+export const UtilityCleanupPlanSchema=z.object({positions:z.array(BlockPositionSchema).min(1).max(16)}).strict().refine(p=>new Set(p.positions.map(q=>`${q.x},${q.y},${q.z}`)).size===p.positions.length,'Repeated cleanup position');
 export const PreparationVerificationSchema = z.object({ controllerEpoch: IdSchema, sessionId: IdSchema, attemptId: IdSchema, botId: IdSchema, observedAt: time }).strict();
 export const BuildWaitingForSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('blocks'), causeCode: z.enum(['BUILD_SUPPORT', 'BUILD_SITE', 'BUILD_ACCESS', 'BUILD_OBSERVATION']), positions: z.array(BlockPositionSchema).min(1).max(10000), watchPosition: z.boolean().optional(), watchSafety: z.boolean().optional() }).strict(),

@@ -122,7 +122,7 @@ test('an actually observed phantom is included in danger handling and is never r
   } finally { await f.worker.shutdown(); }
 });
 
-test('an unhit guard keeps night shelter from a hidden phantom but responds to one in actual sight', async () => {
+test('an unarmored night guard keeps shelter from a hidden phantom and avoids one in actual sight', async () => {
   for (const visible of [false, true]) {
     const f = fixture(); let shelters = 0;
     f.launch.config.role = 'guard'; f.launch.rules.center = { x: 0, y: 64, z: 0 };
@@ -132,8 +132,8 @@ test('an unhit guard keeps night shelter from a hidden phantom but responds to o
     f.worker.executor.shelterAtNight = async s => { shelters++; s.checkpoint.nightBasePending = true; await s.pause(60000); return true; };
     try {
       f.worker.pollSafety(); await settle();
-      assert.equal(f.fights, visible ? 1 : 0);
-      assert.equal(f.retreats, 0);
+      assert.equal(f.fights, 0);
+      assert.equal(f.retreats, visible ? 1 : 0);
       assert.equal(shelters, visible ? 0 : 1, 'blocked sight alone cannot replace actual shelter with a chase');
     } finally { await f.worker.shutdown(); }
   }

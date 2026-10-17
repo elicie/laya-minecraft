@@ -18,6 +18,9 @@ import { observedGroundApproach, observedGroundRoute, observedGroundStand } from
 import { centerSupportedCell, settleStandingFootprint } from './standing-footprint';
 import { restUnderCover } from './night-shelter';
 import { duskOrNight, restInNightBurrow } from './night-burrow';
+import { protectedVillageCollection, utilityVegetation } from './village-policy';
+import { localNightTask, localNightDestination } from './night-work';
+import { cleanupUtilities } from './utility-cleanup';
 import { prepareMaterialAccess } from './material-access';
 import { restInWarehouse, warehouseInterior } from './base-shelter';
 import {farmSurfaceWalk} from './farm-surface-walk';
@@ -78,6 +81,7 @@ export class MineflayerExecutor {
       walkVerified: (path, stand) => walkVerified(this.bot,path,signal,stand,(p,childSignal)=>this.near(p,childSignal,0)),
       near: async (p, radius) => {
         s.check();
+        if (s.checkpoint.nightLocalWork === true && this.bot.time?.doDaylightCycle === true && duskOrNight(this.bot) && !localNightDestination(s.rules,p)) throw new ConditionWait('야간 작업의 이동은 확인한 거점 근처로 제한합니다.',s.checkpoint);
         await settleWarehouseThreshold(s);
         if(this.bot.entity.position.distanceTo(vector(p))<=(radius??2)+.5)return;
         if(s.checkpoint.nightBasePending!==true&&warehouseInterior(s)&&!warehouseInterior(s,p)){
@@ -133,7 +137,48 @@ export class MineflayerExecutor {
   }
 
   private recordInventory(s: ActionServices): void { s.observations.push(s.observeInventory()); }
+  private gearToEquip() {
+    const slots=this.bot.inventory.slots??[],items=this.bot.inventory.items();
+    const rank=(name:string)=>name==='shield'?1:({leather:1,golden:2,chainmail:3,iron:4,diamond:5,netherite:6}[name.split('_')[0]!]??0);
+    const targets:{slot:number;destination:Parameters<Bot['equip']>[1];suffix:string}[]=[{slot:45,destination:'off-hand',suffix:'shield'},{slot:5,destination:'head',suffix:'_helmet'},{slot:6,destination:'torso',suffix:'_chestplate'},{slot:7,destination:'legs',suffix:'_leggings'},{slot:8,destination:'feet',suffix:'_boots'}];
+    return targets.flatMap(target=>{
+      const item=items.filter(i=>i.count>0&&(target.suffix==='shield'?i.name==='shield':i.name.endsWith(target.suffix))).sort((a,b)=>rank(b.name)-rank(a.name))[0];
+      return item&&rank(item.name)>rank(slots[target.slot]?.name??'')?[{...target,item}]:[];
+    });
+  }
+  gearPreparationNeeded():boolean{return this.gearToEquip().length>0;}
+  async prepareGear(s:ActionServices):Promise<void>{
+    for(const change of this.gearToEquip()){
+      s.check();s.progress('장비 착용',`실제로 가진 ${change.item.name}을 착용합니다.`);await this.bot.equip(change.item,change.destination);await s.pause(50);s.check();
+      if(this.bot.inventory.slots?.[change.slot]?.name!==change.item.name)throw new ActionFailure('장비의 실제 착용 슬롯을 확인하지 못했습니다.','EQUIP_UNCERTAIN',false,false);
+    }
+    this.recordInventory(s);
+  }
   private async utilityAccess<T>(s:ActionServices,access:()=>Promise<T>):Promise<T>{try{return await access();}catch(error){s.check();if(error instanceof ConditionWait)this.utilityAccessFailures.add(error);throw error;}}
+  private knownUtility(name: 'crafting_table' | 'furnace', s: ActionServices): Block | null {
+    const actual = s.rules.workstations.filter(w => w.name === name && w.world === this.options.world && w.dimension === this.options.dimension())
+      .map(w => this.bot.blockAt(vector(w.position))).filter((b): b is Block => b?.name === name)
+      .sort((a,b) => a.position.distanceTo(vector(this.bot.entity.position)) - b.position.distanceTo(vector(this.bot.entity.position)));
+    return actual[0] ?? this.bot.findBlock({ matching: b => b.name === name, maxDistance: 24 });
+  }
+  private async craftingTable(s: ActionServices, chain: Set<string>): Promise<Block> {
+    return this.utilityAccess(s, async () => {
+      // Return before crafting another table: the shared station may only be
+      // outside the travelling actor's loaded neighborhood.
+      await this.returnForUtility(s);
+      let table = this.knownUtility('crafting_table', s);
+      if (table) return table;
+      const sites = s.rules.workstations.filter(w => w.name === 'crafting_table' && w.world === this.options.world && w.dimension === this.options.dimension());
+      if (sites.length) {
+        const site = sites.sort((a,b)=>vector(a.position).distanceTo(vector(this.bot.entity.position))-vector(b.position).distanceTo(vector(this.bot.entity.position)))[0]!;
+        await s.near(site.position, 2); s.check(); table = this.knownUtility('crafting_table', s);
+        if (table) return table;
+        throw new ConditionWait('공동 제작대의 실제 상태를 확인해야 합니다. 임의 위치에 새 제작대를 만들지 않습니다.', s.checkpoint);
+      }
+      await this.ensureItem('crafting_table', 1, s, chain);
+      return this.placeUtility('crafting_table', s);
+    });
+  }
   private async returnForUtility(s: ActionServices): Promise<void> {
     const trip=resourceTrip(s.checkpoint);
     if (trip?.phase==='outbound' && this.bot.entity.position.distanceTo(vector(trip.home))>8) {
@@ -411,7 +456,7 @@ export class MineflayerExecutor {
   private collectMatches(itemName: string, blockName: string): boolean { return (dropBlocks[itemName] ?? [itemName]).includes(blockName); }
   private harvestTool(blockName: string): string { return /diamond|gold|redstone|emerald/.test(blockName) ? 'iron_pickaxe' : /iron|copper|lapis/.test(blockName) ? 'stone_pickaxe' : 'wooden_pickaxe'; }
   private collectible(block: Block, s: ActionServices): boolean {
-    return !this.protectedBuildPosition(block.position, s) && (!block.name.endsWith('_log') || this.naturalLog(block.position)) &&
+    return !this.protectedBuildPosition(block.position, s) && !protectedVillageCollection(s.rules, this.options.world, this.options.dimension(), block.position) && (!block.name.endsWith('_log') || this.naturalLog(block.position)) &&
       (!['wheat', 'carrots', 'potatoes', 'beetroots'].includes(block.name) || Number(block.getProperties().age) >= (block.name === 'beetroots' ? 3 : 7)) &&
       this.bot.blockAt(block.position.offset(0, 1, 0))?.name !== 'lava' && !unsafeBlocks.has(this.bot.blockAt(block.position.offset(0, -1, 0))?.name ?? '');
   }
@@ -421,6 +466,7 @@ export class MineflayerExecutor {
   }
   private protectedBuildPosition(p: { x: number; y: number; z: number }, s: ActionServices): boolean {
     if(s.rules.world===this.options.world&&s.rules.dimension===this.options.dimension()){
+      if(s.rules.workstations.some(w=>w.world===s.rules.world&&w.dimension===s.rules.dimension&&w.position.x===p.x&&w.position.y===p.y&&w.position.z===p.z))return true;
       if(s.rules.baseShelter?.blocks.some(b=>b.position.x===p.x&&b.position.y===p.y&&b.position.z===p.z))return true;
       if(s.rules.baseAutonomy?.positions.some(soil=>soil.x===p.x&&soil.z===p.z&&(soil.y===p.y||soil.y+1===p.y)))return true;
     }
@@ -515,6 +561,7 @@ export class MineflayerExecutor {
     let skippedFrom = vector(this.bot.entity.position).floored(), legacyCheckedAt = '';
     let attempts = 0;
     while (this.count(itemName) < minimum) {
+      if (s.checkpoint.nightLocalWork === true && this.bot.time?.doDaylightCycle === true && duskOrNight(this.bot)) throw new ConditionWait('야간 근거리 작업은 확보한 재료로 진행합니다. 새 채굴 원정은 낮에 이어갑니다.', s.checkpoint);
       // Rejected sources can otherwise form a chain of already-settled
       // promises. Give server packets, safety cancellation and heartbeat
       // timers an event-loop turn even when no candidate can be walked to.
@@ -696,7 +743,7 @@ export class MineflayerExecutor {
   private async furnaceFuel(itemName: string, amount: number, s: ActionServices, chain: Set<string>) {
     const stocked = () => this.bot.inventory.items().find(item => this.furnaceFuels().includes(item.name) && item.count >= this.fuelAmount(item.name, amount));
     const existing = stocked(); if (existing) return existing;
-    const table = this.bot.findBlock({ matching: b => b.name === 'crafting_table', maxDistance: 24 });
+    const table = this.knownUtility('crafting_table', s);
     const evaluation: RecipeEvaluation = { remaining: 1024, table, recipes: new Map(), sources: new Map(), costs: new Map(), resourceNames: new Set() };
     const candidates = this.furnaceFuels().map(name => ({ name, cost: this.acquisitionCost(name, this.fuelAmount(name, amount), chain, s, evaluation) }))
       .filter(candidate => Number.isFinite(candidate.cost)).sort((a, b) => a.cost - b.cost);
@@ -726,7 +773,7 @@ export class MineflayerExecutor {
       estimates.push(this.acquisitionEstimate(name, -ingredient.count * times, chain, s, evaluation));
     }
     // Reject absent raw variants before repeatedly evaluating their shared table.
-    if (estimates.every(value => Number.isFinite(value.cost)) && recipe.requiresTable && !evaluation.table) estimates.push(this.acquisitionEstimate('crafting_table', 1, chain, s, evaluation));
+    if (estimates.every(value => Number.isFinite(value.cost)) && recipe.requiresTable && !evaluation.table && !s.rules.workstations.some(w=>w.name==='crafting_table'&&w.world===this.options.world&&w.dimension===this.options.dimension())) estimates.push(this.acquisitionEstimate('crafting_table', 1, chain, s, evaluation));
     return { cost: estimates.reduce((sum, value) => sum + value.cost, 0), dependencies: new Set(estimates.flatMap(value => [...value.dependencies])), depth: Math.max(0, ...estimates.map(value => value.depth)) };
   }
 
@@ -816,7 +863,7 @@ export class MineflayerExecutor {
     if (smeltInputs[itemName] && this.options.config.allowedActions.includes('smelt')) { await this.smelt(itemName, minimum, s, next); return; }
     // Generic wooden tools and sticks accept any wood. Choose a real accessible
     // log before pinning their recipe, including when a table already exists.
-    let table = this.bot.findBlock({ matching: (b) => b.name === 'crafting_table', maxDistance: 24 });
+    let table = this.knownUtility('crafting_table', s);
     if (['crafting_table','stick','wooden_pickaxe','wooden_axe','wooden_shovel','wooden_hoe','wooden_sword'].includes(itemName) && s.checkpoint.materialExpedition===true && ['explore','collect','craft'].every(action=>this.options.config.allowedActions.includes(action as ActionKind)) && !this.bot.recipesFor(data.id,null,1,table).length){
       const recipe=this.bot.recipesAll(data.id,null,true).find(r=>r.delta.some(i=>i.count<0&&this.bot.registry.items[i.id]?.name.endsWith('_planks')));
       if(recipe){
@@ -826,8 +873,8 @@ export class MineflayerExecutor {
         const tablePlanks=recipe.requiresTable&&!table&&!this.count('crafting_table')?4:0,stickPlanks=Math.ceil(Math.max(0,sticks-this.count('stick'))/4)*2;
         const needed=planks+stickPlanks+tablePlanks;
         await this.utilityWood(s,needed,Math.max(planks,tablePlanks,stickPlanks?2:0));
-        table=this.bot.findBlock({matching:b=>b.name==='crafting_table',maxDistance:24});
-        if(recipe.requiresTable&&!table){await this.ensureItem('crafting_table',1,s,next);table=await this.utilityAccess(s,async()=>{await this.returnForUtility(s);return this.bot.findBlock({matching:b=>b.name==='crafting_table',maxDistance:24})??await this.placeUtility('crafting_table',s);});}
+        table=this.knownUtility('crafting_table',s);
+        if(recipe.requiresTable&&!table)table=await this.craftingTable(s,next);
         if(sticks>this.count('stick'))await this.ensureItem('stick',sticks,s,next);
       }
     }
@@ -846,8 +893,7 @@ export class MineflayerExecutor {
         diagnostic.selected=recipe.delta.filter(i=>i.count<0).map(i=>({name:this.bot.registry.items[i.id]?.name??'unknown',count:-i.count}));
         const times = Math.ceil((minimum - this.count(itemName)) / recipe.result.count);
         if (recipe.requiresTable && !table) {
-          await this.ensureItem('crafting_table', 1, s, next);
-          table=await this.utilityAccess(s,async()=>{await this.returnForUtility(s);return this.bot.findBlock({matching:b=>b.name==='crafting_table',maxDistance:24})??await this.placeUtility('crafting_table',s);});
+          table=await this.craftingTable(s,next);
         }
         const ingredients = recipe.delta.filter(i => i.count < 0).map(i => ({ name: this.bot.registry.items[i.id]?.name, minimum: -i.count * times }));
         if (ingredients.some(i => !i.name)) throw new ConditionWait('제작 재료의 아이템 정보를 확인해야 합니다.');
@@ -862,7 +908,7 @@ export class MineflayerExecutor {
           await this.utilityAccess(s,async()=>{await this.returnForUtility(s);
           // Gathering may have selected a forest table before the real return.
           // Reobserve the work point instead of walking back to that old table.
-          const observed=this.bot.findBlock({matching:b=>b.name==='crafting_table',maxDistance:24})??table;
+          const observed=this.knownUtility('crafting_table',s)??table;
           if(!observed||this.bot.blockAt(observed.position)?.name!=='crafting_table')throw new ConditionWait('제작할 실제 작업대를 다시 확인해야 합니다.',s.checkpoint);
           table=observed;await s.near(observed.position, 2);});
         }
@@ -915,6 +961,12 @@ export class MineflayerExecutor {
   }
 
   private async placeUtility(itemName: string, s: ActionServices) {
+    const registered = s.rules.workstations.filter(w => w.name === itemName && w.world === this.options.world && w.dimension === this.options.dimension());
+    for (const site of registered.sort((a,b)=>vector(a.position).distanceTo(vector(this.bot.entity.position))-vector(b.position).distanceTo(vector(this.bot.entity.position)))) {
+      const block = this.bot.blockAt(vector(site.position));
+      if (block?.name === itemName) return block;
+    }
+    if (registered.length) throw new ConditionWait(`등록한 ${itemName}의 실제 상태를 확인해야 합니다. 다른 곳에 중복 설치하지 않습니다.`, s.checkpoint);
     const old = this.ownedUtilities.get(itemName);
     if (old && this.bot.blockAt(old)?.name === itemName) return this.bot.blockAt(old)!;
     const origin = this.bot.entity.position.floored();
@@ -922,11 +974,11 @@ export class MineflayerExecutor {
     for (const [dx, dz] of offsets) {
       const p = origin.offset(dx, 0, dz), block = this.bot.blockAt(p), below = this.bot.blockAt(p.offset(0, -1, 0));
       if (this.protectedBuildPosition(p, s)) continue;
-      if (!resourceClearance(block) || below?.boundingBox !== 'block' || unsafeBlocks.has(below.name)) continue;
+      if (!block || !['air', 'cave_air', 'void_air'].includes(block.name) && !utilityVegetation(block.name) || block.boundingBox !== 'empty' || below?.boundingBox !== 'block' || unsafeBlocks.has(below.name)) continue;
       if (block && !['air', 'cave_air', 'void_air'].includes(block.name)) {
         await s.near(p, 2); s.check();
         const actual = this.bot.blockAt(p);
-        if (!actual || !resourceClearance(actual) || this.protectedBuildPosition(p, s)) continue;
+        if (!actual || !['air', 'cave_air', 'void_air'].includes(actual.name) && !utilityVegetation(actual.name) || actual.boundingBox !== 'empty' || this.protectedBuildPosition(p, s)) continue;
         if (!['air', 'cave_air', 'void_air'].includes(actual.name)) {
           if (typeof this.bot.canSeeBlock !== 'function' || !this.bot.canSeeBlock(actual)) continue;
           await this.bot.dig(actual); s.check();
@@ -978,7 +1030,9 @@ export class MineflayerExecutor {
     await this.returnForUtility(s);
     const savedFurnace = PositionSchema.safeParse(s.checkpoint.furnacePosition);
     if (savedFurnace.success && this.bot.blockAt(vector(savedFurnace.data))?.name === 'furnace') this.ownedUtilities.set('furnace', vector(savedFurnace.data));
-    if (!this.ownedUtilities.has('furnace')) await this.ensureItem('furnace', 1, s, chain);
+    const sharedFurnace=this.knownUtility('furnace',s);
+    if(sharedFurnace)this.ownedUtilities.set('furnace',vector(sharedFurnace.position));
+    if (!this.ownedUtilities.has('furnace')&&!s.rules.workstations.some(w=>w.name==='furnace'&&w.world===this.options.world&&w.dimension===this.options.dimension())) await this.ensureItem('furnace', 1, s, chain);
     const furnaceBlock = await this.placeUtility('furnace', s);
     const fuel = await this.furnaceFuel(itemName, amount, s, chain);
     await s.near(furnaceBlock.position, 2); const furnace = await this.bot.openFurnace(furnaceBlock);
@@ -1023,7 +1077,7 @@ export class MineflayerExecutor {
     const permitted=()=>['build','collect'].every(action=>this.options.config.allowedActions.includes(action as ActionKind));
     if(s.checkpoint.nightBurrowPending!==true&&await restInWarehouse(s,()=>this.options.config.enabled,async()=>{if(!await this.eat(s)&&await this.warehouseFood(s))await this.eat(s);}))return true;
     if(!permitted()&&s.checkpoint.nightBurrowPending!==true)return false;
-    const sheltered=await restInNightBurrow(s,p=>this.protectedBuildPosition(p,s),()=>this.options.config.enabled&&permitted());
+    const sheltered=await restInNightBurrow(s,p=>this.protectedBuildPosition(p,s)||protectedVillageCollection(s.rules,this.options.world,this.options.dimension(),p),()=>this.options.config.enabled&&permitted());
     if(!sheltered)s.checkpoint.nightBurrowPending=false;
     return sheltered;
   }
@@ -1252,10 +1306,12 @@ export class MineflayerExecutor {
   }
 
   async execute(task: TaskSpec, s: ActionServices): Promise<ResultPayload> {
+    s.checkpoint.nightLocalWork = this.bot.time?.doDaylightCycle === true && duskOrNight(this.bot) && localNightTask(this.bot, s.rules, task);
     s.checkpoint.protectedPositions = Array.isArray(task.params.protectedPositions) ? task.params.protectedPositions.slice(0, 10000) : [];
     s.check(); const item = typeof task.params.item === 'string' ? task.params.item : '';
     const quantity = task.completion.kind === 'inventory' ? task.completion.minimum : typeof task.params.quantity === 'number' ? task.params.quantity : 1;
     if (task.kind === 'build' && task.params.mode === 'register-warehouse') return this.registerWarehouse(task, s);
+    if(task.kind==='build'&&task.params.mode==='utility-cleanup')return cleanupUtilities(task,s,p=>this.protectedBuildPosition(p,s));
     if(task.kind==='build'&&task.params.mode==='material-access')return prepareMaterialAccess(task,s,p=>this.protectedBuildPosition(p,s),()=>this.options.config.enabled&&['build','collect'].every(action=>this.options.config.allowedActions.includes(action as ActionKind)));
     if (['fight', 'guard'].includes(task.kind) && typeof task.params.supportRequestId === 'string') { await this.supportFight(task, s); this.recordInventory(s); s.check(); return this.result(s); }
     switch (task.kind) {
@@ -1265,7 +1321,11 @@ export class MineflayerExecutor {
         else await this.ensureItem(item, quantity, s);
         break;
       }
-      case 'craft': await this.ensureItem(item, quantity, s); break;
+      case 'craft': {
+        await this.ensureItem(item, quantity, s);
+        if(task.params.equipAfterCraft===true){const made=this.bot.inventory.items().find(i=>i.name===item&&i.count>0);if(!made)throw new ConditionWait('제작한 장비의 실제 소지를 확인해야 합니다.',s.checkpoint);await this.bot.equip(made,'hand');s.check();}
+        break;
+      }
       case 'smelt': await this.smelt(item, quantity, s); break;
       case 'store': case 'take': {
         const container = ContainerRefSchema.parse(task.params.destination ?? s.rules.warehouse);
