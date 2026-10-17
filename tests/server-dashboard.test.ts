@@ -58,12 +58,14 @@ test('fresh observations from other worlds or dimensions cannot displace the vil
   assert.deepEqual(projected.observations[0], village); assert.equal(state.observations.length, 3, 'full observations remain untouched');
 });
 
-async function serverFixture() {
+async function serverFixture(fast = false) {
   const state = fixture(), store = new ControlStore(':memory:');
+  let fullReads = 0, dashboardReads = 0;
   const checkpoint = (): FleetCheckpoint => ({ ...structuredClone(state), processedMessageIds: [], pendingRuleCommands: [], pendingCommands: [], stoppedSessionIds: [] });
-  const core = { getSnapshot: () => structuredClone(state), checkpoint } as FleetControlPort;
+  const core = { getSnapshot: () => { fullReads++; return structuredClone(state); }, getRules: () => structuredClone(state.rules), checkpoint,
+    ...(fast ? { getDashboardSnapshot: (now = state.updatedAt) => { dashboardReads++; return structuredClone(dashboardSnapshot(state, now)); } } : {}) } as FleetControlPort;
   const api = createControlServer({ core, store, port: 0, now: () => state.updatedAt });
-  const address = await api.listen(); return { state, store, api, base: `http://127.0.0.1:${address.port}` };
+  const address = await api.listen(); return { state, store, api, base: `http://127.0.0.1:${address.port}`, get fullReads() { return fullReads; }, get dashboardReads() { return dashboardReads; } };
 }
 test('dashboard HTTP is opt-in and gzip negotiable while full API, checkpoint and event journal retain their original evidence', async () => {
   const f = await serverFixture();
@@ -137,4 +139,24 @@ test('a malformed legacy opaque waitingFor value cannot make the strict dashboar
   state.tasks[1]!.checkpoint.waitingFor = { kind: 'inventory', private: 'legacy-value-without-required-fields' };
   const projected = dashboardSnapshot(state, state.updatedAt); FleetSnapshotSchema.parse(projected);
   assert.equal(projected.tasks[1]!.checkpoint.waitingFor, undefined);
+});
+
+test('dashboard HTTP and dashboard-only stream revisions use the fast projection read while full subscribers keep complete evidence', async () => {
+  const f = await serverFixture(true), abort = new AbortController();
+  try {
+    const http = FleetSnapshotSchema.parse(await (await fetch(`${f.base}/api/v1/snapshot?view=dashboard`)).json());
+    assert.equal(http.attempts[0]!.result, undefined); assert.equal(f.fullReads, 0); assert.equal(f.dashboardReads, 1);
+    const response = await fetch(`${f.base}/api/v1/stream?view=dashboard`, { signal: abort.signal, headers: { 'accept-encoding': 'identity' } });
+    const reader = response.body!.getReader(), decoder = new TextDecoder(); let body = '';
+    const nextSnapshot = async () => { for (;;) { const at = body.indexOf('\n\n'); if (at >= 0) { const frame = body.slice(0, at); body = body.slice(at + 2); if (frame.includes('event: snapshot')) return FleetSnapshotSchema.parse(JSON.parse(frame.split('\ndata: ')[1]!)); continue; } const chunk = await reader.read(); assert.equal(chunk.done, false); body += decoder.decode(chunk.value, { stream: true }); } };
+    await nextSnapshot(); assert.equal(f.fullReads, 0); assert.equal(f.dashboardReads, 2);
+    f.state.revision++; f.state.updatedAt++; f.api.observeEvent({ id: 'fast-change', revision: f.state.revision, time: f.state.updatedAt, type: 'bot.status', message: 'actual state change' });
+    assert.equal((await nextSnapshot()).revision, f.state.revision); assert.equal(f.fullReads, 0); assert.equal(f.dashboardReads, 3);
+    const fullResponse = await fetch(`${f.base}/api/v1/stream`, { signal: abort.signal, headers: { 'accept-encoding': 'identity' } });
+    assert.equal(f.fullReads, 1); const fastBefore = f.dashboardReads;
+    f.state.revision++; f.state.updatedAt++; f.api.observeEvent({ id: 'mixed-change', revision: f.state.revision, time: f.state.updatedAt, type: 'bot.status', message: 'actual mixed state change' });
+    assert.equal((await nextSnapshot()).revision, f.state.revision); assert.equal(f.fullReads, 2); assert.equal(f.dashboardReads, fastBefore, 'mixed clients share the already-required complete read');
+    await fullResponse.body!.cancel();
+    const full = FleetSnapshotSchema.parse(await (await fetch(`${f.base}/api/v1/snapshot`)).json()); assert.ok(full.attempts[0]!.result); assert.equal(f.fullReads, 3);
+  } finally { abort.abort(); await f.api.close(); f.store.close(); }
 });
