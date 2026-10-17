@@ -1375,6 +1375,8 @@ export class FleetController {
   }
   private protectedPositions(task: Task): Position[] {
     const positions = new Map<string, Position>();
+    const repair = task.source === 'user' && task.params.mode === 'material-access' ? MaterialAccessPlanSchema.safeParse(task.params.access) : undefined;
+    const fill = new Set(repair?.success ? repair.data.edits.filter(e => e.before === 'air' && e.after === 'dirt').map(e => positionKey(e.position)) : []);
     for (const other of this.state.tasks) {
       const goal = this.goal(other.goalId);
       if (other.id !== task.id && task.params.mode !== 'material-access' && other.kind === 'build' && other.params.mode === 'material-access' && other.source === 'user' && other.state === 'completed' && goal.state === 'completed' && other.generation === goal.generation && other.reservationKeys.every(key => key.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`))) {
@@ -1391,10 +1393,18 @@ export class FleetController {
       const verified = this.verifiedWarehouseTask(goal, other) || this.verifiedRegisteredStructureTask(goal, other);
       if (other.id === task.id || other.id === task.params.parentTaskId || isBuildSiteTask(task) && task.params.fixedOrigin && other.goalId === task.goalId || !['build', 'farm'].includes(other.kind) || other.generation !== goal.generation || (['completed', 'cancelled'].includes(other.state) || terminalGoals.has(goal.state)) && !verified) continue;
       if (verified && other.goalId === task.goalId) continue;
+      const built = fill.size && verified && (other.completion.kind === 'warehouse' || other.completion.kind === 'blocks') ? other.completion.blocks : [];
+      const xs = built.map(b => b.position.x), zs = built.map(b => b.position.z), floor = Math.min(...built.map(b => b.position.y));
       for (const reservation of other.reservationKeys) {
         if (!reservation.startsWith(`block:${this.state.rules.world}:${this.state.rules.dimension}:`)) continue;
         const values = reservation.split(':').at(-1)!.split(',').map(Number);
-        if (values.length === 3 && values.every(Number.isInteger)) positions.set(values.join(','), { x: values[0]!, y: values[1]!, z: values[2]! });
+        if (values.length === 3 && values.every(Number.isInteger)) {
+          const p = { x: values[0]!, y: values[1]!, z: values[2]! };
+          // A completed site's empty exterior buffer may receive explicit soil
+          // support. Keep excavation, interior columns and real blocks protected.
+          if (built.length && fill.has(positionKey(p)) && p.y < floor && (p.x < Math.min(...xs) || p.x > Math.max(...xs) || p.z < Math.min(...zs) || p.z > Math.max(...zs))) continue;
+          positions.set(values.join(','), p);
+        }
       }
     }
     return [...positions.values()];
