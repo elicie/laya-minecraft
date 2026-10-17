@@ -25,3 +25,8 @@ __pycache__/
 .venv-qwen/
 /checkpoints/
 /models/
+
+# Generated from the project-owned TypeScript observer client.
+/public/compact-viewer/*.js
+/public/compact-viewer/*.css
+/public/compact-viewer/textures/
