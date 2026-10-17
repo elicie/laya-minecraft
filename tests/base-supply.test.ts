@@ -23,6 +23,30 @@ test('base supply bootstraps bounded returning seed and wood stock, and requires
  const plan=planGoal(f.goal(setup),f.rules,randomUUID);assert.deepEqual(plan.tasks.map(t=>t.kind),['home','take','take','craft','home','farm','home','home']);assert.equal(plan.tasks[0]!.params.basePassage,'inside');assert.equal(plan.tasks[4]!.params.basePassage,'outside');
  for(let i=1;i<plan.tasks.length;i++)assert.deepEqual(plan.tasks[i]!.dependencies,[plan.tasks[i-1]!.id]);
 });
+
+test('a configured food producer owns stock, planting, harvest and bread workflows',()=>{
+ const f=fixture();f.rules.baseAutonomy!.botId='farmer';
+ const bootstrap=f.choose([],[f.stock([{name:'wheat_seeds',count:2},{name:'oak_log',count:1}])]);
+ const setup=f.goal({kind:'farm',source:'autonomous',params:{baseSupplyId:'shore',baseSupplyStep:'farm-setup'}});setup.state='completed';
+ const production=f.choose([setup],[f.stock([{name:'wheat_seeds',count:2},{name:'wheat',count:3}]),f.crop(1)]);
+ assert.ok(bootstrap.some(g=>g.params?.baseSupplyStep==='farm-setup'));
+ assert.ok(production.some(g=>g.params?.baseSupplyStep==='farm-harvest'));
+ assert.ok(production.some(g=>g.params?.baseSupplyStep==='bread-batch'));
+ assert.ok([...bootstrap,...production].every(g=>g.requiredBotId==='farmer'&&g.preferredBotId==='farmer'));
+ delete f.rules.baseAutonomy!.botId;
+ assert.ok(f.choose().every(g=>g.requiredBotId===undefined),'an unconfigured producer retains shared-fleet scheduling');
+});
+
+test('an unavailable designated farmer does not leave seed delivery affined to a busy village guard',()=>{
+ const f=fixture();f.rules.baseAutonomy!.botId='farmer';const sent:{type:string;botId:string}[]=[];
+ const core=new FleetController({send:(_bot,message)=>sent.push(message),rules:f.rules,now:()=>f.now,controllerEpoch:f.epoch});
+ core.addAgent({id:'farmer',name:'SupplyFarmer',enabled:false});const guard=core.addAgent({id:'guard',name:'SupplyGuard',role:'guard'});core.startSession(guard.id,'guard-session');
+ const receive=(type:string,payload:unknown)=>core.receive({protocolVersion:1,messageId:randomUUID(),controllerEpoch:f.epoch,botId:guard.id,sessionId:'guard-session',sentAt:f.now,type,payload});
+ receive('bot.ready',{ready:true,world:f.rules.world,dimension:'overworld',position:{x:3,y:64,z:-1},health:20,food:20,mode:'idle',action:'idle',reason:'ready',inventory:[],rulesVersion:f.rules.version,capabilities:['collect','farm','home','craft','take','store']});receive('rules.applied',{version:f.rules.version});core.tick();
+ assert.equal(core.getSnapshot().goals.length,2);
+ assert.ok(core.getSnapshot().goals.every(g=>g.input.requiredBotId==='farmer'));
+ assert.equal(sent.some(message=>message.type==='task.assign'&&message.botId==='guard'),false,'guard work cannot capture an unfinished configured food pipeline');
+});
 test('only completed planting and actual wheat stock enable harvest and warehouse bread production without duplicate active batches',()=>{
  const f=fixture(),setup=f.goal({kind:'farm',source:'autonomous',params:{baseSupplyId:'shore',baseSupplyStep:'farm-setup'}});setup.state='completed';
  const obs=[f.stock([{name:'wheat',count:3},{name:'wheat_seeds',count:2}]),f.crop(1)],choices=f.choose([setup],obs),bread=choices.find(g=>g.item==='bread')!;
