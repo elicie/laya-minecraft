@@ -456,6 +456,8 @@ export class MineflayerExecutor {
   private collectMatches(itemName: string, blockName: string): boolean { return (dropBlocks[itemName] ?? [itemName]).includes(blockName); }
   private harvestTool(blockName: string): string { return /diamond|gold|redstone|emerald/.test(blockName) ? 'iron_pickaxe' : /iron|copper|lapis/.test(blockName) ? 'stone_pickaxe' : 'wooden_pickaxe'; }
   private collectible(block: Block, s: ActionServices): boolean {
+    const trip=resourceTrip(s.checkpoint);
+    if(trip&&trip.phase!=='complete'&&[trip.home,...trip.trail].some(p=>Math.floor(p.x)===block.position.x&&Math.floor(p.z)===block.position.z&&Math.floor(p.y)-1===block.position.y))return false;
     return !this.protectedBuildPosition(block.position, s) && !protectedVillageCollection(s.rules, this.options.world, this.options.dimension(), block.position) && (!block.name.endsWith('_log') || this.naturalLog(block.position)) &&
       (!['wheat', 'carrots', 'potatoes', 'beetroots'].includes(block.name) || Number(block.getProperties().age) >= (block.name === 'beetroots' ? 3 : 7)) &&
       this.bot.blockAt(block.position.offset(0, 1, 0))?.name !== 'lava' && !unsafeBlocks.has(this.bot.blockAt(block.position.offset(0, -1, 0))?.name ?? '');

@@ -557,6 +557,17 @@ export class MinecraftWorker {
       if (this.local?.mode === 'recovering') void this.stopLocal();
     }
     if (this.emergencyPending || this.local?.mode === 'emergency' || this.executor.fighting) return;
+    if (this.launch.config.enabled && this.recovery?.phase === 'resolved' && !this.recovery.safe
+      && this.recovery.progress.remainingCount <= (this.recovery.progress.lostCount ?? 0)
+      && !this.emergencyActive() && this.bot.health >= 20 && this.bot.food >= 18
+      && this.bot.entity.onGround === true && verifiedWarehouseInterior(this.bot, this.launch.rules)) {
+      // Revalidate the current body without reopening an already settled item
+      // recovery or waiting for daylight outside a physically secure room.
+      this.recovery.safe = true; this.recovery.updatedAt = this.now();
+      this.recovery.reason = '완공한 창고의 실제 바닥·벽·지붕과 닫힌 문 안에서 현재 몸의 안전을 확인했습니다.';
+      this.recovery.checkpoint.closedShelterSafety = { warehouseId: this.launch.rules.baseShelter!.warehouseId, position: position(this.bot.entity.position), observedAt: this.now() };
+      this.publishRecovery();
+    }
     const enemies = this.nearbyThreats();
     if (this.hitSource && !enemies.some(e => e.id === this.hitSource!.id && e.uuid === this.hitSource!.uuid)) this.hitSource = undefined;
     if (this.combatWait && !enemies.length && recoverySafe(this.bot, this.launch.rules.combat.retreatHealth)) {
@@ -632,6 +643,27 @@ export class MinecraftWorker {
       if(this.local?.mode==='survival'){
         if(!this.local.controller.signal.aborted){const life=this.life;void this.stopLocal().then(()=>{if(life===this.life&&this.ready&&!this.stopping)this.recoverDeath();});}
       }else if(!this.local)this.recoverDeath();
+      return;
+    }
+    const shelteredWarehouse = this.launch.rules.warehouse;
+    const refreshShelteredStock = this.centralConnected && this.launch.rules.autonomyEnabled && this.launch.rules.baseAutonomy?.botId === this.launch.botId
+      && shelteredWarehouse && Date.now() - this.lastWarehouseAt > 10000 && this.executor.canObserveContainerHere(shelteredWarehouse);
+    if (!this.active && this.launch.config.enabled && !this.recoveryPending() && this.bot.health >= 20 && this.bot.food >= 18
+      && (this.executor.gearPreparationNeeded() || refreshShelteredStock) && verifiedWarehouseInterior(this.bot,this.launch.rules) && (!this.local || this.local.mode === 'survival')) {
+      const maintain = () => {
+        if (!this.ready || this.stopping || !this.launch.config.enabled || this.active || this.local || this.bot.health < 20 || this.bot.food < 18 || !verifiedWarehouseInterior(this.bot,this.launch.rules)) return;
+        this.startLocal(async s => {
+          if (this.executor.gearPreparationNeeded()) await this.executor.prepareGear(s);
+          if (refreshShelteredStock && shelteredWarehouse && this.executor.canObserveContainerHere(shelteredWarehouse)) {
+            this.lastWarehouseAt = Date.now();
+            const observation = await this.executor.observeContainer(shelteredWarehouse,s,false);
+            if (observation.kind === 'container') this.foodCheckpoint.foodWarehouse = {container:observation.data.container,items:observation.data.items};
+            this.message('world.observed',{observations:s.observations});
+          }
+        },'idle');
+      };
+      if (this.local) { if (!this.local.controller.signal.aborted) void this.stopLocal().then(maintain); }
+      else maintain();
       return;
     }
     if (this.local) return;

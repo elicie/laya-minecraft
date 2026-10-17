@@ -67,7 +67,7 @@ async function telemetry(page: Page) {
         .layaViewerTelemetry,
   );
 }
-async function fixture(page: Page, failWorker = false) {
+async function fixture(page: Page, failWorker = false, reconnectTerrain = true) {
   const errors: string[] = [],
     sockets: WebSocketRoute[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -124,7 +124,7 @@ async function fixture(page: Page, failWorker = false) {
       }),
     );
     socket.send(JSON.stringify(camera));
-    if (sockets.length > 1) socket.send(JSON.stringify(section(1, true)));
+    if (sockets.length > 1 && reconnectTerrain) socket.send(JSON.stringify(section(1, true)));
   });
   await page.goto("/viewer/Fixture/");
   await expect.poll(() => sockets.length).toBe(1);
@@ -230,7 +230,7 @@ test("compact renderer waits for actual terrain, draws real geometry, idles and 
 test("camera and section generations update actual terrain and protocol failures remain explicit", async ({
   page,
 }) => {
-  const { errors, send } = await fixture(page);
+  const { errors, send } = await fixture(page,false,false);
   send(section(1, true));
   await expect
     .poll(async () => (await telemetry(page))?.status)
@@ -273,6 +273,13 @@ test("camera and section generations update actual terrain and protocol failures
   });
   await expect.poll(async () => (await telemetry(page))?.status).toBe("error");
   expect(await page.locator("#notice").textContent()).toMatch(/구역|문자|지형/);
+  await page.waitForTimeout(700);
+  expect((await telemetry(page))?.status).toBe('error');
+  send({type:'reset',streamId:'verified-after-error',dimension:'the_nether'});
+  send({...camera,position:{x:88,y:2.6,z:8}});
+  send({...section(5,true),id:'5,0,0',origin:{x:80,y:0,z:0}});
+  await expect.poll(async()=>(await telemetry(page))?.status).toBe('terrain-ready');
+  expect((await telemetry(page)).streamId).toBe('verified-after-error');
   expect(errors).toEqual([]);
 });
 

@@ -12,11 +12,13 @@ import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { recoverDeathStep } from '../packages/minecraft/src/death-recovery';
 import { MinecraftWorker } from '../packages/minecraft/src/worker';
 import { checkAbort, ConditionWait, type ActionServices } from '../packages/minecraft/src/services';
+import { blueprint } from '../packages/contracts/src/blueprints';
+import { warehouseShelter } from '../packages/core/src/warehouse-shelter';
 
 function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movementsFactory?(bot: Bot): Movements; execute?(task: TaskSpec, s: ActionServices): Promise<ResultPayload>; retreat?(entity: Entity, s: ActionServices): Promise<void>; ensureFood?(s: ActionServices): Promise<void>; eat?(s: ActionServices): Promise<boolean> } = {}) {
   const emitter = new EventEmitter(), messages: WorkerMessage[] = [], items: ItemStack[] = [], moved: Position[] = [];
   let clock = Date.now(), executions = 0, retreats = 0, fights = 0, collected = 0;
-  const cells = new Map<string, { name: string; boundingBox: 'empty' | 'block'; stateId?: number } | null>();
+  const cells = new Map<string, { name: string; boundingBox: 'empty' | 'block'; stateId?: number; properties?: Record<string,unknown> } | null>();
   const launch = WorkerLaunchSchema.parse({ botId: 'SurvivalBot', sessionId: 'session', controllerEpoch: 'epoch', config: { name: 'SurvivalBot' }, rules: { world: '127.0.0.1:25566' }, ...(options.restore ? { restoreRecovery: options.restore } : {}) });
   const bot = Object.assign(emitter, {
     health: 20, food: 20, game: { dimension: 'overworld', minY: -64 }, entity: { id: 1, position: new Vec3(0, 64, 0) }, entities: {} as Record<number, Entity>, players: {},
@@ -35,7 +37,7 @@ function fixture(options: { restore?: RecoveryState; moveDelayMs?: number; movem
     blockAt(raw: Vec3) {
       const p = raw.floored(), k = `${p.x},${p.y},${p.z}`;
       const value = cells.has(k) ? cells.get(k) : { name: p.y < 64 ? 'grass_block' : 'air', boundingBox: p.y < 64 ? 'block' : 'empty', stateId: p.y < 64 ? 1 : 0 };
-      return value ? { ...value, type: bot.registry?.blocksByName[value.name]?.id, shapes: value.boundingBox === 'block' ? [[0,0,0,1,1,1]] : [], position: p, getProperties: () => ({}) } : null;
+      return value ? { ...value, type: bot.registry?.blocksByName[value.name]?.id, shapes: value.boundingBox === 'block' ? [[0,0,0,1,1,1]] : [], position: p, getProperties: () => 'properties' in value ? value.properties ?? {} : {} } : null;
     },
     clearControlStates() {}, deactivateItem() {}, stopDigging() {}, quit(reason: string) { emitter.emit('end', reason); },
   }) as unknown as Bot;
@@ -437,6 +439,19 @@ test('paused recovery and expired drops preserve truthful counts without optiona
     await recoverDeathStep(f.bot, state, f.service(state), () => {}, true, f.now);
     assert.equal(state.safe, true, 'resolved recovery is revalidated against an actually loaded current stand');
   } finally { await f.worker.shutdown(); }
+});
+
+test('a restored settled recovery proves a closed physical warehouse safe without changing item losses or spent recovery effort',async()=>{
+ for(const invalid of ['none','open-door','missing-wall','airborne','unfinished','unaccounted'] as const){
+  const state=recovery(Date.now(),[]);state.phase=invalid==='unfinished'?'held':'resolved';state.safe=false;state.attemptCount=3;state.progress={recoveredCount:5,remainingCount:25,lostCount:invalid==='unaccounted'?24:25};state.checkpoint={deathRecovery:{elapsedMs:60000,failed:['preserved']}};
+  const f=fixture({restore:state}),blocks=blueprint('warehouse',{x:-3,y:63,z:-2}),warehouse={id:'closed-recovery-house',world:f.launch.rules.world,dimension:'overworld',position:{x:-2,y:64,z:-1}},base=warehouseShelter(warehouse,blocks)!;
+  f.launch.rules.baseShelter=base;f.launch.rules.warehouse=warehouse;Object.assign(f.bot,{time:{doDaylightCycle:true,isDay:false,timeOfDay:14000}});f.bot.entity.position=new Vec3(base.inside.x+.5,base.inside.y,base.inside.z+.5);f.bot.entity.onGround=invalid!=='airborne';
+  for(const b of blocks)f.cells.set(`${b.position.x},${b.position.y},${b.position.z}`,{name:b.name,boundingBox:b.name==='wall_torch'?'empty':'block',properties:b.name==='oak_door'?{open:invalid==='open-door'}:{}});
+  if(invalid==='missing-wall'){const wall=blocks.find(b=>b.name==='oak_planks')!;f.cells.set(`${wall.position.x},${wall.position.y},${wall.position.z}`,{name:'air',boundingBox:'empty'});}
+  try{f.worker.pollSafety();const proof=f.messages.filter(m=>m.type==='bot.recovery').find(m=>m.payload.checkpoint.closedShelterSafety);assert.equal(!!proof,invalid==='none',invalid);
+   if(proof?.type==='bot.recovery'){assert.equal(proof.payload.safe,true);assert.deepEqual(proof.payload.progress,state.progress);assert.equal(proof.payload.attemptCount,3);assert.deepEqual(proof.payload.checkpoint.deathRecovery,state.checkpoint.deathRecovery);assert.deepEqual(proof.payload.position,state.position);assert.equal(f.moved.length,0);}
+  }finally{await f.worker.shutdown();}
+ }
 });
 
 test('resolved empty-inventory recovery leaves a stable cliff-adjacent respawn and admits the preserved ordinary task only after safe arrival', async () => {

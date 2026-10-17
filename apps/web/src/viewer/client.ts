@@ -220,6 +220,7 @@ function startViewer() {
     drawAt = 0,
     lastTelemetry = 0,
     lastCameraAt = 0;
+  let protocolFailure: { reason: string; streamId: string } | undefined;
   let cameraTarget = { position: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0 },
     displayCamera = structuredClone(cameraTarget),
     origin = { x: 0, y: 0, z: 0 },
@@ -255,6 +256,7 @@ function startViewer() {
     status: "loading" | "terrain-ready" | "disconnected" | "error",
     reason: string,
   ) {
+    if (protocolFailure) { status = 'error'; reason = protocolFailure.reason; }
     ready = status === "terrain-ready";
     notice.textContent = reason;
     notice.hidden = ready;
@@ -612,6 +614,7 @@ function startViewer() {
   function upload(result: MeshResult) {
     const section = sections.get(result.id);
     if (!section || section.revision !== result.revision) return;
+    if (protocolFailure && protocolFailure.streamId !== streamId) protocolFailure = undefined;
     if (section.mesh) {
       scene.remove(section.mesh);
       section.mesh.geometry.dispose();
@@ -669,12 +672,9 @@ function startViewer() {
           throw new Error("지형 응답이 너무 큽니다.");
         receive(JSON.parse(event.data));
       } catch (error) {
-        telemetry(
-          "error",
-          error instanceof Error
-            ? error.message
-            : "지형을 확인하지 못했습니다.",
-        );
+        protocolFailure = {streamId,reason:error instanceof Error ? error.message : '지형을 확인하지 못했습니다.'};
+        telemetry('error',protocolFailure.reason);
+        socket?.close();
       }
     };
     socket.onclose = () => {
