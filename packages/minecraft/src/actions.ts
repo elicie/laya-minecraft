@@ -1192,6 +1192,15 @@ export class MineflayerExecutor {
           s.progress('퇴각', decision.reason); await this.retreat(this.retreatThreat(target), s); throw new ConditionWait('지원과 회복 후 전투를 다시 확인합니다.', s.checkpoint);
         }
         const distance = this.bot.entity.position.distanceTo(target.position);
+        if (target.name === 'phantom' && distance > 3) {
+          // A flying target's coordinates are not a reachable ground stand.
+          // Defend the current position and strike an actual swoop in reach
+          // instead of repeatedly chasing the phantom across terrain.
+          this.bot.pathfinder.setGoal(null); this.bot.clearControlStates();
+          if (combatEquipment(this.bot).shield) this.bot.activateItem(true);
+          s.progress('공중 위협 방어', '현재 지면을 지키며 팬텀이 실제 반격 거리로 접근하는지 확인합니다.');
+          await s.pause(250); continue;
+        }
         if (distance > 3) { s.progress('접근', `${target.name}에 접근합니다.`); await this.approachCombat(target, s, sameTarget); continue; }
         const start = this.bot.entity.position.offset(0, 1.62, 0), aim = target.position.offset(0, Math.min(target.height ?? 1, 1), 0), diff = aim.minus(start), length = diff.norm();
         const obstruction = this.bot.world.raycast(start, diff.scaled(1 / (length || 1)), Math.max(0, length - 0.3));
