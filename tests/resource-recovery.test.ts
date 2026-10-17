@@ -55,6 +55,12 @@ function fixture() {
   return { bot, executor, services, cells, ages, sources, stock, moved, dug, add, launch, set loaded(fn: typeof loaded) { loaded = fn; }, set routeAllowed(fn: typeof routeAllowed) { routeAllowed = fn; }, set visible(fn: typeof visible) { visible = fn; },set pathRadius(n:number){pathRadius=n;} };
 }
 
+test('collection preserves a recorded return-trail support and harvests a separate reachable source',async()=>{
+ const f=fixture();f.bot.health=20;f.bot.food=20;await beginResourceTrip(f.services,'cobblestone',1,{x:0,y:64,z:0});
+ f.bot.entity.position=new Vec3(8.5,64,.5);await recordResourceTripPosition(f.services,true);const road=new Vec3(8,63,0),source=new Vec3(10,64,1);f.add(road,'stone');f.add(source,'stone');f.bot.entity.position=new Vec3(10.5,64,-1.5);
+ await f.executor.ensureItem('cobblestone',1,f.services);assert.deepEqual(f.dug,[source]);assert.equal(f.bot.blockAt(road)?.name,'stone');assert.ok(resourceTrip(f.services.checkpoint)!.trail.some(p=>p.x===8&&p.y===64&&p.z===0));
+});
+
 test('collection walks through the protected yard to an offsite source without mining its nearby ground',async()=>{
  const f=fixture();f.bot.health=20;f.bot.food=20;const world=f.services.rules.world,container={id:'w',world,dimension:'overworld',position:{x:-5,y:71,z:-5}};
  f.launch.rules.baseShelter=warehouseShelter(container,blueprint('warehouse',{x:-6,y:70,z:-6}))!;
