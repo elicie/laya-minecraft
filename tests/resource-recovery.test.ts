@@ -6,7 +6,7 @@ import { RecoveryStateSchema, WorkerLaunchSchema, WorkerMessageSchema, type Posi
 import { blueprintPreset } from '../packages/contracts/src/blueprint-catalog';
 import { MineflayerExecutor } from '../packages/minecraft/src/actions';
 import { ResourceRecovery, foodSearchCanExpand, reconcileResourceJourneys, safeResourceStand, safeResourceRoute } from '../packages/minecraft/src/resource-recovery';
-import { observedGroundRoute } from '../packages/minecraft/src/observed-ground-walk';
+import { observedGroundApproach, observedGroundRoute } from '../packages/minecraft/src/observed-ground-walk';
 import { ActionFailure, ConditionWait, pause } from '../packages/minecraft/src/services';
 import { approachKnownBase, beginResourceTrip, recordResourceTripPosition, returnFromResourceTrip, resourceTrip, resumeResourceTrip } from '../packages/minecraft/src/resource-trip';
 import { walkingFeet } from '../packages/minecraft/src/observations';
@@ -52,6 +52,24 @@ function fixture() {
   const add = (p: Vec3, name: string) => { sources.push(p); cells.set(p.toString(), name); };
   return { bot, executor, services, cells, ages, sources, stock, moved, dug, add, launch, set loaded(fn: typeof loaded) { loaded = fn; }, set routeAllowed(fn: typeof routeAllowed) { routeAllowed = fn; }, set visible(fn: typeof visible) { visible = fn; },set pathRadius(n:number){pathRadius=n;} };
 }
+
+for(const spent of [false,true])test(`a solid search landmark uses a verified neighboring stand and ${spent?'preserves exhausted search spend':'collects actual material and returns'}`,async()=>{
+ const f=fixture();f.bot.health=20;f.bot.food=20;f.launch.config.allowedActions=['collect'];Object.assign(f.bot.registry.itemsByName,{sand:{id:3}});
+ const landmark=new Vec3(5,64,0);f.add(landmark,'furnace');if(!spent)f.add(new Vec3(7,64,0),'sand');
+ const recovery=new ResourceRecovery(f.bot as unknown as Bot,f.services,'sand',['sand'],false,()=>false);
+ if(spent)Object.assign(recovery.state,{destinationsUsed:5,approachesUsed:8,elapsedMs:60000});
+ let approached=false;
+ f.services.near=async(p,radius=2)=>{
+  const path=observedGroundApproach(f.bot as unknown as Bot,p,radius);
+  if(!path)throw new ConditionWait('no actual supported approach',f.services.checkpoint);
+  const end=path.at(-1);if(end){f.bot.entity.position=new Vec3(end.x+.5,end.y,end.z+.5);f.moved.push(f.bot.entity.position.clone());}
+  if(new Vec3(p.x,p.y,p.z).distanceTo(landmark.offset(.5,0,.5))<.01){assert.ok(f.bot.entity.position.distanceTo(landmark.offset(.5,0,.5))<=1.5);approached=true;}
+ };
+ const task={id:'landmark-collect',goalId:'landmark-goal',kind:'collect' as const,params:{item:'sand',quantity:1,returnTo:{x:0,y:64,z:0},searchFrom:{x:5,y:64,z:0}},dependencies:[],reservationKeys:[],completion:{kind:'inventory' as const,item:'sand',minimum:1}};
+ if(spent){await assert.rejects(f.executor.execute(task,f.services),ConditionWait);assert.equal(recovery.state.destinationsUsed,5);assert.equal(recovery.state.approachesUsed,8);assert.equal(recovery.state.elapsedMs,60000);assert.equal(f.dug.length,0);}
+ else{const result=await f.executor.execute(task,f.services);assert.equal(result.outcome,'completed');assert.equal(f.stock.get('sand'),1);assert.deepEqual(f.dug,[new Vec3(7,64,0)]);}
+ assert.equal(approached,true);assert.equal(f.bot.blockAt(landmark)!.name,'furnace');assert.equal(resourceTrip(f.services.checkpoint)!.phase,'complete');
+});
 
 test('rejected source candidates yield to a queued heartbeat without refilling the current search allowance', async () => {
   const f = fixture(); f.bot.health = 20; f.bot.food = 20; f.launch.config.allowedActions = ['collect'];

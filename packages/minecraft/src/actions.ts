@@ -156,7 +156,10 @@ export class MineflayerExecutor {
     const trip=await beginResourceTrip(s,item,minimum,destination);
     if (trip.phase==='returning') { await returnFromResourceTrip(s); if (trip.failure) throw new ConditionWait(trip.failure,s.checkpoint); if (this.count(item)<minimum) await beginResourceTrip(s,item,minimum,destination??trip.home); }
     if (this.count(item)<minimum) {
-      try { if(searchFrom)await s.near(vector(searchFrom).floored().offset(.5,0,.5),0);await this.ensureItem(item,minimum,s); }
+      // A regional search hint may identify a solid landmark (for example a
+      // saved furnace), rather than a place the player's feet can occupy.
+      // The normal verified approach still requires actual supported terrain.
+      try { if(searchFrom)await s.near(vector(searchFrom).floored().offset(.5,0,.5),1.5);await this.ensureItem(item,minimum,s); }
       catch (error) {
         s.check(); if (!(error instanceof ConditionWait)) throw error;
         Object.assign(s.checkpoint,error.checkpoint);

@@ -5,7 +5,7 @@ import {freshObservations} from './verification';
 export function baseSupplyGoals(rules:Rules,goals:Goal[],observations:Observation[],now:number,epoch:string):GoalInput[]{
  const farm=rules.baseAutonomy,warehouse=rules.warehouse,base=rules.baseShelter;if(!farm||!warehouse||!base)return[];
  const result:GoalInput[]=[],owned=goals.filter(g=>g.input.params.baseSupplyId===farm.id&&g.state!=='cancelled'),step=(name:string)=>owned.filter(g=>g.input.params.baseSupplyStep===name);
- const add=(name:string,input:GoalInput)=>result.push({...input,source:'autonomous',preferredBotId:farm.botId,params:{...input.params,baseSupplyId:farm.id,baseSupplyStep:name,useBaseDoor:true}});
+ const add=(name:string,input:GoalInput)=>result.push({...input,source:'autonomous',preferredBotId:farm.botId,...(farm.botId?{requiredBotId:farm.botId}:{}),params:{...input.params,baseSupplyId:farm.id,baseSupplyStep:name,useBaseDoor:true}});
  const stock=freshObservations({observations:observations.filter(o=>o.controllerEpoch===epoch),now,maxAgeMs:rules.observationMaxAgeMs,world:warehouse.world,dimension:warehouse.dimension}).filter(o=>o.kind==='container'&&sameContainer(o.data.container,warehouse)).sort((a,b)=>b.observedAt-a.observedAt||b.receivedAt-a.receivedAt)[0];
  for(const [name,item,quantity]of [['seed-stock','wheat_seeds',farm.positions.length],['wood-stock','oak_log',farm.woodTarget]] as const)if(!step(name).length)add(name,{kind:'collect',item,quantity,mode:'maintain',priority:name==='seed-stock'?14:10,params:{batchSize:2,returnTo:base.outside}});
  if(!stock||stock.kind!=='container')return result;
